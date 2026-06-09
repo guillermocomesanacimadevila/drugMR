@@ -90,6 +90,22 @@ mr_function <- function(pqtl_dataset, pqtl_dir, pheno_id, pheno_gwas, out_dir) {
       # check shape 
       dim(exposure)
       
+      # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+      # 1. Relevance assumption ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+      # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+      exposure$pval_col <- as.numeric(exposure$pval_col)
+      exposure <- filter(exposure, pval_col < 5e-8) # can set this as a parameter (CLI arg)
+      exposure <- exposure[exposure$effect_allele_col > 0.01 & exposure$effect_allele_col < 0.99, ] # same here: can be set as params
+      
+      # F-stat
+      exposure$F <- ((exposure$beta_col) ^ 2) / ((exposure$se_col) ^ 2)
+      exposure < exposure[exposure$F >= 10, ]
+      
+      # harmonise 
+      dat <- harmonise_data(exposure, outcome)
+      
+       
+      
       
       
     }
