@@ -188,9 +188,6 @@ mr_function <- function(pqtl_dataset, pqtl_dir, pheno_id, pheno_gwas, ref_bfile,
     }
     
     all_results <- rbindlist(all_results, fill = TRUE)
-    if ("pval_IVW" %in% names(all_results)) {all_results[, IVW_FDR_q := p.adjust(pval_IVW, method = "fdr")]}
-    if ("pval_Egger" %in% names(all_results)) {all_results[, Egger_FDR_q := p.adjust(pval_Egger, method = "fdr")]}
-    if ("pval_WME" %in% names(all_results)) {all_results[, WME_FDR_q := p.adjust(pval_WME, method = "fdr")]}
     
     # reformat for shiny app / dashboard
     setnames(all_results,
@@ -206,6 +203,17 @@ mr_function <- function(pqtl_dataset, pqtl_dir, pheno_id, pheno_gwas, ref_bfile,
              ),
              skip_absent = TRUE
     )
+    
+    # check whether FDR correct or not
+    if (length(proteins) > 1) {
+      if ("IVW_pval" %in% names(all_results)) {all_results[, IVW_FDR_q := p.adjust(IVW_pval, method = "fdr")]}
+      if ("Egger_pval" %in% names(all_results)) {all_results[, Egger_FDR_q := p.adjust(Egger_pval, method = "fdr")]}
+      if ("WME_pval" %in% names(all_results)) {all_results[, WME_FDR_q := p.adjust(WME_pval, method = "fdr")]}
+    } else {
+      if ("IVW_pval" %in% names(all_results)) {all_results[, IVW_FDR_q := IVW_pval]}
+      if ("Egger_pval" %in% names(all_results)) {all_results[, Egger_FDR_q := Egger_pval]}
+      if ("WME_pval" %in% names(all_results)) {all_results[, WME_FDR_q := WME_pval]}
+    }
     
     all_results <- all_results[, .(
       protein,
