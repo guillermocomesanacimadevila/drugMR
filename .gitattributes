@@ -1,0 +1,8 @@
+*.nf linguist-language=Nextflow linguist-detectable=true
+lib/**/*.groovy linguist-language=Nextflow linguist-detectable=true
+nextflow.config linguist-language=Nextflow linguist-detectable=true
+slurm.config linguist-language=Nextflow linguist-detectable=true
+Dockerfile linguist-language=Dockerfile linguist-detectable=true
+**/Dockerfile linguist-language=Dockerfile linguist-detectable=true
+Dockerfile.* linguist-language=Dockerfile linguist-detectable=true
+env/** linguist-language=Dockerfile linguist-detectable=true

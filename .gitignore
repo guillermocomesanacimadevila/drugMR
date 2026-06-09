@@ -1,0 +1,14 @@
+.DS_Store
+.nextflow*
+.nextflow/
+dat/
+ref/
+containers/
+jupyter/
+tests/
+plots/
+logs/
+work/
+outputs/
+logs/
+
