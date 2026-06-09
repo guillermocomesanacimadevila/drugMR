@@ -6,6 +6,7 @@ import os
 import subprocess
 
 # python ukb_ppp.py --ukb_ppp_dir ../../dat/ukb_ppp
+# re-tar dir: tar -cvf ...
 
 # for each protein in dir X
 # tar -xvf
@@ -24,7 +25,6 @@ import subprocess
 # 1 101551 1:101551:T:C:imp:v1 T C 0.000762861 0.771693 33995 ADD 0.0159175 0.144558 0.0121246 0.0398525 NA
 # 1 108382 1:108382:C:A:imp:v1 C A 0.00103132 0.729595 33995 ADD -0.0525764 0.12788 0.169035 0.166871 NA
 # discovery_chr1_A1BG:P04217:OID30771:v1:Inflammation_II - need to make sure we save teh protein ID
-
 
 def preprocess_pqtls(ukb_ppp_dir: str):
     ukb_ppp_dir = Path(ukb_ppp_dir)
@@ -79,10 +79,17 @@ done
             )
             .drop("LOG10P")
         )
-
+        
+        n_before = df.height
+        print(f"TOTAL SNPs (before removing missing IDs) = {n_before:,}")
+        df = df.drop_nulls(subset=["ID"])
+        n_after = df.height
+        print(f"TOTAL SNPs (after removing missing IDs) = {n_after:,}")
+        print(f"SNPs removed = {n_before - n_after:,}")
         protein = protein_dir.name.split("_")[0]
         out_file = protein_dir / f"{protein}.parquet"
         df.write_parquet(out_file)
+        # pl.read_parquet('A1BG.parquet').head()
 
 def main():
     p = argparse.ArgumentParser()
