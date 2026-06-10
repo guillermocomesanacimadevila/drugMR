@@ -137,7 +137,8 @@ mr_function <- function(pqtl_dataset, pqtl_dir, pheno_id, pheno_gwas, ref_bfile,
           dat.clump,
           clump_kb = 10000,
           clump_r2 = 0.001,
-          plink_bin = genetics.binaRies::get_plink_binary(),
+          plink_bin = Sys.which("plink"),
+          # plink_bin = genetics.binaRies::get_plink_binary(),
           bfile = ref_bfile
         )
       } else {

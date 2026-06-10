@@ -173,17 +173,29 @@ def pull_results_local(
     falcon_user: str,
     pqtl_dataset: str,
     pheno_id: str,
-    local_results_dir: str = "results/cis-MR"
+    local_results_dir: str = "results/cis-MR",
+    overwrite: bool = True
 ):
     remote, _ = get_remote_paths(falcon_user)
     remote_file = f"{remote}/results/cis-MR/{pqtl_dataset}_{pheno_id}_all_MR.tsv"
     local_results_dir = Path(local_results_dir)
     local_results_dir.mkdir(parents=True, exist_ok=True)
 
-    cmd = f"scp {falcon_user}@falconlogin.cf.ac.uk:{remote_file} {local_results_dir}/"
+    local_file = local_results_dir / f"{pqtl_dataset}_{pheno_id}_all_MR.tsv"
+
+    if local_file.exists() and not overwrite:
+        print(f"[TRACKING] {local_file} already exists locally. Skipping pull.")
+        return
+
+    if local_file.exists() and overwrite:
+        print(f"[TRACKING] {local_file} already exists locally. Overwriting...")
+
+    cmd = f"scp {falcon_user}@falconlogin.cf.ac.uk:{remote_file} {local_file}"
     print(cmd)
     subprocess.run(cmd, shell=True, check=True)
 
+    print(f"[DONE] Pulled results into {local_file}")
+    
 # STREAMLIT DASHBOARD
 
 def run_dashboard_local(
