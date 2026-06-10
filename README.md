@@ -30,3 +30,7 @@ Guillermo Comesaña Cimadevila, Marie-Joe Dib, Dervis Salih, Nicholas J. Bray, E
 ## Docker
 
 docker build -t drugmr:latest -f env/Dockerfile .
+
+ssh-keygen -t <id> -C "drugMR-falcon"
+cat ~/.ssh/id_<id>.pub
+ssh-copy-id c.<user>@falconlogin.cf.ac.uk
