@@ -88,7 +88,7 @@ def perform_qc(
     n_cases: int,
     n_controls: int):
 
-    path = f"/shared/home1/{falcon_user}/genSEM/dat/{pheno_id}/{sumstats}"
+    path = f"/work/{sumstats}"
     bases = ["A", "T", "C", "G"]
     out_dir = Path(out_dir)
     qc_dir = out_dir / "QC" / pheno_id
@@ -139,7 +139,7 @@ def perform_qc(
         print("Input GWAS already in GRCh37/hg19")
     elif genome_build == "GRCh38":
         print("Lifting GRCh38 -> GRCh37/hg19")
-        chain_file = f"/shared/home1/{falcon_user}/genSEM/ref/hg19_38/hg38ToHg19.over.chain"
+        chain_file = "/work/ref/hg19_38/hg38ToHg19.over.chain"
 
         if not Path(chain_file).exists():
             raise FileNotFoundError(f"Missing chain file: {chain_file}")
