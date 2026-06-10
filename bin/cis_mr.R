@@ -9,6 +9,10 @@
 # remotes::install_github("MRCIEU/genetics.binaRies")
 # remotes::install_github("mrcieu/ieugwasr")
 
+
+# TO DO'S
+# MAKE A FUNCTION (WHICH WILL BE INHERITED WITHIN THE MR FUNCT) WHICH PER 1/N pQTL-MR -> adds an I or a symbol as kind of a progress bar
+
 suppressPackageStartupMessages({
   library(remotes)
   library(progress)
