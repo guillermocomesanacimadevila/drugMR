@@ -52,6 +52,7 @@ createdb {db_id}
     df.to_pandas().to_sql(table, engine, if_exists="replace", index=False)
     print(f"[DONE] Loaded {df.height:,} rows into {db_id}.{table}")
 
+
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--mr_res", required=True, type=str)

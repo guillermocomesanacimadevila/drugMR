@@ -8,6 +8,13 @@ set -euo pipefail
 # * if so load - 
 # * else - pull from my GHCR
 
+
+# THIS IS THE COIMMAND WHICH WORKS IN SLURM TERMINAL
+# command -v apptainer >/dev/null 2>&1 || { echo "ERROR: apptainer not found"; exit 1; }
+# apptainer pull drugmr.sif \
+#   docker://ghcr.io/guillermocomesanacimadevila/drugmr:latest
+
+
 REPO_URL="https://github.com/guillermocomesanacimadevila/drugMR.git"
 REPO_DIR="$HOME/drugMR"
 SIF_DIR="$REPO_DIR/env"
