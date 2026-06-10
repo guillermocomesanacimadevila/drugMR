@@ -24,3 +24,9 @@ password = "xxx"y
 ## Authors
 
 Guillermo Comesaña Cimadevila, Marie-Joe Dib, Dervis Salih, Nicholas J. Bray, Emily Simmonds, Valentina Escott-Price
+
+
+
+## Docker
+
+docker build -t drugmr:latest -f env/Dockerfile .
