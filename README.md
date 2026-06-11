@@ -73,5 +73,5 @@ docker pull ghcr.io/guillermocomesanacimadevila/drugmr:latest
 
 - <sup>1</sup> UK Dementia Research Institute at Cardiff University, Cardiff, UK.
 - <sup>2</sup> MRC Centre for Neuropsychiatric Genetics and Genomics, Cardiff University, Cardiff, UK.
-- <sup>3</sup> UK Dementia Research Institute at University College London, London, UK.
-- <sup>4</sup> Nascent Studio Ltd, London, UK.
+- <sup>3</sup> Nascent Studio Ltd, London, UK.
+- <sup>4</sup> UK Dementia Research Institute at University College London, London, UK.
