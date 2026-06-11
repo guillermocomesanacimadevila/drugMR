@@ -65,7 +65,7 @@ def dashboard(db_name: str, phenotype: str):
     )
 
     # add 0.05 thresh line 
-    fig.add_hline(y=1.3, line_dash = "dash", line_color = "grey") # at FDR_q = 0.05   
+    fig.add_hline(y=-np.log10(0.05), line_dash = "dash", line_color = "grey") # at FDR_q = 0.05   
     st.plotly_chart(fig, use_container_width=True)
 
 def main():
