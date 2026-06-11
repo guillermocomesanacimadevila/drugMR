@@ -4,6 +4,11 @@ import subprocess
 from pathlib import Path
 
 # LOCAL RESULTS / DASHBOARD STUFF
+# To do's (After Greece)
+# Need to create local running functions including a pulling docker from container function
+# So then still the QC+MR runs in micromamba Docker env
+# PostgreSQL db pulling and dashboard == jupyter (with .toml in ./)
+# Goal == have a flagging variable (local/hpc)
 
 def results(
     pqtl_dataset: str,
