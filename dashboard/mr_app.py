@@ -26,11 +26,16 @@ EOF
 def dashboard(db_name: str, phenotype: str):
     table_id = "cis_mr_results"
 
+    # st.markdown("""
+    # cis-MR Dashboard
+    ### Protein-level Mendelian randomisation results
+    # """)
+
     # main aesthetics
     st.set_page_config(page_title = f"{db_name}", layout = "wide")
     conn = st.connection("postgresql", type="sql")
     df = conn.query(f"SELECT * FROM {table_id};", ttl="10m")
-    st.title(f"{db_name} cis-MR dashboard ({phenotype})")
+    st.title(f"{db_name}: UKBB-PPP → {phenotype}")
     outcome = st.sidebar.selectbox("Outcome", sorted(df["outcome_trait"].dropna().unique()))
     fdr = st.sidebar.slider("IVW FDR threshold", 0.0, 1.0, 1.0)
     protein = st.sidebar.text_input("Protein search")
@@ -47,15 +52,20 @@ def dashboard(db_name: str, phenotype: str):
 
     plot_df = df[df["outcome_trait"] == outcome].copy()
     plot_df["minus_log10_ivw_pval"] = -np.log10(plot_df["ivw_pval"])
+    plot_df["significant"] = plot_df["ivw_fdr_q"] < 0.05
+
     fig = px.scatter(
         plot_df,
         x="ivw_beta",
         y="minus_log10_ivw_pval",
         hover_name="protein",
-        color="ivw_fdr_q",
-        title="IVW MR volcano plot"
+        color="significant",
+        title="IVW MR volcano plot",
+        height=600
     )
 
+    # add 0.05 thresh line 
+    fig.add_hline(y=1.3, line_dash = "dash", line_color = "grey") # at FDR_q = 0.05   
     st.plotly_chart(fig, use_container_width=True)
 
 def main():
