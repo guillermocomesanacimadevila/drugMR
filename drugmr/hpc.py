@@ -11,10 +11,14 @@ from pathlib import Path
 # pull TSV output also into local 
 # then just script running stuff - for each part as a sequence with an main() in sequence as well (with appropaite ifs as checks and prints)
 
-def hpc(cmd: str, falcon_user: str):
+def ssh(cmd: str, falcon_user: str):
     full_cmd = f"ssh {falcon_user}@falconlogin.cf.ac.uk '{cmd}'"
-    print(full_cmd)
-    subprocess.run(full_cmd, shell=True, check=True)
+    result = subprocess.run(full_cmd, shell=True, executable="/bin/bash", capture_output=True, text=True,)
+    if result.returncode != 0:
+        print("[ERROR] Falcon command failed.")
+        print(result.stdout)
+        print(result.stderr)
+        raise subprocess.CalledProcessError(result.returncode, full_cmd)
 
 def get_remote_paths(falcon_user: str):
     remote = f"/shared/home1/{falcon_user}/drugMR"
@@ -22,7 +26,7 @@ def get_remote_paths(falcon_user: str):
     return remote, sif
 
 def clone_repo(falcon_user: str):
-    hpc("""
+    ssh("""
 set -euo pipefail
 
 if [ -d "$HOME/drugMR" ]; then
@@ -41,7 +45,7 @@ fi
 """, falcon_user)
 
 def container_checks(falcon_user: str):
-    hpc("""
+    ssh("""
 set -euo pipefail
 
 if [ ! -d "$HOME/drugMR" ]; then
@@ -96,7 +100,7 @@ def run_gwas_qc(
     if remove_apoe:
         flag_args += " --remove_apoe"
 
-    hpc(f"""
+    ssh(f"""
 set -euo pipefail
 cd "{remote}"
 
@@ -135,7 +139,7 @@ def run_cis_mr(
 ):
     remote, sif = get_remote_paths(falcon_user)
 
-    hpc(f"""
+    ssh(f"""
 set -euo pipefail
 cd "{remote}"
 
@@ -159,7 +163,7 @@ def load_postgres(
     remote, sif = get_remote_paths(falcon_user)
     mr_res = f"results/cis-MR/{pqtl_dataset}_{pheno_id}_all_MR.tsv"
 
-    hpc(f"""
+    ssh(f"""
 set -euo pipefail
 cd "{remote}"
 
@@ -226,7 +230,7 @@ def check_outputs(
     remote, _ = get_remote_paths(falcon_user)
     mr_res = f"results/cis-MR/{pqtl_dataset}_{pheno_id}_all_MR.tsv"
 
-    hpc(f"""
+    ssh(f"""
 set -euo pipefail
 cd "{remote}"
 
@@ -238,7 +242,7 @@ head -5 "{mr_res}"
 
 
 # Function to run all the HPC gist
-def run(
+def hpc(
     falcon_user: str,
     pheno_id: str,
     sumstats: str,
