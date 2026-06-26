@@ -6,9 +6,10 @@ import os
 import subprocess
 
 # ****** NEXT TO-DO'S
-# - Ensure that even if != all proteins are preprocessed == no need to tar -cvf the ppp dir
-# - Replace chr:pos for original rsIDs from synapse (https://www.synapse.org/Synapse:syn51364943/files/)
+# * USE ukbppp_dl pakckage to grab full pQTLs for all proteins
+# * Replace chr:start-end to rsIDs in the cloud
 
+# ****** NEXT TO-DO'S
 # python ukb_ppp.py --ukb_ppp_dir ../../dat/ukb_ppp --ukb_ppp_snps ../../dat/ukb_ppp/ukbb_ppp_snps
 # re-tar dir: tar -cvf ...
 
