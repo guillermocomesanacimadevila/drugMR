@@ -11,6 +11,25 @@ git clone https://github.com/guillermocomesanacimadevila/drugMR.git
 cd drugMR/
 ```
 
+## Synapse configuration
+
+Create the Synapse config file:
+
+```bash
+nano ~/.synapseConfig
+```
+
+Populate it with your Synapse info!
+
+```bash
+[default]
+username = your_email@example.com
+authtoken = YOUR_PERSONAL_ACCESS_TOKEN
+
+[cache]
+location = ~/.synapseCache
+```
+
 ## Streamlit configuration
 
 Create the Streamlit secrets file:
