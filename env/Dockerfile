@@ -48,6 +48,7 @@ RUN pip install \
     streamlit \
     plotly \
     numpy \
+    synapseclient \
     liftover
 
 RUN R -q -e "install.packages(c('remotes','BiocManager'), repos='https://cloud.r-project.org')" && \
