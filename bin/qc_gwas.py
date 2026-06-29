@@ -9,6 +9,9 @@ import sys
 from pathlib import Path
 from liftover import ChainFile
 
+
+# include a liftover to GRCh38 - or keep GRCh38 if == same
+
 # stuff to run before in sys
 # module load Apptainer
 # apptainer --version
@@ -19,6 +22,51 @@ from liftover import ChainFile
 #             "--make-besd",
 #             "--out", str(Path(args.outdir) / output_label)
 #         ], check=True)
+
+def liftover_df_to_hg38(
+    df: pl.DataFrame,
+    chr_col: str,
+    pos_col: str,
+    chain_file: str,
+) -> pl.DataFrame:
+    
+    converter = ChainFile(chain_file, one_based=True)
+    chrs = df[chr_col].cast(pl.Utf8).to_list()
+    poss = df[pos_col].cast(pl.Int64).to_list()
+    lifted_chrs = []
+    lifted_poss = []
+
+    for chrom, pos in zip(chrs, poss):
+        chrom = str(chrom)
+        if chrom.startswith("chr"):
+            query_chrom = chrom
+        else:
+            query_chrom = f"chr{chrom}"
+
+        hits = converter[query_chrom][int(pos)]
+
+        if len(hits) == 0:
+            lifted_chrs.append(None)
+            lifted_poss.append(None)
+        else:
+            lifted_chrs.append(hits[0][0].replace("chr", ""))
+            lifted_poss.append(hits[0][1])
+
+    df = df.with_columns([
+        pl.Series("CHR_GRCh38", lifted_chrs),
+        pl.Series("POS_GRCh38", lifted_poss),
+    ])
+
+    n_before = df.height
+    df = df.drop_nulls(["CHR_GRCh38", "POS_GRCh38"])
+    n_after = df.height
+    print(f"Removed failed liftover variants: {n_before - n_after}")
+    df = df.with_columns([
+        pl.col("CHR_GRCh38").alias(chr_col),
+        pl.col("POS_GRCh38").cast(pl.Int64).alias(pos_col),
+    ])
+    df = df.drop(["CHR_GRCh38", "POS_GRCh38"])
+    return df
 
 def liftover_df_to_hg19(
     df: pl.DataFrame,
@@ -84,6 +132,7 @@ def perform_qc(
     remove_mhc: bool,
     remove_apoe: bool,
     genome_build: str,
+    target_build: str,
     falcon_user: str,
     n_cases: int,
     n_controls: int):
@@ -135,11 +184,11 @@ def perform_qc(
     df = df.with_columns(pl.lit(neff).alias("N"))
 
     # file is in /shared/home1/{falcon_user}/genSEM/ref/hg19_38
-    if genome_build == "GRCh37":
-        print("Input GWAS already in GRCh37/hg19")
-    elif genome_build == "GRCh38":
+    if genome_build == target_build:
+        print(f"Input GWAS already in {target_build}")
+    elif genome_build == "GRCh38" and target_build == "GRCh37":
         print("Lifting GRCh38 -> GRCh37/hg19")
-        chain_file = "/work/ref/hg19_38/hg38ToHg19.over.chain"
+        chain_file = "./ref/liftover/hg38ToHg19.over.chain"
 
         if not Path(chain_file).exists():
             raise FileNotFoundError(f"Missing chain file: {chain_file}")
@@ -158,12 +207,46 @@ def perform_qc(
         print(f"Rows before liftover: {n_before}")
         print(f"Rows after liftover: {n_after}")
 
+    elif genome_build == "GRCh37" and target_build == "GRCh38":
+        print("Lifting GRCh37/hg19 -> GRCh38/hg38")
+        chain_file = "./ref/liftover/hg19ToHg38.over.chain"
+
+        if not Path(chain_file).exists():
+            raise FileNotFoundError(f"Missing chain file: {chain_file}")
+
+        n_before = df.height
+
+        df = liftover_df_to_hg38(
+            df=df,
+            chr_col=chr_col,
+            pos_col=pos_col,
+            chain_file=chain_file,
+        )
+
+        n_after = df.height
+
+        print(f"Rows before liftover: {n_before}")
+        print(f"Rows after liftover: {n_after}")
+
     else:
-        raise ValueError(f"Unsupported genome_build: {genome_build}")
+        raise ValueError(f"Unsupported genome_build/target_build: {genome_build} -> {target_build}")
     
     # fix chromosome ambiguity
     df = df.with_columns(pl.col(chr_col).cast(pl.Utf8).str.replace("^chr", "").alias(chr_col))
     df = df.filter(pl.col(chr_col).is_in([str(i) for i in range(1, 23)]))
+
+    if target_build == "GRCh37":
+        mhc_start = 25000000
+        mhc_end = 34000000
+        apoe_start = 44000000
+        apoe_end = 46500000
+    elif target_build == "GRCh38":
+        mhc_start = 24999772
+        mhc_end = 34032223
+        apoe_start = 43495848
+        apoe_end = 45996742
+    else:
+        raise ValueError(f"Unsupported target_build: {target_build}")
 
     # remove MHC
     if remove_mhc:
@@ -171,8 +254,8 @@ def perform_qc(
         df = df.filter(
             ~(
                 (pl.col(chr_col) == "6") &
-                (pl.col(pos_col) >= 25000000) &
-                (pl.col(pos_col) <= 34000000)
+                (pl.col(pos_col) >= mhc_start) &
+                (pl.col(pos_col) <= mhc_end)
             )
         )
         n_after = df.height
@@ -184,8 +267,8 @@ def perform_qc(
         df = df.filter(
             ~(
                 (pl.col(chr_col) == "19") &
-                (pl.col(pos_col) >= 44000000) &
-                (pl.col(pos_col) <= 46500000)
+                (pl.col(pos_col) >= apoe_start) &
+                (pl.col(pos_col) <= apoe_end)
             )
         )
         n_after = df.height
@@ -247,6 +330,7 @@ def main():
     parser.add_argument("--falcon-user", required=True)
     parser.add_argument("--remove_mhc", action="store_true")
     parser.add_argument("--genome_build", required=True)
+    parser.add_argument("--target_build", required=True)
     parser.add_argument("--n_cases", required=True, type=int)
     parser.add_argument("--n_controls", required=True, type=int)
     parser.add_argument("--af_col", required=True)
@@ -271,6 +355,7 @@ def main():
         falcon_user=args.falcon_user,
         remove_mhc=args.remove_mhc,
         genome_build=args.genome_build,
+        target_build=args.target_build,
         n_cases=args.n_cases,
         n_controls=args.n_controls,
         remove_apoe=args.remove_apoe

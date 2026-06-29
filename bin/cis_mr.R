@@ -141,6 +141,9 @@ mr_function <- function(pqtl_dataset, pqtl_dir, pheno_id, pheno_gwas, ref_bfile,
           # plink_bin = genetics.binaRies::get_plink_binary(),
           bfile = ref_bfile
         )
+        
+        # HEREE ******* - SAVE as INSTRUMENTS.tsv (for that particular protein)
+        # Then save onto results/IVs/protein-wide .parquet file with instruments
       } else {
         print(paste0("No harmonised SNPs for ", protein))
         pb$tick(tokens = list(protein = protein))

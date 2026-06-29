@@ -28,5 +28,11 @@ out_dir <- "../results"
 dir.create(out_dir, showWarnings = FALSE, recursive = FALSE)
 out_file <- file.path(out_dir, paste0(pheno_id, "_", protein_id, "_coloc.tsv"))
 
+n <- c(
+  exposure_locus$N[1],
+  protein$N[1]
+)
+
+
 
 
