@@ -59,6 +59,7 @@ chmod +x bin/bootstrap_hpc.sh
 bash bin/bootstrap_hpc.sh
 """, falcon_user)
 
+
 # NOW -> FUNCTIONS TO RUN EACH SCRIPT FROM THE PIPELINE 
 
 # QC GWAS
@@ -78,6 +79,7 @@ def run_gwas_qc(
     chr_col: str,
     af_col: str,
     genome_build: str,
+    target_build: str,
     n_cases: int,
     n_controls: int,
     maf: float = 0.01,
@@ -120,6 +122,7 @@ bash -c "cd /work && python bin/qc_gwas.py \\
   --chr-col {chr_col} \\
   --af_col {af_col} \\
   --genome_build {genome_build} \\
+  --target_build {target_build} \\
   --n_cases {n_cases} \\
   --n_controls {n_controls} \\
   --falcon-user {falcon_user} \\
@@ -261,6 +264,7 @@ def hpc(
     chr_col: str,
     af_col: str,
     genome_build: str,
+    target_build: str,
     out_dir: str = "results",
     maf: float = 0.01,
     info_threshold: float | None = None,
@@ -293,6 +297,7 @@ def hpc(
         chr_col=chr_col,
         af_col=af_col,
         genome_build=genome_build,
+        target_build=target_build,
         n_cases=n_cases,
         n_controls=n_controls,
         maf=maf,

@@ -1,7 +1,5 @@
 #!/usr/bin/env python3
 
-# ssh c.c24102394@falconlogin.cf.ac.uk 'cd /shared/home1/c.c24102394/genSEM && python -' < qc_gwas.py
-
 import argparse
 import polars as pl 
 import os 
@@ -188,7 +186,7 @@ def perform_qc(
         print(f"Input GWAS already in {target_build}")
     elif genome_build == "GRCh38" and target_build == "GRCh37":
         print("Lifting GRCh38 -> GRCh37/hg19")
-        chain_file = "./ref/liftover/hg38ToHg19.over.chain"
+        chain_file = "./dat/ref/liftover/hg38ToHg19.over.chain"
 
         if not Path(chain_file).exists():
             raise FileNotFoundError(f"Missing chain file: {chain_file}")
@@ -209,7 +207,7 @@ def perform_qc(
 
     elif genome_build == "GRCh37" and target_build == "GRCh38":
         print("Lifting GRCh37/hg19 -> GRCh38/hg38")
-        chain_file = "./ref/liftover/hg19ToHg38.over.chain"
+        chain_file = "./dat/ref/liftover/hg19ToHg38.over.chain"
 
         if not Path(chain_file).exists():
             raise FileNotFoundError(f"Missing chain file: {chain_file}")

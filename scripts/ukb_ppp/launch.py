@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-
 import subprocess
 from configparser import ConfigParser
 from pathlib import Path
@@ -21,16 +20,12 @@ echo "Working directory: $(pwd)"
 echo ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 cd ~/drugMR
-
-apptainer exec \\
-  --env SYNAPSE_USERNAME='{synapse_username}' \\
-  --env SYNAPSE_TOKEN='{synapse_token}' \\
-  env/drugmr.sif \\
-  python scripts/ukb_ppp/list_proteins.py \\
-    --synapse-username '{synapse_username}' \\
-    --synapse-token '{synapse_token}'
+mkdir -p logs
+export SYNAPSE_USERNAME='{synapse_username}'
+export SYNAPSE_TOKEN='{synapse_token}'
+sbatch scripts/ukb_ppp/ukb_ppp_download.sbatch
 """
 
 print(f"Connecting to {slurm_user}@{host}...")
 subprocess.run(["ssh", f"{slurm_user}@{host}", remote_cmd], check=True)
-print("Remote job finished.")
+print("Remote sbatch job submitted.")

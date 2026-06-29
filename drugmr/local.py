@@ -92,6 +92,7 @@ def local(
     chr_col: str,
     af_col: str,
     genome_build: str,
+    target_build: str,
     out_dir: str = "results", # default dir in ./results within drugmR/
     maf: float = 0.01, # set default at 0.01 
     info_threshold: float | None = None,
@@ -172,6 +173,7 @@ docker run --rm \\
     --chr-col {chr_col} \\
     --af_col {af_col} \\
     --genome_build {genome_build} \\
+    --target_build {target_build} \\
     --n_cases {n_cases} \\
     --n_controls {n_controls} \\
     --falcon-user local \\
@@ -181,7 +183,7 @@ docker run --rm \\
     cmd_base(cmd_qc)
 
     # cis-MR module 
-    print("[TRACKING] Running cos-MR locally via Docker...")
+    print("[TRACKING] Running cis-MR locally via Docker...")
 
     cmd_mr = f"""
 set -euo pipefail
