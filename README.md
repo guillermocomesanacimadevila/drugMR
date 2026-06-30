@@ -1,6 +1,6 @@
 # cis-MR pipeline
 
-Plasma proteins and CSF pQTLs from UKBB-PPP, NIAGADS and bulk brain sources for Alzheimer's disease drug discovery. End-to-end pipeline (local+cloud hybrid) from raw GWAS and pQTL data to a production-ready dashboard.
+Plasma proteins pQTLs from UKBB-PPP and deCODE sources for Alzheimer's disease drug discovery. End-to-end pipeline (local+cloud hybrid) from raw GWAS and pQTL data to a production-ready dashboard.
 
 ---
 
