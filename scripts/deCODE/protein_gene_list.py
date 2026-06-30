@@ -8,6 +8,44 @@ from pathlib import Path
 # BUT THIS SCRIPT IS JUST TO GRAB GENE NAMES AND OVERLAP THEM WITH NCBI REFERENCE
 # % MISSINGNESS
 
+def examine_decode_missingness():
+    ncbi_hg38 = "../dat/NCBI/NCBI_genes_grch38.tsv"
+    ncbi = pl.read_csv(
+        ncbi_hg38,
+        separator="\t",
+        schema_overrides={
+            "Accession": pl.Utf8,
+            "Begin": pl.Int64,
+            "End": pl.Int64,
+            "Chromosome": pl.Utf8,
+            "Orientation": pl.Utf8,
+            "Name": pl.Utf8,
+            "Symbol": pl.Utf8,
+            "Gene ID": pl.Utf8,
+            "Gene Type": pl.Utf8,
+            "Transcripts accession": pl.Utf8,
+            "Protein accession": pl.Utf8,
+            "Protein length": pl.Utf8,
+            "Locus tag": pl.Utf8,
+        },
+    )
+    ncbi_genes = set(ncbi["Symbol"].unique().to_list())
+    decode_genes = set()
+    with open("../dat/deCODE/decode_eur_primary_somascan_urls.txt") as f:
+        for line in f:
+            filename = Path(line.strip()).name
+            gene = filename.split("_")[2]
+            decode_genes.add(gene)
+    decode_missing_in_ncbi = decode_genes - ncbi_genes
+    print(f"NCBI genes: {len(ncbi_genes)}")
+    print(f"deCODE genes: {len(decode_genes)}")
+    print(f"deCODE genes missing in NCBI: {len(decode_missing_in_ncbi)}")
+    print(sorted(decode_missing_in_ncbi)[:50])
+
+
+if __name__ == "__main__":
+    examine_decode_missingness()
+
 
 # FOR TARGET PROTEIN WITH >1 APTAMER
 # EXTRACT LOCUS COORDS FOR GENE THAT ENCODES PROTEIN Y
