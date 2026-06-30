@@ -8,9 +8,10 @@ from pathlib import Path
 # create db drugmr
 # psql drugmr -c ""
 # SELECT * FROM cis_mr_results LIMIT 5; 
+# SELECT * FROM coloc_results LIMIT 5; 
 
-def master_postgres(mr_res: str, db_id: str, pqtl_dataset: str, pheno_id: str, table: str):
-    mr_res = Path(mr_res)
+def master_postgres(results_file: str, db_id: str, pqtl_dataset: str, pheno_id: str, table: str):
+    results_file = Path(results_file)
     analysis_id = f"{pheno_id}_{pqtl_dataset}"
     engine = create_engine("postgresql+psycopg2:///postgres")
 
@@ -41,11 +42,12 @@ createdb {db_id}
         subprocess.run(cmd, shell=True, check=True, executable="/bin/bash")
         print(f"[POSTGRESQL] SQL database '{db_id}' created!")
 
-    df = pl.read_csv(mr_res, separator="\t")
-    df.columns = [c.lower() for c in df.columns]
+    df = pl.read_csv(results_file, separator="\t")
+    df.columns = [c.lower().replace(".", "_") for c in df.columns]
     df = df.with_columns(
         pl.lit(analysis_id).alias("analysis_id"),
-        pl.lit(pqtl_dataset).alias("pqtl_dataset")
+        pl.lit(pqtl_dataset).alias("pqtl_dataset"),
+        pl.lit(pheno_id).alias("pheno_id")
     )
 
     engine = create_engine(f"postgresql+psycopg2:///{db_id}")
@@ -55,14 +57,14 @@ createdb {db_id}
 
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument("--mr_res", required=True, type=str)
+    p.add_argument("--results_file", required=True, type=str)
     p.add_argument("--db_id", required=True, type=str)
     p.add_argument("--pqtl_dataset", required=True, type=str)
     p.add_argument("--pheno_id", required=True, type=str)
-    p.add_argument("--table", default="cis_mr_results", type=str)
+    p.add_argument("--table", required=True, type=str)
     args = p.parse_args()
     master_postgres(
-        mr_res=args.mr_res,
+        results_file=args.results_file,
         db_id=args.db_id,
         pqtl_dataset=args.pqtl_dataset,
         pheno_id=args.pheno_id,

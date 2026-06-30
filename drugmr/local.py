@@ -26,6 +26,7 @@ def results(
 ):
     project_root = Path(__file__).resolve().parents[1]
     mr_res = project_root / "results" / "cis-MR" / f"{pqtl_dataset}_{pheno_id}_all_MR.tsv"
+    coloc_res = project_root / "results" / "coloc" / pqtl_dataset / f"{pqtl_dataset}_{pheno_id}_all_coloc.tsv"
     db_script = project_root / db_script
     dashboard_script = project_root / dashboard_script
 
@@ -35,7 +36,7 @@ def results(
         [
             sys.executable,
             str(db_script),
-            "--mr_res",
+            "--results_file",
             str(mr_res),
             "--db_id",
             db_id,
@@ -43,6 +44,28 @@ def results(
             pqtl_dataset,
             "--pheno_id",
             pheno_id,
+            "--table",
+            "cis_mr_results",
+        ],
+        check=True,
+    )
+
+    print("[TRACKING] Loading COLOC results into PostgreSQL...")
+
+    subprocess.run(
+        [
+            sys.executable,
+            str(db_script),
+            "--results_file",
+            str(coloc_res),
+            "--db_id",
+            db_id,
+            "--pqtl_dataset",
+            pqtl_dataset,
+            "--pheno_id",
+            pheno_id,
+            "--table",
+            "coloc_results",
         ],
         check=True,
     )
