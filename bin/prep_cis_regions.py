@@ -29,7 +29,7 @@ def define_loci_from_cis_regions(pqtl_dataset: str, pheno_id: str, pqtl_dir: str
     for file in pqtl_dir.glob("*.parquet"):
         gene = file.stem.split("_")[0]
         protein = file.stem.split("_")[1]   
-        out_dir = Path(f"./dat/cis-regions/{pqtl_dataset}/{gene}_{protein}")
+        out_dir = Path(f"./dat/cis_regions/{pqtl_dataset}/{gene}_{protein}")
         os.makedirs(out_dir, exist_ok=True)
         # we need to move both .parquet files (pQTL and GWAS) into that new dir
         df = pl.read_parquet(file)
@@ -48,9 +48,13 @@ def define_loci_from_cis_regions(pqtl_dataset: str, pheno_id: str, pqtl_dir: str
         end = df.select(pl.col("BP").max()).item()
         df2 = gwas.filter((pl.col("CHR").cast(pl.Int64) == chr) & (pl.col("BP").is_between(start, end)))
 
+        # remove duplicates
+        df = (df.sort("P").unique(subset=["SNP"], keep="first"))
+        df2 = (df2.sort("P").unique(subset=["SNP"], keep="first"))
+
         # match SNPs with pQTL
-        pqtl_matched = df.join(df2.select("SNP"),on="SNP",how="inner")
-        gwas_matched = df2.join(df.select("SNP"),on="SNP",how="inner")
+        pqtl_matched = df.join(df2.select("SNP"), on="SNP", how="inner")
+        gwas_matched = df2.join(df.select("SNP"), on="SNP", how="inner")
 
         # save onto out_dir
         pqtl_matched.write_parquet(out_dir / "pqtl.parquet")

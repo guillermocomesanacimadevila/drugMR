@@ -30,11 +30,12 @@ if (length(args) < 5) {
   stop("Usage: Rscript cis_mr.R <pQTL_dataset> <pqtl_dir> <pheno_id> <pheno_gwas> <ref_bfile>")
 }
 
-pqtl_dataset <- args[1]
-pqtl_dir     <- args[2]
-pheno_id     <- args[3]
-pheno_gwas   <- args[4]
-ref_bfile    <- args[5]
+pqtl_dataset <- args[1] # ukb_ppp
+pqtl_dir     <- args[2] # dat/cis_regions/{pqtl_dataset}
+pheno_id     <- args[3] # AD
+pheno_gwas   <- args[4] # dat/gwas/{pheno_id}
+ref_bfile    <- args[5] # /Users/c.user/Desktop/neurobridge/ref/ldsc/1000G_EUR_Phase3_plink/1000G.EUR.QC.ALL"
+local_results_dir = "../results/cis-MR"
 # out_dir      <- args[6]
 
 out_dir <- "./results/cis-MR"
@@ -47,37 +48,17 @@ out_dir <- "./results/cis-MR"
 dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
 
 mr_function <- function(pqtl_dataset, pqtl_dir, pheno_id, pheno_gwas, ref_bfile, out_dir) {
-  # read outcome data
-  df_pheno <- read.csv(pheno_gwas, sep = "\t")
-  cat("> Reading outcome GWAS...")
-  outcome <- format_data(
-    df_pheno,
-    type              = "outcome",
-    snp_col           = "SNP",
-    beta_col          = "BETA",
-    se_col            = "SE",
-    effect_allele_col = "A1",
-    other_allele_col  = "A2",
-    eaf_col           = "FRQ",
-    pval_col          = "P",
-    samplesize_col    = "N",
-    phenotype_col     = pheno_id
-    
-  )
-  # check shape
-  dim(df_pheno)
   
   # dataset specfic 
   if (pqtl_dataset == "ukb_ppp") {
-    proteins <- list.files(
+    protein_dirs <- list.dirs(
       pqtl_dir,
-      pattern = "\\.parquet$", 
-      recursive = TRUE,
+      recursive = FALSE,
       full.names = TRUE
     )
     
     pb <- progress_bar$new(
-      total = length(proteins),
+      total = length(protein_dirs),
       format = "[:bar] :current/:total (:percent) ETA: :eta | :protein",
       clear = FALSE
     )
@@ -85,18 +66,42 @@ mr_function <- function(pqtl_dataset, pqtl_dir, pheno_id, pheno_gwas, ref_bfile,
     # compile all res
     all_results <- list()
     
-    for (i in proteins) {
-      protein <- tools::file_path_sans_ext(basename(i))
+    for (i in protein_dirs) {
+      protein <- basename(i)
       print(paste0("[TRACKING] Processing ", protein))
-      df <- arrow::read_parquet(i)
+      pqtl_file <- file.path(i, "pqtl.parquet")
+      gwas_file <- file.path(i, "gwas.parquet")
+      
+      if (!file.exists(pqtl_file)) {
+        print(paste0("[CONCERN] Missing pqtl.parquet for ", protein))
+        pb$tick(tokens = list(protein = protein))
+        next
+      }
+      
+      if (!file.exists(gwas_file)) {
+        print(paste0("[CONCERN] Missing gwas.parquet for ", protein))
+        pb$tick(tokens = list(protein = protein))
+        next
+      }
+      
+      # read exposure (i.e. pQTL)
+      cat("> Reading exposure pQTLs from UKBB-PPP...\n")
+      df <- arrow::read_parquet(pqtl_file)
       df <- as.data.table(df)
       setorder(df, P)
       df <- df[!duplicated(SNP)]
       df <- as.data.frame(df)
       print(dim(df))
       
-      # read exposure (i.e. pQTL)
-      cat("> Reading exposure pQTLs from UKBB-PPP...")
+      # read outcome data
+      cat("> Reading outcome GWAS...\n")
+      df_pheno <- arrow::read_parquet(gwas_file)
+      df_pheno <- as.data.table(df_pheno)
+      setorder(df_pheno, P)
+      df_pheno <- df_pheno[!duplicated(SNP)]
+      df_pheno <- as.data.frame(df_pheno)
+      print(dim(df_pheno))
+      
       exposure <- format_data(
         df,
         type              = "exposure",
@@ -113,6 +118,22 @@ mr_function <- function(pqtl_dataset, pqtl_dir, pheno_id, pheno_gwas, ref_bfile,
       # check shape 
       dim(exposure)
       
+      outcome <- format_data(
+        df_pheno,
+        type              = "outcome",
+        snp_col           = "SNP",
+        beta_col          = "BETA",
+        se_col            = "SE",
+        effect_allele_col = "A1",
+        other_allele_col  = "A2",
+        eaf_col           = "FRQ",
+        pval_col          = "P",
+        samplesize_col    = "N",
+        phenotype_col     = pheno_id
+      )
+      # check shape
+      dim(outcome)
+      
       # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
       # Relevance assumption ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
       # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -124,6 +145,14 @@ mr_function <- function(pqtl_dataset, pqtl_dir, pheno_id, pheno_gwas, ref_bfile,
       ]
       exposure$F <- (exposure$beta.exposure^2) / (exposure$se.exposure^2)
       exposure <- exposure[exposure$F >= 10, ]
+      
+      print(paste0("[TRACKING] Instruments after p/F filters: ", nrow(exposure)))
+      
+      if (nrow(exposure) == 0) {
+        print(paste0("No instruments after p/F filters for ", protein))
+        pb$tick(tokens = list(protein = protein))
+        next
+      }
       
       # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
       # LD Clump -> Ind IVs ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -141,6 +170,8 @@ mr_function <- function(pqtl_dataset, pqtl_dir, pheno_id, pheno_gwas, ref_bfile,
           # plink_bin = genetics.binaRies::get_plink_binary(),
           bfile = ref_bfile
         )
+        
+        print(paste0("[TRACKING] Instruments after clumping: ", nrow(dat.clump)))
         
         # HEREE ******* - SAVE as INSTRUMENTS.tsv (for that particular protein)
         # Then save onto results/IVs/protein-wide .parquet file with instruments
@@ -197,54 +228,70 @@ mr_function <- function(pqtl_dataset, pqtl_dir, pheno_id, pheno_gwas, ref_bfile,
     
     all_results <- rbindlist(all_results, fill = TRUE)
     
+    if (nrow(all_results) == 0) {
+      print("[CONCERN] No MR results generated.")
+      return(NULL)
+    }
+    
     # reformat for shiny app / dashboard
     setnames(all_results,
              old = c(
                "b_IVW", "se_IVW", "pval_IVW",
                "b_Egger", "se_Egger", "pval_Egger",
-               "b_WME", "se_WME", "pval_WME"
+               "b_WME", "se_WME", "pval_WME",
+               "b_Wald ratio", "se_Wald ratio", "pval_Wald ratio"
              ),
              new = c(
                "IVW_beta", "IVW_se", "IVW_pval",
                "Egger_beta", "Egger_se", "Egger_pval",
-               "WME_beta", "WME_se", "WME_pval"
+               "WME_beta", "WME_se", "WME_pval",
+               "Wald_beta", "Wald_se", "Wald_pval"
              ),
              skip_absent = TRUE
     )
     
     # check whether FDR correct or not
-    if (length(proteins) > 1) {
+    if (length(protein_dirs) > 1) {
       if ("IVW_pval" %in% names(all_results)) {all_results[, IVW_FDR_q := p.adjust(IVW_pval, method = "fdr")]}
       if ("Egger_pval" %in% names(all_results)) {all_results[, Egger_FDR_q := p.adjust(Egger_pval, method = "fdr")]}
       if ("WME_pval" %in% names(all_results)) {all_results[, WME_FDR_q := p.adjust(WME_pval, method = "fdr")]}
+      if ("Wald_pval" %in% names(all_results)) {all_results[, Wald_FDR_q := p.adjust(Wald_pval, method = "fdr")]}
     } else {
       if ("IVW_pval" %in% names(all_results)) {all_results[, IVW_FDR_q := IVW_pval]}
       if ("Egger_pval" %in% names(all_results)) {all_results[, Egger_FDR_q := Egger_pval]}
       if ("WME_pval" %in% names(all_results)) {all_results[, WME_FDR_q := WME_pval]}
+      if ("Wald_pval" %in% names(all_results)) {all_results[, Wald_FDR_q := Wald_pval]}
     }
     
-    all_results <- all_results[, .(
-      protein,
-      outcome_trait,
-      n_instruments,
-      IVW_beta,
-      IVW_se,
-      IVW_pval,
-      IVW_FDR_q,
-      Egger_beta,
-      Egger_se,
-      Egger_pval,
-      Egger_FDR_q,
-      egger_intercept,
-      egger_intercept_pval,
-      WME_beta,
-      WME_se,
-      WME_pval,
-      WME_FDR_q,
-      Q,
-      Q_df,
-      Q_pval
-    )]
+    keep_cols <- c(
+      "protein",
+      "outcome_trait",
+      "n_instruments",
+      "IVW_beta",
+      "IVW_se",
+      "IVW_pval",
+      "IVW_FDR_q",
+      "Egger_beta",
+      "Egger_se",
+      "Egger_pval",
+      "Egger_FDR_q",
+      "egger_intercept",
+      "egger_intercept_pval",
+      "WME_beta",
+      "WME_se",
+      "WME_pval",
+      "WME_FDR_q",
+      "Wald_beta",
+      "Wald_se",
+      "Wald_pval",
+      "Wald_FDR_q",
+      "Q",
+      "Q_df",
+      "Q_pval"
+    )
+    
+    keep_cols <- keep_cols[keep_cols %in% names(all_results)]
+    all_results <- all_results[, ..keep_cols]
     
     out_file <- file.path(out_dir, paste0(pqtl_dataset, "_", pheno_id, "_all_MR.tsv"))
     fwrite(all_results, out_file, sep = "\t")

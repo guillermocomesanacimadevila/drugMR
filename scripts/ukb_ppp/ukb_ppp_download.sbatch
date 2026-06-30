@@ -1,7 +1,7 @@
 #!/bin/bash --login
 
 #SBATCH --job-name=ukb_ppp
-#SBATCH --account=your_project_code
+#SBATCH --account=SCWF00036_v_escott-price_34
 #SBATCH --partition=compute
 #SBATCH --output=/shared/home1/c.c24102394/drugMR/logs/ukb_ppp_%A_%a.out
 #SBATCH --error=/shared/home1/c.c24102394/drugMR/logs/ukb_ppp_%A_%a.err
@@ -9,7 +9,7 @@
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=64G
-#SBATCH --array=1-118
+#SBATCH --array=1-10%2
 
 set -euo pipefail
 
