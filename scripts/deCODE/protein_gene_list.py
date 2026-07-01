@@ -33,6 +33,12 @@ def parse_decode_gene(filename: str):
 
     return gene
 
+def parse_aptamer_id(filename: str):
+    filename = filename.replace(".txt.gz", "")
+    parts = filename.split("_")
+    aptamer_id = "_".join(parts[:2])
+    return aptamer_id
+
 def examine_decode_missingness():
     ncbi_hg38 = "../dat/NCBI/NCBI_genes_grch38_with_synonyms.tsv"
     urls_file = "../dat/deCODE/decode_eur_primary_somascan_urls.txt"
@@ -73,11 +79,15 @@ def examine_decode_missingness():
             url = line.strip()
             filename = parse_qs(urlparse(url).query)["file"][0]
             gene = parse_decode_gene(filename)
+            aptamer_id = parse_aptamer_id(filename)
+            protein_id = f"{gene}_{aptamer_id}"
 
             decode_genes.add(gene)
 
             rows.append({
+                "protein_id": protein_id,
                 "gene_symbol": gene,
+                "aptamer_id": aptamer_id,
                 "filename": filename,
                 "download_url": url,
             })
@@ -101,10 +111,11 @@ def examine_decode_missingness():
     print(sorted(decode_missing_in_ncbi))
 
     # assemble deCODE target manifest.tsv (deCODE_eur_pgwas_manifest.csv)
-    # - gene name, chr, start, end, download link from decode_eur_primary_somascan_urls.txt
+    # - protein_id, gene name, aptamer_id, chr, start, end, download link from decode_eur_primary_somascan_urls.txt
     # - if deCODE gene is an NCBI synonym, keep deCODE gene name but use coordinates from matched NCBI symbol
 
     manifest = pl.DataFrame(rows)
+
     symbol_lookup = (
         ncbi
         .with_columns([
@@ -176,6 +187,8 @@ def examine_decode_missingness():
     print()
     print(f"[DONE] Saved deCODE manifest: {out_file}")
     print(f"[DONE] Manifest rows: {manifest.height}")
+    print(f"[DONE] Unique deCODE genes: {manifest['gene_symbol'].n_unique()}")
+    print(f"[DONE] Unique deCODE protein/aptamer IDs: {manifest['protein_id'].n_unique()}")
     print(f"[DONE] Missing coordinates: {manifest.filter(pl.col('chr').is_null()).height}")
     print(f"[DONE] Symbol matches in manifest: {manifest.filter(pl.col('match_type') == 'symbol').height}")
     print(f"[DONE] Synonym matches in manifest: {manifest.filter(pl.col('match_type') == 'synonym').height}")

@@ -8,22 +8,23 @@ from urllib.parse import urlparse, parse_qs
 
 # load manifest
 # THIS wget command works! 
-# wget 'https://download.decode.is/s3/download?token=e1530773-978a-4039-919b-4f9edcace104&file=10000_28_CRYBB2_CRBB2.txt.gz'
-# for file in that manifest.csv onto dat/pqtls/deCODE
-# download - gunzip
+# wget 'https://download.decode.is/s3/download?token=e1530773-978a-4039-919b-4f9edcace104&file=10000_28_CRYBB2_CRBB2.txt.gz'
+# for file in that manifest.csv onto dat/pqtls/deCODE
+# download - gunzip
 # rename
 # grab cis-region
 # QC cis-region
 # rename cols to LDSC
 # convert to .parquet and save in dat/pqtls/deCODE
 # remove old file (the big file) - we only keep the cis.region .parquet
-# go onto next protein
-# rename 
+# go onto next protein
+# rename 
 
 def cmd(url, out_dir):
     out_dir = Path(out_dir)
     filename = parse_qs(urlparse(url).query)["file"][0]
     txt_file = filename.replace(".gz", "")
+    print(f"[TRACKING] Downloading: {filename}")
     cmd = f"""
 set -euo pipefail
 cd "{out_dir}"
@@ -33,11 +34,19 @@ gunzip -f "{filename}"
     subprocess.run(cmd, shell=True, check=True, executable="/bin/bash")
     return out_dir / txt_file
 
-def extract_cis_region(file: str, gene: str, chrom: str, start: int, end: int, window: int, out_dir: str):
+def extract_cis_region(file: str, gene: str, chrom: str, start: int, end: int, window: int, out_dir: str, aptamer_id: str):
     out_dir = Path(out_dir)
     df = pl.read_csv(file, separator="\t")
+    df = df.with_columns([
+        pl.col("Chrom").cast(pl.Utf8).str.replace("^chr", "").alias("Chrom"),
+        pl.col("Pos").cast(pl.Int64).alias("Pos"),
+    ])
     cis_start = max(0, int(start) - window)
     cis_end = int(end) + window
+    print(
+        f"[TRACKING] {gene} ({aptamer_id}) | "
+        f"chr{chrom}:{cis_start:,}-{cis_end:,}"
+    )
 
     # extract cis region around gene coords +/- window
     df_cis = (
@@ -76,22 +85,36 @@ def extract_cis_region(file: str, gene: str, chrom: str, start: int, end: int, w
 
     # remove empty entries / NANs
     df_cis = df_cis.drop_nulls()
-    df_cis.write_parquet(out_dir / f"{gene}.parquet")
+    df_cis.write_parquet(out_dir / f"{gene}_{aptamer_id}.parquet")
     print(f"[DONE] Saved {gene}: {df_cis.height:,} SNPs")
 
 
-def decode_preprocessing_pipeline(out_dir: str):
+def decode_preprocessing_pipeline(out_dir: str = "./dat/pQTL/deCODE"):
     out_dir = Path(out_dir) # "./dat/pqtls/deCODE"
     out_dir.mkdir(parents=True, exist_ok=True)
     manifest = "./results/deCODE_manifest/deCODE_eur_pgwas_manifest.csv"
     df = pl.read_csv(manifest)
-    for row in df.iter_rows(named=True):
+
+    # df = df.head(3) # testing only
+
+    print("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
+    print("[TRACKING] deCODE preprocessing pipeline")
+    print(f"[TRACKING] Proteins/aptamers: {df.height:,}")
+    print(f"[TRACKING] Output directory: {out_dir}")
+    print("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
+
+    for i, row in enumerate(df.iter_rows(named=True), start=1):
         url = row["download_url"]
         gene = row["gene_symbol"]
         chrom = row["chr"]
         start = row["start"]
         end = row["end"]
+        aptamer_id = row["aptamer_id"]
+
+        print(f"\n[{i:,}/{df.height:,}] {gene} ({aptamer_id})")
+        print("[TRACKING] Downloading...")
         file = cmd(url, out_dir) # download file into out_dir
+        print("[TRACKING] Extracting cis-region...")
         extract_cis_region(
             file=file,
             gene=gene,
@@ -99,10 +122,17 @@ def decode_preprocessing_pipeline(out_dir: str):
             start=start,
             end=end,
             window=1_000_000,
-            out_dir=out_dir
+            out_dir=out_dir,
+            aptamer_id=aptamer_id
         )
+        print("[TRACKING] Removing raw file...")
         Path(file).unlink()
 
+    print("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
+    print("[DONE] deCODE preprocessing completed.")
+    print(f"[DONE] Processed {df.height:,} protein-aptamers.")
+    print("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
 
-        
 
+if __name__ == "__main__":
+    decode_preprocessing_pipeline()
