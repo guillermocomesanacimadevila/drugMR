@@ -8,7 +8,7 @@ from pathlib import Path
 # Need to create local running functions including a pulling docker from container function
 # So then still the QC+MR runs in micromamba Docker env
 # PostgreSQL db pulling and dashboard == jupyter (with .toml in ./)
-# Goal == have a flagging variable (local/hpc)
+# Goal == have a flagging variable (local/hpc)
 
 def cmd_base(cmd):
     """
@@ -91,7 +91,7 @@ def results(
     )
 
 # secondment functions
-# if run with local -> load up docker container
+# if run with local -> load up docker container
 # i.e. check whether the container exists within current local machine 
 # if so -> load docker container -> and run within that
 # produce the same output as in the cloud -> which then run local scripts to load into postgres db and then dashboard
@@ -205,6 +205,34 @@ docker run --rm \\
 """
     cmd_base(cmd_qc)
 
+    # cis-region module
+    print("[TRACKING] Preparing cis-regions locally...")
+
+    cmd_cis = f"""
+set -euo pipefail
+docker run --rm \\
+  -v "{project_root}:/work" \\
+  -w /work \\
+  "{image_name}" \\
+  python bin/prep_cis_regions.py \\
+    --pqtl_dataset {pqtl_dataset} \\
+    --pheno_id {pheno_id} \\
+    --pqtl_dir {pqtl_dir}
+"""
+    cmd_base(cmd_cis)
+
+    cis_dir = project_root / "dat" / "cis_regions" / pqtl_dataset
+    print(f"[TRACKING] Checking cis-region output: {cis_dir}")
+
+    if not cis_dir.exists():
+        raise FileNotFoundError(f"cis-region directory not created: {cis_dir}")
+
+    n_cis = len(list(cis_dir.glob("*/pqtl.parquet")))
+    print(f"[TRACKING] cis-region loci generated: {n_cis}")
+
+    if n_cis == 0:
+        raise RuntimeError("No cis-region files generated. Check pqtl_dir path.")
+
     # cis-MR module 
     print("[TRACKING] Running cis-MR locally via Docker...")
 
@@ -216,13 +244,42 @@ docker run --rm \\
   "{image_name}" \\
   Rscript bin/cis_mr.R \\
     {pqtl_dataset} \\
-    {pqtl_dir} \\
+    dat/cis_regions/{pqtl_dataset} \\
     {pheno_id} \\
     {out_dir}/QC/{pheno_id}/{pheno_id}.tsv \\
     {ref_bfile}
 """
     cmd_base(cmd_mr)
+
+    mr_out = project_root / "results" / "cis-MR" / f"{pqtl_dataset}_{pheno_id}_all_MR.tsv"
+
+    if not mr_out.exists():
+        print(f"[CONCERN] MR results file not found: {mr_out}")
+        print("[CONCERN] Skipping COLOC because no MR results were generated.")
+        print("[DONE] Local Docker run completed.")
+        return
+
+    # CMD COLOC TARGETS
+    # CMD RUN COLOC (Pairwise)
+    # Need to test
+
+    # coloc target module
+    print("[TRACKING] Running COLOC locally...")
+
+    cmd_coloc = f"""
+set -euo pipefail
+docker run --rm \\
+  -v "{project_root}:/work" \\
+  -w /work \\
+  "{image_name}" \\
+  python bin/coloc_targets.py \\
+    --pqtl_dataset {pqtl_dataset} \\
+    --local_results_dir results/cis-MR \\
+    --pqtl_dir dat/cis_regions/{pqtl_dataset} \\
+    --pheno_id {pheno_id} \\
+    --n_cases {n_cases} \\
+    --n_controls {n_controls}
+"""
+    cmd_base(cmd_coloc)
+
     print("[DONE] Local Docker run completed.")
-
-
-
