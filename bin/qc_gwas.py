@@ -141,7 +141,6 @@ def perform_qc(
     qc_dir = out_dir / "QC" / pheno_id
     qc_dir.mkdir(parents=True, exist_ok=True)
     df = pl.read_csv(path, separator="\t", comment_prefix="#", schema_overrides={chr_col: pl.Utf8})
-    print("Hello Falcon cluster!")
     print(df.shape)
 
     # Remove empty stuff

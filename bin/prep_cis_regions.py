@@ -13,7 +13,7 @@ from pathlib import Path
 # these will be the ones used for MR and COLOC
 
 decode_n = 35559
-ukb_ppp_n = 424439
+ukb_ppp_n = 54306
 
 # pre-established args from notebook
 # * pheno_id
