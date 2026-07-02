@@ -1,6 +1,8 @@
 FROM mambaorg/micromamba:1.5.10
 
 # docker build -t drugmr:latest -f env/Dockerfile .
+# adding moloc
+
 
 USER root
 
@@ -45,6 +47,7 @@ RUN pip install \
     pyarrow \
     sqlalchemy \
     psycopg2-binary \
+    scipy \
     streamlit \
     plotly \
     numpy \
@@ -55,6 +58,7 @@ RUN R -q -e "install.packages(c('remotes','BiocManager'), repos='https://cloud.r
     R -q -e "remotes::install_github('stephenslab/susieR', build_vignettes=FALSE)" && \
     R -q -e "remotes::install_github('MRCIEU/genetics.binaRies', build_vignettes=FALSE)" && \
     R -q -e "remotes::install_github('mrcieu/ieugwasr', build_vignettes=FALSE)" && \
+    R -q -e "remotes::install_github('clagiamba/moloc', build_vignettes=FALSE)" && \
     R -q -e "install.packages(c('RadialMR','TwoSampleMR','MRPRESSO'), repos=c('https://mrcieu.r-universe.dev','https://cloud.r-project.org'))"
 
 ENV PATH="/opt/conda/envs/drugmr/bin:$PATH"
