@@ -60,6 +60,9 @@ def NetworkMR(
     CI_LOW_PM = P_M - 1.96 * SE_PM if B_XY != 0 else np.nan
     CI_HIGH_PM = P_M + 1.96 * SE_PM if B_XY != 0 else np.nan
 
+    # directionality checks
+    consistent_direction = np.sign(B_I) == np.sign(B_XY)
+
     # prints here:
     print("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
     print("NETWORK MENDELIAN RANDOMISATION")
@@ -99,6 +102,11 @@ def NetworkMR(
 
     print("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
 
+    print(f"Consistent direction? => {consistent_direction} ")
+
+    print("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
+
+
     return {
         "beta_total": B_XY,
         "se_total": SE_XY,
@@ -121,4 +129,5 @@ def NetworkMR(
         "ci_high_prop_mediated": CI_HIGH_PM,
         "z_prop_mediated": Z_PM,
         "p_prop_mediated": P_PM,
+        "consistent_direction": consistent_direction
     }
