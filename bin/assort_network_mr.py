@@ -101,10 +101,10 @@ def run_cis_mr_X_M(pqtl_dataset: str, pqtl_dir: str, ref_bfile: str):
         for mediator_file in mediator_gwas.iterdir():
             if mediator_file.suffix not in [".tsv", ".txt"]:
                 continue
+
             mediator_id = mediator_file.stem
             print(f"[TRACKING] Processing mediator {mediator_id} for {protein}")
             mediator = pl.read_csv(mediator_file, separator="\t")
-
             mediator = mediator.filter(
                 (pl.col("CHR") == chr) &
                 (pl.col("BP") >= start) &
@@ -125,42 +125,90 @@ def run_cis_mr_X_M(pqtl_dataset: str, pqtl_dir: str, ref_bfile: str):
                 print(f"[CONCERN] No overlapping SNPs for {protein} / {mediator_id}")
                 continue
 
-            mediator_keep = mediator.filter(pl.col("SNP").is_in(overlap_snps))
-            mediator_keep.write_parquet(mediator_out / f"{mediator_id}.parquet")
+            mediator_keep = mediator.filter(
+                pl.col("SNP").is_in(overlap_snps)
+            )
+
+            mediator_keep.write_parquet(
+                mediator_out / f"{mediator_id}.parquet"
+            )
 
             print(
                 f"[TRACKING] Saved mediator {mediator_id}.parquet for {protein} "
                 f"with {len(overlap_snps)} overlapping SNPs"
             )
-            # ukb_ppp_AD_all_MR.tsv
 
+    # run cis-MR: Protein -> Mediator
+    for mediator_file in mediator_gwas.iterdir():
+        if mediator_file.suffix not in [".tsv", ".txt"]:
+            continue
 
-            # slap this onto a different function
-            # ***************
-            # ***************
-            # ***************
+        mediator_id = mediator_file.stem
+        print(f"[TRACKING] Running cis-MR X -> {mediator_id}")
 
-            cmd_cis_mr = f"""
+        cmd = f"""
 set -euo pipefail
 Rscript bin/cis_mr.R \\
     {pqtl_dataset} \\
     dat/cis_regions/{pqtl_dataset} \\
     {mediator_id} \\
     ./results/QC/{mediator_id}/{mediator_id}.tsv \\
-    {ref_bfile}  
-mkdir -p ./results/networkMR/X_M     
-mv ./results/cis-MR/{pqtl_dataset}_{mediator_id}_all_MR.tsv {out_dir}           
+    {ref_bfile}
+mv ./results/cis-MR/{pqtl_dataset}_{mediator_id}_all_MR.tsv \\
+   {out_dir}/{pqtl_dataset}_{mediator_id}_all_MR.tsv
 """
-            subprocess.run(cmd_cis_mr, shell=True, check=True, executable="/bin/bash")
-            
-            # ***************
-            # ***************
-            # ***************
+
+        subprocess.run(cmd, shell=True, check=True, executable="/bin/bash")
             
 
+# B_XM: float  
+# SE_XM: float
+# B_XY: float
+# SE_XY: float
+# B_MY: float 
+# SE_MY: float
 
-def perform_network_mr():
 
-    # for each mediator 
+def perform_network_mr(pheno_id: str, pqtl_dataset: str):
+    mediator_dir = Path("./dat/gwas/mediators")
+    mediators = [file.stem for file in mediator_dir.glob("*.tsv")]
+
+    # out_dir for X->Ms
+    X_to_M = Path(f"./results/networkMR/X_M/{pqtl_dataset}")
+
+    # out_dir for X->Y
+    X_to_Y = Path(f"./results/cis-MR/{pqtl_dataset}")
+
+    # out_dir for M->Y
+    M_to_Y = Path(f"./results/networkMR/M_Y/{pheno_id}")
+
+    # run NetworkMR
+    # AD_mediator_genomewide_MR.tsv
+    m_M_to_Y = M_to_Y / f"{pheno_id}_mediator_genomewide_MR.tsv"
+    df_M_to_Y = pl.read_csv(m_M_to_Y, separator="\t")
+
+    for m in mediators:
+        row_M_to_Y = df_M_to_Y.filter(pl.col("mediator") == m)
+        ivw_p = row_M_to_Y["IVW_pval"][0]
+        # here we need to declare for mediator m the other relevant stuff pertaining to cis-MR (exclusively cis-MR)
+        if ivw_p < 0.05:
+            print("[TRACKING] All good! M -> Y IVW p-value < 0.05!")
+            # next condition for NetworkMR
+
+
+
+
+    NetworkMR(
+        B_XM=1,
+        SE_XM=1,
+        B_XY=1,
+        SE_XY=1,
+        B_MY=1,
+        SE_MY=1
+    )
+    
+    
+    
+    # for any M -> Y it has to be significant
     # pull info from "./results/networkMR/..."
     return
