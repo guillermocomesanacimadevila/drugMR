@@ -12,9 +12,6 @@ import os
 # cp -R SCZ GWAS (with different header names onto a mediators directory)
 # adjust params to be permisive for CI/CD testing rather than standard significance thresholds
 
-
-
-
 # DS NetworkMR pipeline
 # dictionary in jupyter notebook {M_id: 'User/Path/...'}
 # FROM NOTEBOOK -> MAKE A MEDIATOR MANIFEST
@@ -46,7 +43,7 @@ import os
 
 def run_genomewide_mr(ref_bfile: str, pheno_id: str, pheno_gwas: str):
     genomewide_mr = "./bin/genomewide_mr.R"
-    mediator_dir = Path("./dat/gwas/mediators")
+    mediator_dir = Path("./results/QC/mediators")
     out_dir = Path(f"./results/networkMR/M_Y/{pheno_id}")
     out_dir.mkdir(parents=True, exist_ok=True)
     all_results = []
@@ -91,7 +88,7 @@ def run_cis_mr_X_M(pqtl_dataset: str, pqtl_dir: str, ref_bfile: str):
     pqtl_dir = Path(pqtl_dir)
     out_dir = Path(f"./results/networkMR/X_M/{pqtl_dataset}")
     protein_dir = Path(f"./dat/cis_regions/{pqtl_dataset}")
-    mediator_gwas = Path("./dat/gwas/mediators")
+    mediator_gwas = Path("./results/QC/mediators")
     out_dir.mkdir(parents=True, exist_ok=True)
 
     for protein_path in protein_dir.iterdir():
@@ -180,7 +177,7 @@ mv ./results/cis-MR/{pqtl_dataset}_{mediator_id}_all_MR.tsv \\
 
 
 def perform_network_mr(pheno_id: str, pqtl_dataset: str):
-    mediator_dir = Path("./dat/gwas/mediators")
+    mediator_dir = Path("./results/QC/mediators")
     mediators = [file.stem for file in mediator_dir.glob("*.tsv")]
     results = []
 
