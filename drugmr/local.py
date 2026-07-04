@@ -120,6 +120,8 @@ def local(
     maf: float = 0.01, # set default at 0.01 
     info_threshold: float | None = None,
     info_col: str | None = None,
+    mediators: bool = False,
+    mediator_manifest: str = "",
     remove_mhc: bool = True,
     remove_apoe: bool = False,
     image_uri: str = "ghcr.io/guillermocomesanacimadevila/drugmr:latest",
@@ -207,6 +209,39 @@ docker run --rm \\
 
     # cis-region module
     print("[TRACKING] Preparing cis-regions locally...")
+
+    # mediators stuff
+    if mediators:
+        print("[TRACKING] Qceing mediators locally via Docker...")
+
+        mediator_args = f"--mediator-manifest {mediator_manifest}"
+        if remove_mhc:
+            mediator_args += " --remove_mhc"
+        if remove_apoe:
+            mediator_args += " --remove_apoe"
+
+        cmd_m_qc = f"""
+set -euo pipefail 
+docker run --rm \\
+  -v "{project_root}:/work" \\
+  -w /work \\
+  "{image_name}" \\
+  python bin/arrange_mediators.py \\
+    --mediators \\
+    {mediator_args} \\
+    --maf {maf}
+"""
+        cmd_base(cmd_m_qc)
+
+    else:
+        print("[TRACKING] No mediators specificed, running drugMR without them then!")
+
+
+
+
+
+
+
 
     cmd_cis = f"""
 set -euo pipefail

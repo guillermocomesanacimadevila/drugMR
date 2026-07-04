@@ -138,6 +138,39 @@ bash -c "cd /work && python bin/qc_gwas.py \\
 """, falcon_user)
 
 
+# mediators
+def run_mediator_qc(
+    falcon_user: str,
+    mediator_manifest: str,
+    maf: float = 0.01,
+    remove_mhc: bool = True,
+    remove_apoe: bool = False,
+    overwrite: bool = True,
+):
+    remote, sif = get_remote_paths(falcon_user)
+
+    flag_args = ""
+    if remove_mhc:
+        flag_args += " --remove_mhc"
+    if remove_apoe:
+        flag_args += " --remove_apoe"
+    if overwrite:
+        flag_args += " --overwrite"
+
+    ssh(f"""
+set -euo pipefail
+cd "{remote}"
+
+apptainer exec --bind "{remote}:/work" "{sif}" \\
+bash -c "cd /work && python bin/arrange_mediators.py \\
+  --mediators \\
+  --mediator-manifest {mediator_manifest} \\
+  --maf {maf} \\
+  {flag_args}"
+""", falcon_user)
+
+
+
 # *********** Extract cis-regions from pQTLs
 def prep_cis_regions(
     falcon_user: str,
@@ -350,6 +383,8 @@ def hpc(
     target_build: str,
     out_dir: str = "results",
     maf: float = 0.01,
+    mediators: bool = False,
+    mediator_manifest: str = "",
     info_threshold: float | None = None,
     info_col: str | None = None,
     remove_mhc: bool = True,
@@ -389,6 +424,19 @@ def hpc(
         remove_mhc=remove_mhc,
         remove_apoe=remove_apoe,
     )
+
+    if mediators:
+        print("[TRACKING] Running mediator QC...")
+        run_mediator_qc(
+            falcon_user=falcon_user,
+            mediator_manifest=mediator_manifest,
+            maf=maf,
+            remove_mhc=remove_mhc,
+            remove_apoe=remove_apoe,
+            overwrite=overwrite,
+        )
+    else:
+        print("[TRACKING] No mediators specificed, running drugMR without them then!")
 
     print("[TRACKING] Preparing cis-regions...")
     prep_cis_regions(

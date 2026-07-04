@@ -6,9 +6,34 @@ from scipy.stats import norm
 # mediator_id
 # ivw_mr_X_M_Y_results (fixed dir)
 # pqtl_dataset
-
 # B_XY -> Total effect of X on Y (including known and unknown Ms)
 # B_D -> Pure effect of X on Y (excluding known and unknown Ms)
+
+# network MR workflow
+# X = protein (e.g. PU.1)
+# M = mediator (e.g. pTau)
+# Y = outcome (e.g. AD)
+# 1. TwoSampleMR - X -> M && M -> Y
+# 2. Calculate indirect effect (B_I = B_XM * B_MY) - hyp test under gaussian
+# 3. Proportion of XY effect -> B_I / B_XY
+# 4. If PROP == HIGH + B_I p < 0.05 -> MOLOC at pQTL locus (X - M - Y)
+
+# DS NetworkMR pipeline
+# dictionary in jupyter notebook {M_id: 'User/Path/...'}
+# FROM NOTEBOOK -> MAKE A MEDIATOR MANIFEST
+# For each protein part of dataset X
+# Run cis-MR (twice) -> For each X -> M
+# Also run M -> Y (whole genome) 
+# results/networkMR/ 3 subdirectories
+# results/networkMR/M_Y/....csv (Genome-wide - one CSV with MR outputs where 1 entry == univariable MR from a mediator M on Y)
+# results/networkMR/X_M/mediator_1/....csv (1 entry == univariable cis-MR - 1 protein vs that mediator)
+# results/networkMR/X_M/mediator_2/....csv (1 entry == univariable cis-MR - 1 protein vs that mediator)
+# results/networkMR/X_M/mediator_N/....csv (1 entry == univariable cis-MR - 1 protein vs that mediator)
+# results/networkMR/mediation_estimates/...csv (massive CSV with a given protein that FDR significant in X->M and X->Y and also if IVW_p < 0.05 in X->Y run NetworkMR package - here the output of NetworkMR package)
+
+
+
+# CREATE A MEDIATOR MANIFEST FUNCTION
 
 def NetworkMR(
     B_XM: float,   # protein -> mediator
