@@ -1,0 +1,3 @@
+pheno_id,sumstats,snp_col,a1_col,a2_col,chr_col,pos_col,beta_col,se_col,p_col,af_col,info_col,info_threshold,genome_build,target_build,n_total
+BetaAmyloid,./dat/gwas/mediators/BetaAmyloid.tsv,SNP,A1,A2,CHR,BP,BETA,SE,P,FRQ,,,"GRCh38","GRCh38",50000
+pTau,./dat/gwas/mediators/pTau.tsv,SNP,A1,A2,CHR,BP,BETA,SE,P,FRQ,,,"GRCh38","GRCh38",50000
