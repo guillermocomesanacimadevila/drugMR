@@ -4,7 +4,16 @@ import polars as pl
 from pathlib import Path
 import subprocess
 from drugmr import NetworkMR
-import os 
+import os
+
+# what do we need to run it for CI/CD testing
+# AD GWAS (pheno_id)
+# ukb_ppp pQTLs (dir) -> after SLURM ETL pipeline
+# cp -R SCZ GWAS (with different header names onto a mediators directory)
+# adjust params to be permisive for CI/CD testing rather than standard significance thresholds
+
+
+
 
 # DS NetworkMR pipeline
 # dictionary in jupyter notebook {M_id: 'User/Path/...'}
@@ -169,46 +178,150 @@ mv ./results/cis-MR/{pqtl_dataset}_{mediator_id}_all_MR.tsv \\
 # SE_MY: float
 
 
+
 def perform_network_mr(pheno_id: str, pqtl_dataset: str):
     mediator_dir = Path("./dat/gwas/mediators")
     mediators = [file.stem for file in mediator_dir.glob("*.tsv")]
+    results = []
 
     # out_dir for X->Ms
     X_to_M = Path(f"./results/networkMR/X_M/{pqtl_dataset}")
+    # {pqtl_dataset}_{mediator_id}_all_MR.tsv
 
     # out_dir for X->Y
-    X_to_Y = Path(f"./results/cis-MR/{pqtl_dataset}")
+    # ukb_ppp_AD_all_MR.tsv 
+    X_to_Y = Path("./results/cis-MR")
 
     # out_dir for M->Y
     M_to_Y = Path(f"./results/networkMR/M_Y/{pheno_id}")
 
-    # run NetworkMR
+    # read M -> Y results
     # AD_mediator_genomewide_MR.tsv
     m_M_to_Y = M_to_Y / f"{pheno_id}_mediator_genomewide_MR.tsv"
     df_M_to_Y = pl.read_csv(m_M_to_Y, separator="\t")
 
+    # read X -> Y results once
+    cis_X_to_Y = X_to_Y / f"{pqtl_dataset}_{pheno_id}_all_MR.tsv"
+    df_X_to_Y = pl.read_csv(cis_X_to_Y, separator="\t")
+
     for m in mediators:
         row_M_to_Y = df_M_to_Y.filter(pl.col("mediator") == m)
+
+        if row_M_to_Y.height == 0:
+            print(f"[CONCERN] No M -> Y result for {m}")
+            continue
+
         ivw_p = row_M_to_Y["IVW_pval"][0]
-        # here we need to declare for mediator m the other relevant stuff pertaining to cis-MR (exclusively cis-MR)
+
+        # declare cis-MR result output for mediator M
+        cis_X_to_M = X_to_M / f"{pqtl_dataset}_{m}_all_MR.tsv"
+
+        if not cis_X_to_M.exists():
+            print(f"[CONCERN] Missing X -> M cis-MR file for {m}")
+            continue
+
+        df_X_to_M = pl.read_csv(cis_X_to_M, separator="\t")
+
         if ivw_p < 0.05:
             print("[TRACKING] All good! M -> Y IVW p-value < 0.05!")
-            # next condition for NetworkMR
+        else:
+            print(f"[CONCERN] {m} -> {pheno_id} IVW p-value >= 0.05. Skipping.")
+            continue
 
+        proteins = set(df_X_to_M["protein"].to_list()).intersection(set(df_X_to_Y["protein"].to_list()))
 
+        # next condition for NetworkMR - for each protein in X -> AD
+        # (IVW_FDR < 0.05 and Cochran Q-p > 0.05 and Egger intercept > 0.05)
+        # and the same thing on X -> M for this given M
+        for p in proteins:
+            row_X_to_M = df_X_to_M.filter(pl.col("protein") == p)
+            row_X_to_Y = df_X_to_Y.filter(pl.col("protein") == p)
 
+            # X -> M
+            cis_ivw_p = row_X_to_M["IVW_FDR_q"][0]
+            egger_i_p = row_X_to_M["egger_intercept_pval"][0]
+            cochan_p = row_X_to_M["Q_pval"][0]
 
-    NetworkMR(
-        B_XM=1,
-        SE_XM=1,
-        B_XY=1,
-        SE_XY=1,
-        B_MY=1,
-        SE_MY=1
-    )
+            # X -> Y
+            cis_ivw_p_x_y = row_X_to_Y["IVW_FDR_q"][0]
+            egger_i_p_x_y = row_X_to_Y["egger_intercept_pval"][0]
+            cochan_p_x_y = row_X_to_Y["Q_pval"][0]
+
+            if cis_ivw_p < 0.05 and egger_i_p > 0.05 and cochan_p > 0.05:
+                print(f"[TRACKING] Protein {p} -> passed X -> M cis-MR!")
+
+                if cis_ivw_p_x_y < 0.05 and egger_i_p_x_y > 0.05 and cochan_p_x_y > 0.05:
+                    print(f"[TRACKING] Protein {p} -> passed X -> Y cis-MR too! Carried forward for NetworkMR!")
+
+                    # networkMR
+                    res = NetworkMR(
+                        B_XM=row_X_to_M["IVW_beta"][0],
+                        SE_XM=row_X_to_M["IVW_se"][0],
+                        B_XY=row_X_to_Y["IVW_beta"][0],
+                        SE_XY=row_X_to_Y["IVW_se"][0],
+                        B_MY=row_M_to_Y["IVW_beta"][0],
+                        SE_MY=row_M_to_Y["IVW_se"][0],
+                    )
+
+                    # store networkMR res
+                    results.append({
+                        "protein": p,
+                        "mediator": m,
+                        "pheno_id": pheno_id,
+                        "pqtl_dataset": pqtl_dataset,
+                        "X_M_IVW_beta": row_X_to_M["IVW_beta"][0],
+                        "X_M_IVW_se": row_X_to_M["IVW_se"][0],
+                        "X_M_IVW_FDR_q": cis_ivw_p,
+                        "X_Y_IVW_beta": row_X_to_Y["IVW_beta"][0],
+                        "X_Y_IVW_se": row_X_to_Y["IVW_se"][0],
+                        "X_Y_IVW_FDR_q": cis_ivw_p_x_y,
+                        "M_Y_IVW_beta": row_M_to_Y["IVW_beta"][0],
+                        "M_Y_IVW_se": row_M_to_Y["IVW_se"][0],
+                        "M_Y_IVW_pval": ivw_p,
+                        **res
+                    }) 
     
-    
-    
-    # for any M -> Y it has to be significant
-    # pull info from "./results/networkMR/..."
-    return
+    # saving networkMR res
+    out_dir = Path(f"./results/networkMR/mediation_estimates/{pqtl_dataset}")
+    out_dir.mkdir(parents=True, exist_ok=True)
+    if results:
+        pl.DataFrame(results).write_csv(out_dir / f"{pqtl_dataset}_{pheno_id}_networkMR.tsv", separator="\t")
+    else:
+        print("[TRACKING] No protein-mediator pairs passed filters for NetworkMR.")
+
+
+def main():
+    p = argparse.ArgumentParser()
+    p.add_argument("--pheno_id", required=True)
+    p.add_argument("--pheno_gwas", required=True)
+    p.add_argument("--ref_bfile", required=True)
+    p.add_argument("--pqtl_dataset", required=True)
+    p.add_argument("--pqtl_dir", required=True)
+    p.add_argument("--run_genomewide_mr", action="store_true")
+    p.add_argument("--run_cis_mr_X_M", action="store_true")
+    p.add_argument("--run_network_mr", action="store_true")
+    args = p.parse_args()
+
+    if args.run_genomewide_mr:
+        run_genomewide_mr(
+            ref_bfile=args.ref_bfile,
+            pheno_id=args.pheno_id,
+            pheno_gwas=args.pheno_gwas,
+        )
+
+    if args.run_cis_mr_X_M:
+        run_cis_mr_X_M(
+            pqtl_dataset=args.pqtl_dataset,
+            pqtl_dir=args.pqtl_dir,
+            ref_bfile=args.ref_bfile,
+        )
+
+    if args.run_network_mr:
+        perform_network_mr(
+            pheno_id=args.pheno_id,
+            pqtl_dataset=args.pqtl_dataset,
+        )
+
+
+if __name__ == "__main__":
+    main()
