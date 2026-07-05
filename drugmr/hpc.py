@@ -216,6 +216,31 @@ bash -c "cd /work && Rscript bin/cis_mr.R \\
   {ref_bfile}"
 """, falcon_user)
 
+def run_network_mr(
+    falcon_user: str,
+    pheno_id: str,
+    pheno_gwas: str,
+    ref_bfile: str,
+    pqtl_dataset: str,
+    pqtl_dir: str,
+):
+    remote, sif = get_remote_paths(falcon_user)
+
+    ssh(f"""
+set -euo pipefail
+cd "{remote}"
+
+apptainer exec --bind "{remote}:/work" "{sif}" \\
+bash -c "cd /work && PYTHONPATH=. python bin/assort_network_mr.py \\
+  --pheno_id {pheno_id} \\
+  --pheno_gwas {pheno_gwas} \\
+  --ref_bfile {ref_bfile} \\
+  --pqtl_dataset {pqtl_dataset} \\
+  --pqtl_dir {pqtl_dir} \\
+  --run_genomewide_mr \\
+  --run_cis_mr_X_M \\
+  --run_network_mr"
+""", falcon_user)
 
 # RUN COLOC
 def run_coloc(
@@ -455,6 +480,19 @@ def hpc(
         pheno_gwas=f"results/QC/{pheno_id}/{pheno_id}.tsv",
         ref_bfile=ref_bfile,
     )
+
+    if mediators:
+        print("[TRACKING] Running NetworkMR with mediators...")
+        run_network_mr(
+            falcon_user=falcon_user,
+            pheno_id=pheno_id,
+            pheno_gwas=f"results/QC/{pheno_id}/{pheno_id}.tsv",
+            ref_bfile=ref_bfile,
+            pqtl_dataset=pqtl_dataset,
+            pqtl_dir=pqtl_dir,
+        )
+    else:
+        print("[TRACKING] No mediators specified, skipping NetworkMR.")
 
     print("[TRACKING] Running COLOC...")
     run_coloc(

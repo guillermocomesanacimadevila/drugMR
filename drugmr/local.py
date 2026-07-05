@@ -207,9 +207,6 @@ docker run --rm \\
 """
     cmd_base(cmd_qc)
 
-    # cis-region module
-    print("[TRACKING] Preparing cis-regions locally...")
-
     # mediators stuff
     if mediators:
         print("[TRACKING] Qceing mediators locally via Docker...")
@@ -236,13 +233,9 @@ docker run --rm \\
     else:
         print("[TRACKING] No mediators specificed, running drugMR without them then!")
 
-
-
-
-
-
-
-
+    # cis-region module
+    print("[TRACKING] Preparing cis-regions locally...")
+    
     cmd_cis = f"""
 set -euo pipefail
 docker run --rm \\
@@ -297,6 +290,33 @@ docker run --rm \\
     # CMD COLOC TARGETS
     # CMD RUN COLOC (Pairwise)
     # Need to test
+
+
+    # networkMR (HERE)
+        # networkMR
+    if mediators:
+        print("[TRACKING] Running NetworkMR with mediators!")
+
+        cmd_network_mr = f"""
+set -euo pipefail
+docker run --rm \\
+  -v "{project_root}:/work" \\
+  -w /work \\
+  "{image_name}" \\
+  python bin/assort_network_mr.py \\
+    --pheno_id {pheno_id} \\
+    --pheno_gwas {out_dir}/QC/{pheno_id}/{pheno_id}.tsv \\
+    --ref_bfile {ref_bfile} \\
+    --pqtl_dataset {pqtl_dataset} \\
+    --pqtl_dir {pqtl_dir} \\
+    --run_genomewide_mr \\
+    --run_cis_mr_X_M \\
+    --run_network_mr
+"""
+        cmd_base(cmd_network_mr)
+    else:
+        print("[TRACKING] No mediators specified, skipping NetworkMR.")
+
 
     # coloc target module
     print("[TRACKING] Running COLOC locally...")
