@@ -302,6 +302,7 @@ set -euo pipefail
 docker run --rm \\
   -v "{project_root}:/work" \\
   -w /work \\
+  -e PYTHONPATH=. \\
   "{image_name}" \\
   python bin/assort_network_mr.py \\
     --pheno_id {pheno_id} \\

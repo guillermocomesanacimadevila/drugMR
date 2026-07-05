@@ -230,16 +230,18 @@ def run_network_mr(
 set -euo pipefail
 cd "{remote}"
 
-apptainer exec --bind "{remote}:/work" "{sif}" \\
-bash -c "cd /work && PYTHONPATH=. python bin/assort_network_mr.py \\
-  --pheno_id {pheno_id} \\
-  --pheno_gwas {pheno_gwas} \\
-  --ref_bfile {ref_bfile} \\
-  --pqtl_dataset {pqtl_dataset} \\
-  --pqtl_dir {pqtl_dir} \\
-  --run_genomewide_mr \\
-  --run_cis_mr_X_M \\
-  --run_network_mr"
+apptainer exec --bind "{remote}:/work" \\
+  --env PYTHONPATH=. \\
+  "{sif}" \\
+  python bin/assort_network_mr.py \\
+    --pheno_id {pheno_id} \\
+    --pheno_gwas {pheno_gwas} \\
+    --ref_bfile {ref_bfile} \\
+    --pqtl_dataset {pqtl_dataset} \\
+    --pqtl_dir {pqtl_dir} \\
+    --run_genomewide_mr \\
+    --run_cis_mr_X_M \\
+    --run_network_mr
 """, falcon_user)
 
 # RUN COLOC
