@@ -177,7 +177,7 @@ mv ./results/cis-MR/{pqtl_dataset}_{mediator_id}_all_MR.tsv \\
 
 
 def perform_network_mr(pheno_id: str, pqtl_dataset: str):
-    mediator_dir = Path("./results/QC/mediators")
+    mediator_dir = Path("./results/QC/mediators") # ***** PROBS NEED TO CHANGE THIS TO THE MANIFEST ITSELF FOR IT NOT TO BREAK WITH >1 RUN/S
     mediators = [file.stem for file in mediator_dir.glob("*.tsv")]
     results = []
 
@@ -219,7 +219,7 @@ def perform_network_mr(pheno_id: str, pqtl_dataset: str):
 
         df_X_to_M = pl.read_csv(cis_X_to_M, separator="\t")
 
-        if ivw_p < 0.05:
+        if ivw_p < 1: ########### CHANGE TO 0.05 -> POST CI/CD TESTING
             print("[TRACKING] All good! M -> Y IVW p-value < 0.05!")
         else:
             print(f"[CONCERN] {m} -> {pheno_id} IVW p-value >= 0.05. Skipping.")
@@ -244,10 +244,10 @@ def perform_network_mr(pheno_id: str, pqtl_dataset: str):
             egger_i_p_x_y = row_X_to_Y["egger_intercept_pval"][0]
             cochan_p_x_y = row_X_to_Y["Q_pval"][0]
 
-            if cis_ivw_p < 0.05 and egger_i_p > 0.05 and cochan_p > 0.05:
+            if cis_ivw_p < 1 and egger_i_p > 0 and cochan_p > 0: ########### CHANGE ALL TO 0.05 -> POST CI/CD TESTING
                 print(f"[TRACKING] Protein {p} -> passed X -> M cis-MR!")
 
-                if cis_ivw_p_x_y < 0.05 and egger_i_p_x_y > 0.05 and cochan_p_x_y > 0.05:
+                if cis_ivw_p_x_y < 1 and egger_i_p_x_y > 0 and cochan_p_x_y > 0: ########### CHANGE ALL TO 0.05 -> POST CI/CD TESTING
                     print(f"[TRACKING] Protein {p} -> passed X -> Y cis-MR too! Carried forward for NetworkMR!")
 
                     # networkMR
