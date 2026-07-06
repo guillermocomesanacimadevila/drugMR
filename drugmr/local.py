@@ -320,9 +320,11 @@ docker run --rm \\
 
 
     # coloc target module
+    # ******** RE-DO -> AD if mediators:
     print("[TRACKING] Running COLOC locally...")
 
-    cmd_coloc = f"""
+    # cmd_coloc with mediators
+    cmd_coloc_with_mediators = f"""
 set -euo pipefail
 docker run --rm \\
   -v "{project_root}:/work" \\
@@ -331,11 +333,33 @@ docker run --rm \\
   python bin/coloc_targets.py \\
     --pqtl_dataset {pqtl_dataset} \\
     --local_results_dir results/cis-MR \\
-    --pqtl_dir dat/cis_regions/{pqtl_dataset} \\
+    --pqtl_dir dat/cis_regions \\
+    --pheno_id {pheno_id} \\
+    --n_cases {n_cases} \\
+    --n_controls {n_controls} \\
+    --mediators \\
+    --mediator_manifest {mediator_manifest}
+"""
+    
+    # without mediators
+    cmd_coloc_without_mediators = f"""
+set -euo pipefail
+docker run --rm \\
+  -v "{project_root}:/work" \\
+  -w /work \\
+  "{image_name}" \\
+  python bin/coloc_targets.py \\
+    --pqtl_dataset {pqtl_dataset} \\
+    --local_results_dir results/cis-MR \\
+    --pqtl_dir dat/cis_regions \\
     --pheno_id {pheno_id} \\
     --n_cases {n_cases} \\
     --n_controls {n_controls}
 """
-    cmd_base(cmd_coloc)
+    
+    if mediators:
+        cmd_base(cmd_coloc_with_mediators)
+    else:
+        cmd_base(cmd_coloc_without_mediators)
 
     print("[DONE] Local Docker run completed.")

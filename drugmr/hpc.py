@@ -244,8 +244,14 @@ apptainer exec --bind "{remote}:/work" \\
     --run_network_mr
 """, falcon_user)
 
+
+
+
+
+
+
 # RUN COLOC
-def run_coloc(
+def run_coloc_without_mediators(
     falcon_user: str,
     pqtl_dataset: str,
     pheno_id: str,
@@ -267,6 +273,36 @@ bash -c "cd /work && python bin/coloc_targets.py \\
   --n_cases {n_cases} \\
   --n_controls {n_controls}"
 """, falcon_user)
+
+
+def run_coloc_with_mediators(
+    falcon_user: str,
+    pqtl_dataset: str,
+    pheno_id: str,
+    n_cases: int,
+    n_controls: int,
+    mediators: bool = False,
+    mediator_manifest: str = ""
+):
+    
+    remote, sif = get_remote_paths(falcon_user)
+
+    ssh(f"""
+set -euo pipefail
+cd "{remote}"
+
+apptainer exec --bind "{remote}:/work" "{sif}" \\
+bash -c "cd /work && python bin/coloc_targets.py \\
+  --pqtl_dataset {pqtl_dataset} \\
+  --local_results_dir results/cis-MR \\
+  --pqtl_dir dat/cis_regions \\
+  --pheno_id {pheno_id} \\
+  --n_cases {n_cases} \\
+  --n_controls {n_controls} \\
+  --mediators \\
+  --mediator_manifest {mediator_manifest}"
+""", falcon_user)
+
 
 
 # **************************
@@ -496,14 +532,29 @@ def hpc(
     else:
         print("[TRACKING] No mediators specified, skipping NetworkMR.")
 
+    # ******** RE-DO -> ADD if mediators:
+    # ******** RE-DO -> ADD if mediators:
+    # ******** RE-DO -> ADD if mediators:
     print("[TRACKING] Running COLOC...")
-    run_coloc(
+
+    if mediators:
+        run_coloc_with_mediators(
         falcon_user=falcon_user,
         pqtl_dataset=pqtl_dataset,
         pheno_id=pheno_id,
         n_cases=n_cases,
         n_controls=n_controls,
-    )
+        mediators=mediators,
+        mediator_manifest=mediator_manifest    
+        )
+    else:
+        run_coloc_without_mediators(
+            falcon_user=falcon_user,
+            pqtl_dataset=pqtl_dataset,
+            pheno_id=pheno_id,
+            n_cases=n_cases,
+            n_controls=n_controls,
+        )
 
     print("[TRACKING] Checking outputs...")
     check_outputs(
