@@ -127,6 +127,24 @@ genomewide_mr <- function(M_id, M_gwas, M_N, pheno_id, pheno_gwas, ref_bfile, ou
     return(NULL)
   }
   
+  # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  # Steiger filtering
+  # Keep SNPs where R2_GX > R2_GY
+  # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  
+  dat.clump <- as.data.frame(dat.clump)
+  dat.clump <- steiger_filtering(dat.clump)
+  dat.clump <- dat.clump[dat.clump$steiger_dir == TRUE, ]
+  
+  print(paste0("[TRACKING] Instruments after Steiger filtering: ", nrow(dat.clump)))
+  
+  if (nrow(dat.clump) == 0) {
+    print(paste0("[CONCERN] No instruments after Steiger filtering for ", M_id))
+    return(NULL)
+  }
+  
+  dat.clump <- data.table::as.data.table(dat.clump)
+  
   # ~~~~~~~~~~
   # run MR
   # ~~~~~~~~~~

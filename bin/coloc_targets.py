@@ -42,9 +42,9 @@ def pairwise_coloc(pqtl_dataset: str, local_results_dir: str, pqtl_dir: str, phe
     df2 = (
         df
         .filter(
-            (pl.col("IVW_FDR_q") < 1) & # 0.05 -> 1 for CI/CD testing
-            (pl.col("egger_intercept_pval") > 0.05) &
-            (pl.col("Q_pval") > 0.05)
+            (pl.col("IVW_FDR_q") < 1) & # 0.05 -> 1 for CI/CD testing ########## CHANGE THIS AFTER CI/CD TESTING
+            (pl.col("egger_intercept_pval") > 0.05) & ########## CHANGE THIS AFTER CI/CD TESTING
+            (pl.col("Q_pval") > 0.05) ########## CHANGE THIS AFTER CI/CD TESTING
         )
         .select("protein")
     )

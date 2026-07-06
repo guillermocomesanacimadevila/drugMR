@@ -181,6 +181,25 @@ mr_function <- function(pqtl_dataset, pqtl_dir, pheno_id, pheno_gwas, ref_bfile,
         next
       }
       
+      # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+      # Steiger filtering
+      # Keep SNPs where R2_GX > R2_GY
+      # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+      
+      dat.clump <- as.data.frame(dat.clump)
+      dat.clump <- steiger_filtering(dat.clump)
+      dat.clump <- dat.clump[dat.clump$steiger_dir == TRUE, ]
+      
+      print(paste0("[TRACKING] Instruments after Steiger filtering: ", nrow(dat.clump)))
+      
+      if (nrow(dat.clump) == 0) {
+        print(paste0("No instruments after Steiger filtering for ", protein))
+        pb$tick(tokens = list(protein = protein))
+        next
+      }
+      
+      dat.clump <- data.table::as.data.table(dat.clump)
+      
       # ~~~~~~~~~~
       # run MR
       # ~~~~~~~~~~
