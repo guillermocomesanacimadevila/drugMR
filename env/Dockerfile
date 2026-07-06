@@ -37,6 +37,7 @@ RUN micromamba create -y -n drugmr \
     r-htmlwidgets \
     r-plotly \
     r-nortest \
+    r-rjson \
     && micromamba clean -a -y
 
 SHELL ["micromamba", "run", "-n", "drugmr", "/bin/bash", "-c"]
