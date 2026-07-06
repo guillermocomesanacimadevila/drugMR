@@ -3,7 +3,6 @@ FROM mambaorg/micromamba:1.5.10
 # docker build -t drugmr:latest -f env/Dockerfile .
 # adding moloc
 
-
 USER root
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -57,6 +56,7 @@ RUN pip install \
 
 RUN R -q -e "install.packages(c('remotes','BiocManager'), repos='https://cloud.r-project.org')" && \
     R -q -e "remotes::install_github('stephenslab/susieR', build_vignettes=FALSE)" && \
+    R -q -e "BiocManager::install('GenomicRanges', ask=FALSE, update=FALSE)" && \
     R -q -e "remotes::install_github('MRCIEU/genetics.binaRies', build_vignettes=FALSE)" && \
     R -q -e "remotes::install_github('mrcieu/ieugwasr', build_vignettes=FALSE)" && \
     R -q -e "remotes::install_github('clagiamba/moloc', build_vignettes=FALSE)" && \
