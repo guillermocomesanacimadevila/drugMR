@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "drugmr"
+version = "0.1.0"
+description = "Multi-omics drug target prioritisation pipeline."
+readme = "README.md"
+requires-python = ">=3.12"
+
+dependencies = [
+    "numpy",
+    "pandas",
+    "polars",
+    "pyarrow",
+    "scipy",
+    "pyyaml",
+    "requests",
+    "tqdm",
+    "matplotlib",
+    "plotly",
+]
+
+[tool.setuptools.packages.find]
+include = ["drugmr*"]
