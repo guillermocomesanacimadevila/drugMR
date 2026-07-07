@@ -1,3 +1,4 @@
+  falcon_user: ""                                            # Falcon username for SLURM cluser run
   pheno_id: AD                                               # Outcome phenotype prefix (e.g. AD = Alzheimer's disease)
   sumstats: dat/gwas/AD.tsv                                  # Path to GWAS summary statistics pertaining to your outcome trait od interest
   n_cases: 128681                                            # Number of cases for outcome GWAS
