@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import subprocess
 from pathlib import Path
+from drugmr.config import Config
 
 # * Notes for myself before going to Greece
 # the git clone thingy
@@ -424,37 +425,37 @@ head -5 "{coloc_res}"
 
 
 # Function to run all the HPC gist
-def hpc(
-    falcon_user: str,
-    pheno_id: str,
-    sumstats: str,
-    n_cases: int,
-    n_controls: int,
-    pqtl_dataset: str,
-    pqtl_dir: str,
-    ref_bfile: str,
-    snp_col: str,
-    a1_col: str,
-    a2_col: str,
-    beta_col: str,
-    se_col: str,
-    p_col: str,
-    pos_col: str,
-    chr_col: str,
-    af_col: str,
-    genome_build: str,
-    target_build: str,
-    out_dir: str = "results",
-    maf: float = 0.01,
-    mediators: bool = False,
-    mediator_manifest: str = "",
-    info_threshold: float | None = None,
-    info_col: str | None = None,
-    remove_mhc: bool = True,
-    remove_apoe: bool = False,
-    local_results_dir: str = "results",
-    overwrite: bool = True,
-):
+def hpc(config: str = "assets/config.yaml"):
+    cfg = Config(config)
+    falcon_user = cfg.falcon_user
+    pheno_id = cfg.pheno_id
+    sumstats = cfg.sumstats
+    n_cases = cfg.n_cases
+    n_controls = cfg.n_controls
+    pqtl_dataset = cfg.pqtl_dataset
+    pqtl_dir = cfg.pqtl_dir
+    ref_bfile = cfg.ref_bfile
+    snp_col = cfg.snp_col
+    a1_col = cfg.a1_col
+    a2_col = cfg.a2_col
+    beta_col = cfg.beta_col
+    se_col = cfg.se_col
+    p_col = cfg.p_col
+    pos_col = cfg.pos_col
+    chr_col = cfg.chr_col
+    af_col = cfg.af_col
+    genome_build = cfg.genome_build
+    target_build = cfg.target_build
+    out_dir = getattr(cfg, "out_dir", "results")
+    maf = getattr(cfg, "maf", 0.01)
+    mediators = getattr(cfg, "mediators", False)
+    mediator_manifest = getattr(cfg, "mediator_manifest", "")
+    info_threshold = getattr(cfg, "info_threshold", None)
+    info_col = getattr(cfg, "info_col", None)
+    remove_mhc = getattr(cfg, "remove_mhc", True)
+    remove_apoe = getattr(cfg, "remove_apoe", False)
+    local_results_dir = getattr(cfg, "local_results_dir", "results")
+    overwrite = getattr(cfg, "overwrite", True)
 
     print("[TRACKING] Preparing Falcon repo...")
     clone_repo(falcon_user)

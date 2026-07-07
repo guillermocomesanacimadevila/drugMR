@@ -2,9 +2,9 @@
 import sys
 import subprocess
 from pathlib import Path
+from drugmr.config import Config
 
 # LOCAL RESULTS / DASHBOARD STUFF
-# To do's (After Greece)
 # Need to create local running functions including a pulling docker from container function
 # So then still the QC+MR runs in micromamba Docker env
 # PostgreSQL db pulling and dashboard == jupyter (with .toml in ./)
@@ -97,36 +97,37 @@ def results(
 # produce the same output as in the cloud -> which then run local scripts to load into postgres db and then dashboard
 # to check docker container - create a function within local()
 
-def local(
-    pheno_id: str,
-    sumstats: str,
-    n_cases: int,
-    n_controls: int,
-    pqtl_dataset: str,
-    pqtl_dir: str,
-    ref_bfile: str,
-    snp_col: str,
-    a1_col: str,
-    a2_col: str,
-    beta_col: str,
-    se_col: str,
-    p_col: str,
-    pos_col: str,
-    chr_col: str,
-    af_col: str,
-    genome_build: str,
-    target_build: str,
-    out_dir: str = "results", # default dir in ./results within drugmR/
-    maf: float = 0.01, # set default at 0.01 
-    info_threshold: float | None = None,
-    info_col: str | None = None,
-    mediators: bool = False,
-    mediator_manifest: str = "",
-    remove_mhc: bool = True,
-    remove_apoe: bool = False,
-    image_uri: str = "ghcr.io/guillermocomesanacimadevila/drugmr:latest",
-    image_name: str = "ghcr.io/guillermocomesanacimadevila/drugmr:latest"
-):
+def local(config: str = "assets/config.yaml"):
+    project_root = Path(__file__).resolve().parents[1]
+    cfg = Config(project_root / config)
+    pheno_id = cfg.pheno_id
+    sumstats = cfg.sumstats
+    n_cases = cfg.n_cases
+    n_controls = cfg.n_controls
+    pqtl_dataset = cfg.pqtl_dataset
+    pqtl_dir = cfg.pqtl_dir
+    ref_bfile = cfg.ref_bfile
+    snp_col = cfg.snp_col
+    a1_col = cfg.a1_col
+    a2_col = cfg.a2_col
+    beta_col = cfg.beta_col
+    se_col = cfg.se_col
+    p_col = cfg.p_col
+    pos_col = cfg.pos_col
+    chr_col = cfg.chr_col
+    af_col = cfg.af_col
+    genome_build = cfg.genome_build
+    target_build = cfg.target_build
+    out_dir = getattr(cfg, "out_dir", "results")
+    maf = getattr(cfg, "maf", 0.01)
+    info_threshold = getattr(cfg, "info_threshold", None)
+    info_col = getattr(cfg, "info_col", None)
+    mediators = getattr(cfg, "mediators", False)
+    mediator_manifest = getattr(cfg, "mediator_manifest", "")
+    remove_mhc = getattr(cfg, "remove_mhc", True)
+    remove_apoe = getattr(cfg, "remove_apoe", False)
+    image_uri = getattr(cfg, "image_uri", "ghcr.io/guillermocomesanacimadevila/drugmr:latest")
+    image_name = getattr(cfg, "image_name", "ghcr.io/guillermocomesanacimadevila/drugmr:latest")
     
     # set projectDir()
     project_root = Path(__file__).resolve().parents[1] # i.e. "Users/.../drugMR"
