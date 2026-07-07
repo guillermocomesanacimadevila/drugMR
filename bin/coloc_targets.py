@@ -174,7 +174,7 @@ def coloc_with_mediators(pqtl_dataset: str, local_results_dir: str, pqtl_dir: st
     moloc_json = {
         protein: traits
         for protein, traits in moloc_json.items()
-        if len(traits) > 2
+        if len(traits) >= 2
     }
 
     moloc_json_file = moloc_json_dir / f"{pqtl_dataset}_{pheno_id}_moloc.json"
