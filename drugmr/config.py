@@ -7,3 +7,6 @@ class Config:
         file = Path(file)
         with open(file, "r") as f:
             self.__dict__.update(yaml.safe_load(f))
+
+# class Checks:
+#     def __init__(self):

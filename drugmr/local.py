@@ -17,14 +17,16 @@ def cmd_base(cmd):
     return subprocess.run(cmd, shell=True, check=True, executable="/bin/bash")
 
 def results(
-    pqtl_dataset: str,
-    pheno_id: str,
+    config: str = "assets/config.yaml",
     db_id: str = "drugmr",
     dashboard_script: str = "dashboard/mr_app.py",
     db_script: str = "bin/load_db_into_postgres.py",
     port_number: int = 5432,
 ):
     project_root = Path(__file__).resolve().parents[1]
+    cfg = Config(project_root / config)
+    pqtl_dataset = cfg.pqtl_dataset
+    pheno_id = cfg.pheno_id
     mr_res = project_root / "results" / "cis-MR" / f"{pqtl_dataset}_{pheno_id}_all_MR.tsv"
     coloc_res = project_root / "results" / "coloc" / pqtl_dataset / f"{pqtl_dataset}_{pheno_id}_all_coloc.tsv"
     db_script = project_root / db_script
