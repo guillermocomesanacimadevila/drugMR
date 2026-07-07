@@ -52,6 +52,7 @@ RUN pip install \
     plotly \
     numpy \
     synapseclient \
+    pyyaml \
     liftover
 
 RUN R -q -e "install.packages(c('remotes','BiocManager'), repos='https://cloud.r-project.org')" && \
