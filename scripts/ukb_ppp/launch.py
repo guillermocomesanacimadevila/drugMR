@@ -3,7 +3,7 @@ import subprocess
 from configparser import ConfigParser
 from pathlib import Path
 
-slurm_user = "c.c24102394"
+slurm_user = ""
 host = "falconlogin.cf.ac.uk"
 cfg = ConfigParser()
 cfg.read(Path.home() / ".synapseConfig")
