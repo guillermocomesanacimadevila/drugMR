@@ -1,0 +1,47 @@
+<?xml version='1.0' encoding='utf-8' ?>
+<workbook source-build='2024.2.0' source-platform='mac' version='18.1'>
+  <preferences>
+    <preference name='ui.encoding.shelf.height' value='24' />
+  </preferences>
+
+  <datasources>
+    <datasource caption='drugMR Results' inline='true' name='drugmr_results' version='18.1'>
+      <connection class='hyper' dbname='/Users/c24102394/bioinformatics/drugMR/dashboard/drugmr.hyper' schema='Extract' tablename='dashboard_results' update-time=''>
+        <relation name='dashboard_results' table='[Extract].[dashboard_results]' type='table' />
+      </connection>
+    </datasource>
+  </datasources>
+
+  <worksheets>
+    <worksheet name='drugMR Dashboard'>
+      <table>
+        <view>
+          <datasources>
+            <datasource caption='drugMR Results' name='drugmr_results' />
+          </datasources>
+        </view>
+      </table>
+      <layout-options>
+        <title>
+          <formatted-text>
+            <run bold='true' fontname='Arial' fontsize='20'>drugMR Target Prioritisation Dashboard</run>
+          </formatted-text>
+        </title>
+      </layout-options>
+    </worksheet>
+  </worksheets>
+
+  <windows>
+    <window class='worksheet' maximized='true' name='drugMR Dashboard'>
+      <cards>
+        <edge name='left'>
+          <strip size='160'>
+            <card type='pages' />
+            <card type='filters' />
+            <card type='marks' />
+          </strip>
+        </edge>
+      </cards>
+    </window>
+  </windows>
+</workbook>
