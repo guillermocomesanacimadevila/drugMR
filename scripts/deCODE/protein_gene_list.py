@@ -42,7 +42,6 @@ def parse_aptamer_id(filename: str):
 def examine_decode_missingness():
     ncbi_hg38 = "../dat/NCBI/NCBI_genes_grch38_with_synonyms.tsv"
     urls_file = "../dat/deCODE/decode_eur_primary_somascan_urls.txt"
-
     ncbi = pl.read_csv(
         ncbi_hg38,
         separator="\t",

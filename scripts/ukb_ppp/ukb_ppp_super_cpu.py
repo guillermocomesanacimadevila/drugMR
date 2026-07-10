@@ -35,10 +35,11 @@ def preprocess_pqtls(ukb_ppp_dir: str, ukb_ppp_snps: str):
     ukb_ppp_dir = Path(ukb_ppp_dir)
     ukb_ppp_snps = Path(ukb_ppp_snps)
     proteins = [f.split("_")[0] for f in os.listdir(ukb_ppp_dir) if f.endswith(".tar")]
-    if len(proteins) == 2923:
-        print("[TRACKING] All good! We found all relevant proteins pertaining to the UKBB-PPP!")
-    else:
-        print(f"[CONCERN] Yowza! We're missing some stuff here as we have {len(proteins):,} / 2,923")
+    
+    # if len(proteins) == 2923:
+    #     print("[TRACKING] All good! We found all relevant proteins pertaining to the UKBB-PPP!")
+    # else:
+    #     print(f"[CONCERN] Yowza! We're missing some stuff here as we have {len(proteins):,} / 2,923")
 
     # preprocessing cmd
     for tar_file in ukb_ppp_dir.glob("*.tar"):

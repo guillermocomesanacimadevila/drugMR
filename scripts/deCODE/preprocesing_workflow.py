@@ -20,6 +20,10 @@ from urllib.parse import urlparse, parse_qs
 # go onto next protein
 # rename 
 
+# 4907 - total
+# 4742 - autosomes
+
+
 def cmd(url, out_dir):
     out_dir = Path(out_dir)
     filename = parse_qs(urlparse(url).query)["file"][0]
@@ -90,12 +94,20 @@ def extract_cis_region(file: str, gene: str, chrom: str, start: int, end: int, w
 
 
 def decode_preprocessing_pipeline(out_dir: str = "./dat/pQTL/deCODE"):
-    out_dir = Path(out_dir) # "./dat/pqtls/deCODE"
+    out_dir = Path(out_dir) # "./dat/pqtl/deCODE"
     out_dir.mkdir(parents=True, exist_ok=True)
     manifest = "./results/deCODE_manifest/deCODE_eur_pgwas_manifest.csv"
     df = pl.read_csv(manifest)
 
+    print(f"[TRACKING] Total Targets: {df.height:,}")
+    print("[TRACKING] Dropping non-autosomal targets...")
+
+    # drop non-autosomal targets
+    df = df.filter(~pl.col("chr").is_in(["X", "Y"]))
+    print(f"[TRACKING] Autosomal Targets: {df.height:,}")
+
     # df = df.head(3) # testing only
+    # print(df)
 
     print("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
     print("[TRACKING] deCODE preprocessing pipeline")

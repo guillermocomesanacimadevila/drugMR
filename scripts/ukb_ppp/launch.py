@@ -10,6 +10,10 @@ cfg.read(Path.home() / ".synapseConfig")
 synapse_username = cfg["default"]["username"]
 synapse_token = cfg["default"]["authtoken"]
 
+# sbatch scripts/ukb_ppp/missing/missing_targets.sbatch
+# sbatch scripts/ukb_ppp/ukb_ppp_download.sbatch
+
+
 remote_cmd = f"""
 set -euo pipefail
 
@@ -23,7 +27,7 @@ cd ~/drugMR
 mkdir -p logs
 export SYNAPSE_USERNAME='{synapse_username}'
 export SYNAPSE_TOKEN='{synapse_token}'
-sbatch scripts/ukb_ppp/ukb_ppp_download.sbatch
+sbatch scripts/ukb_ppp/missing/missing_targets.sbatch
 """
 
 print(f"Connecting to {slurm_user}@{host}...")
