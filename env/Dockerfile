@@ -53,6 +53,8 @@ RUN pip install \
     numpy \
     synapseclient \
     pyyaml \
+    statsmodels \
+    # zenodo-get
     liftover
 
 RUN R -q -e "install.packages(c('remotes','BiocManager'), repos='https://cloud.r-project.org')" && \
@@ -64,5 +66,9 @@ RUN R -q -e "install.packages(c('remotes','BiocManager'), repos='https://cloud.r
     R -q -e "install.packages(c('RadialMR','TwoSampleMR','MRPRESSO'), repos=c('https://mrcieu.r-universe.dev','https://cloud.r-project.org'))"
 
 ENV PATH="/opt/conda/envs/drugmr/bin:$PATH"
+# COPY ref/SMR/smr /usr/local/bin/smr
 
+# Slap SMR funct into Docker image 
+COPY dat/ref/SMR/smr /usr/local/bin/smr
+RUN chmod +x dat/ref/SMR/rmr
 CMD ["bash"]
