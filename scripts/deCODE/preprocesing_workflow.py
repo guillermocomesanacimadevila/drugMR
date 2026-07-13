@@ -20,7 +20,7 @@ from urllib.parse import urlparse, parse_qs
 # go onto next protein
 # rename 
 
-# 4907 - total
+# 4907 - total
 # 4742 - autosomes
 
 
@@ -102,12 +102,12 @@ def decode_preprocessing_pipeline(out_dir: str = "./dat/pQTL/deCODE"):
     print(f"[TRACKING] Total Targets: {df.height:,}")
     print("[TRACKING] Dropping non-autosomal targets...")
 
-    # drop non-autosomal targets
+    # drop non-autosomal targets
     df = df.filter(~pl.col("chr").is_in(["X", "Y"]))
     print(f"[TRACKING] Autosomal Targets: {df.height:,}")
 
     # df = df.head(3) # testing only
-    # print(df)
+    # print(df)
 
     print("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
     print("[TRACKING] deCODE preprocessing pipeline")
@@ -123,7 +123,15 @@ def decode_preprocessing_pipeline(out_dir: str = "./dat/pQTL/deCODE"):
         end = row["end"]
         aptamer_id = row["aptamer_id"]
 
+        parquet_file = out_dir / f"{gene}_{aptamer_id}.parquet"
+
         print(f"\n[{i:,}/{df.height:,}] {gene} ({aptamer_id})")
+
+        # skip if this protein-aptamer has already been processed
+        if parquet_file.exists():
+            print(f"[SKIPPING] Already exists: {parquet_file.name}")
+            continue
+
         print("[TRACKING] Downloading...")
         file = cmd(url, out_dir) # download file into out_dir
         print("[TRACKING] Extracting cis-region...")
