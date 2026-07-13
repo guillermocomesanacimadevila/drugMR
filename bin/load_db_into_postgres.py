@@ -10,6 +10,10 @@ from pathlib import Path
 # SELECT * FROM cis_mr_results LIMIT 5; 
 # SELECT * FROM coloc_results LIMIT 5; 
 
+# TO DO'S
+# -> single-cell SMR results onto postgres DB
+
+
 def master_postgres(results_file: str, db_id: str, pqtl_dataset: str, pheno_id: str, table: str):
     results_file = Path(results_file)
     analysis_id = f"{pheno_id}_{pqtl_dataset}"

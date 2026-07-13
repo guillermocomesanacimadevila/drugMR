@@ -4,8 +4,13 @@ import polars as pl
 from pathlib import Path
 import subprocess
 from drugmr import SMR
+import pandas as pd
 import os 
 from statsmodels.stats.multitest import fdrcorrection
+
+
+# MAIN TO DO'S
+# -> FILTER FROM TARGETS THE CORRESPONDING TARGETS WHICH == SIGNIFICANT ON ANY GIVEN CELL TYPE
 
 # need probs another function with mediators 
 # -> load cis-MR results for pQTL dataset X  -> same for coloc -> check whether gene which passes coloc thresh and MR estimate FDR
@@ -219,6 +224,38 @@ def run_single_cell_smr(pqtl_dataset: str, eqtl_dataset: str, pheno_id: str, sum
         else:
             print(f"[CONCERN] No SMR results found for the promising {pqtl_dataset} targets")
 
+
+# --------------------
+# NEED TO PERFECT THIS 
+# ____________________
+
+def compile_multi_omics_targets(pheno_id: str, pqtl_dataset: str, eqtl_dataset: str):
+    # out_dir = Path(f"./results/SMR/{eqtl_dataset}/{pheno_id}")
+    # out_file = out_dir / f"{pqtl_dataset}_{pheno_id}_promising_targets_SMR.tsv"
+    # necessary file -> "./results/SMR/{eqtl_dataset}/{pheno_id}/{pqtl_dataset}_{pheno_id}_promising_targets_SMR.tsv"
+    out_dir = f"./results/SMR/{eqtl_dataset}/{pheno_id}"
+    out_dir = Path(out_dir)
+    os.makedirs(out_dir, exist_ok=True)
+    targets_path = f"./results/SMR/{eqtl_dataset}/{pheno_id}/{pqtl_dataset}_{pheno_id}_promising_targets_SMR.tsv"
+    df = pl.read_csv(targets_path, separator="\t")
+    # HEIDI CUT OFF = 0.01 
+    # SMR CUT OFF = 0.05
+    # q_SMR - P_HEIDI
+    targets = []
+    for row in df.iter_rows(named=True):
+        p = df["protein"]
+        p_smr = df["q_SMR"]
+        p_heidi = df["P_HEIDI"]
+        if p_smr < 0.05 and p_smr is not None and p_heidi > 0.01 and p_heidi is not None:
+            targets.append(row)
+            targets = pd.DataFrame(targets)
+            targets.to_csv(out_dir / f"final_targets.txt")
+
+# --------------------
+# NEED TO PERFECT THIS 
+# ____________________
+
+
 # sumstats: str, ref_bfile: str, maf: float
 def main():
     p = argparse.ArgumentParser()
@@ -229,6 +266,8 @@ def main():
     p.add_argument("--ref_bfile", required=True)
     p.add_argument("--maf", required=True, default=0.01)
     args = p.parse_args()
+
+    # running SMR (genome-wide)
     run_single_cell_smr(
         pqtl_dataset=args.pqtl_dataset,
         eqtl_dataset=args.eqtl_dataset,
@@ -236,6 +275,13 @@ def main():
         sumstats=args.sumstats,
         maf=args.maf,
         ref_bfile=args.ref_bfile
+    )
+
+    # final hits
+    compile_multi_omics_targets(
+        pheno_id=args.pheno_id,
+        pqtl_dataset=args.pqtl_dataset,
+        eqtl_dataset=args.eqtl_dataset
     )
 
 if __name__ == "__main__":
