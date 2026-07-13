@@ -33,6 +33,11 @@ def define_loci_from_cis_regions(pqtl_dataset: str, pheno_id: str, pqtl_dir: str
         os.makedirs(out_dir, exist_ok=True)
         # we need to move both .parquet files (pQTL and GWAS) into that new dir
         df = pl.read_parquet(file)
+
+        if df.height == 0:
+            print(f"[SKIP] {gene}_{protein}: empty pQTL parquet")
+            continue
+
         if pqtl_dataset == "ukb_ppp":
             df = df.with_columns(
                 pl.lit(ukb_ppp_n).alias("N")
