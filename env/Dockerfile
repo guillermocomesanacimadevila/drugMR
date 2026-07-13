@@ -60,15 +60,26 @@ RUN pip install \
 RUN R -q -e "install.packages(c('remotes','BiocManager'), repos='https://cloud.r-project.org')" && \
     R -q -e "remotes::install_github('stephenslab/susieR', build_vignettes=FALSE)" && \
     R -q -e "BiocManager::install('GenomicRanges', ask=FALSE, update=FALSE)" && \
-    R -q -e "remotes::install_github('MRCIEU/genetics.binaRies', build_vignettes=FALSE)" && \
-    R -q -e "remotes::install_github('mrcieu/ieugwasr', build_vignettes=FALSE)" && \
+    R -q -e "install.packages('genetics.binaRies', repos=c('https://mrcieu.r-universe.dev','https://cloud.r-project.org'))" && \
+    R -q -e "install.packages('ieugwasr', repos=c('https://mrcieu.r-universe.dev','https://cloud.r-project.org'))" && \
     R -q -e "remotes::install_github('clagiamba/moloc', build_vignettes=FALSE)" && \
     R -q -e "install.packages(c('RadialMR','TwoSampleMR','MRPRESSO'), repos=c('https://mrcieu.r-universe.dev','https://cloud.r-project.org'))"
 
 ENV PATH="/opt/conda/envs/drugmr/bin:$PATH"
 # COPY ref/SMR/smr /usr/local/bin/smr
 
-# Slap SMR funct into Docker image 
+
+# FIX THIS -----------------
+# SMR function copy into Docker image
+# Slap SMR funct into Docker image
+USER root
+
 COPY dat/ref/SMR/smr /usr/local/bin/smr
-RUN chmod +x dat/ref/SMR/rmr
+
+# Reminder for myself: DO NOT specify rmr you bellend.
+RUN chmod +x /usr/local/bin/smr
+
+# FIX THIS -----------------
+
+USER $MAMBA_USER
 CMD ["bash"]
