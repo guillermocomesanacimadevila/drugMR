@@ -118,6 +118,7 @@ def local(config: str = "assets/config.yaml"):
     pos_col = cfg.pos_col
     chr_col = cfg.chr_col
     af_col = cfg.af_col
+    eqtl_dataset = cfg.eqtl_dataset ###### Only SingleBrain ATM
     genome_build = cfg.genome_build
     target_build = cfg.target_build
     out_dir = getattr(cfg, "out_dir", "results")
@@ -366,3 +367,28 @@ docker run --rm \\
         cmd_base(cmd_coloc_without_mediators)
 
     print("[DONE] Local Docker run completed.")
+
+
+    # Integration with other omics layers 
+    # ------ sc-eQTL ------
+    # single-ceLL SMR
+    # ------ ------- ------
+    print(f"[TRACKING] Runnig single-cell SMR for {eqtl_dataset}!")
+
+    cmd_smr = f"""
+set -euo pipefail 
+docker run --rm \\
+  -v "{project_root}:/work" \\
+  -w /work \\
+  "{image_name} \\
+  python bin/sort_single_cell_smr.py \\
+    --pqtl_dataset {pqtl_dataset} \\
+    --pheno_id {pheno_id} \\
+    --eqtl_dataset {eqtl_dataset} \\
+    --sumstats {sumstats} \\
+    --ref_bfile {ref_bfile} \\
+    --maf {maf}
+ """
+    
+    # run this stuff
+    cmd_base(cmd_smr)

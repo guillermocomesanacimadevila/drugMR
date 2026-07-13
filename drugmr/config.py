@@ -8,5 +8,8 @@ class Config:
         with open(file, "r") as f:
             self.__dict__.update(yaml.safe_load(f))
 
+    # def validate(self):
+        
 # class Checks:
 #     def __init__(self):
+# validation

@@ -246,11 +246,6 @@ apptainer exec --bind "{remote}:/work" \\
 """, falcon_user)
 
 
-
-
-
-
-
 # RUN COLOC
 def run_coloc_without_mediators(
     falcon_user: str,
@@ -304,6 +299,36 @@ bash -c "cd /work && python bin/coloc_targets.py \\
   --mediator_manifest {mediator_manifest}"
 """, falcon_user)
 
+
+# def run_smr(
+#         falcon_user: str, 
+#         pqtl_dataset: str,
+#         pheno_id: str,
+# ):
+
+def run_smr(
+        falcon_user: str,
+        pqtl_dataset: str, 
+        pheno_id: str,
+        eqtl_dataset: str,
+        sumstats: str,
+        ref_bfile: str,
+        maf: float
+):
+    remote, sif = get_remote_paths(falcon_user)
+
+    ssh(f"""
+set -euo pipefail 
+cd "{remote}
+apptainer exec --bind "{remote}:/work" "{sif}" \\
+bash -c "cd /work && python bin/sort_single_cell_smr \\
+  --pqtl_dataset {pqtl_dataset} \\
+  --pheno_id {pheno_id} \\
+  --eqtl_dataset {eqtl_dataset} \\
+  --sumstats {sumstats} \\
+  --maf {maf} \\
+  --ref_bfile {ref_bfile}
+""", falcon_user)
 
 
 # **************************
@@ -436,6 +461,7 @@ def hpc(config: str = "assets/config.yaml"):
     pqtl_dir = cfg.pqtl_dir
     ref_bfile = cfg.ref_bfile
     snp_col = cfg.snp_col
+    eqtl_dataset = cfg.eqtl_dataset
     a1_col = cfg.a1_col
     a2_col = cfg.a2_col
     beta_col = cfg.beta_col
@@ -556,6 +582,18 @@ def hpc(config: str = "assets/config.yaml"):
             n_cases=n_cases,
             n_controls=n_controls,
         )
+    
+    # SMR
+    print(f"[TRACKING] Running single-cell SMR for {eqtl_dataset}...")
+    run_smr(
+        falcon_user=falcon_user,
+        pqtl_dataset=pqtl_dataset,
+        eqtl_dataset=eqtl_dataset,
+        maf=maf,
+        ref_bfile=ref_bfile,
+        sumstats=sumstats,
+        pheno_id=pheno_id
+    )
 
     print("[TRACKING] Checking outputs...")
     check_outputs(
@@ -572,5 +610,6 @@ def hpc(config: str = "assets/config.yaml"):
         local_results_dir=local_results_dir,
         overwrite=overwrite,
     )
+
 
     print("[DONE] drugMR pipeline completed successfully.")
