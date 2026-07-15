@@ -8,9 +8,13 @@ import pandas as pd
 import os 
 from statsmodels.stats.multitest import fdrcorrection
 
-
+# ------------------------------------------------------------------------------------
+# ------------------------------------------------------------------------------------
 # MAIN TO DO'S
-# -> FILTER FROM TARGETS THE CORRESPONDING TARGETS WHICH == SIGNIFICANT ON ANY GIVEN CELL TYPE
+# -> SLAP FUNCTION 3 (MAYBE 1 ONTO A DIFFERNT SCRIPT -> MAY CRASH SMR IF != RESULTS)
+# -> CONSEQUENTLY UPDATE drugmr/local.py and drugmr/hpc.py
+# ------------------------------------------------------------------------------------
+# ------------------------------------------------------------------------------------
 
 # need probs another function with mediators 
 # -> load cis-MR results for pQTL dataset X  -> same for coloc -> check whether gene which passes coloc thresh and MR estimate FDR
@@ -59,7 +63,6 @@ def extract_promising_targets(pqtl_dataset: str, pheno_id: str):
     # compile final hits
     mr_hits = wald_hits + ivw_hits
     final_hits = [i for i in mr_hits if i in coloc_hits]
-
     print(f"[TRACKING] {len(wald_hits)} Wald ratio hits found")
     print(f"[TRACKING] {len(ivw_hits)} IVW hits found")
     print(f"[TRACKING] {len(coloc_hits)} coloc hits found")
@@ -78,40 +81,86 @@ def run_single_cell_smr(pqtl_dataset: str, eqtl_dataset: str, pheno_id: str, sum
     if eqtl_temp == "singlebrain":
         # Store sumstats (temp) within work/ as a .ma file 
         # which then delete after all cell types are ran -> just a temp file 
+        # Store sumstats (temp) within work/ as a .ma file
+        # which then delete after all cell types are ran -> just a temp file
         df = pl.read_csv(sumstats, separator="\t")
-
-        # rename and save as .ma 
+        n_before = df.height
+        # rename and save as .ma
+        # SMR GWAS format == SNP A1 A2 freq b se p N
         df = (
-            df.rename({
-                "FRQ": "Freq",
-                "SE": "se", 
-                "P": "p",
-                "BETA": "Beta",
-                "CHR": "Chr",
-                "BP": "Bp"
+            df
+            .select([
+                "SNP",
+                "A1",
+                "A2",
+                "FRQ",
+                "BETA",
+                "SE",
+                "P",
+                "N"
+            ])
+            .rename({
+                "FRQ": "freq",
+                "BETA": "b",
+                "SE": "se",
+                "P": "p"
             })
+            .filter(
+                pl.col("SNP").is_not_null(),
+                pl.col("A1").is_not_null(),
+                pl.col("A2").is_not_null(),
+                pl.col("freq").is_not_null(),
+                pl.col("b").is_not_null(),
+                pl.col("se").is_not_null(),
+                pl.col("p").is_not_null(),
+                pl.col("N").is_not_null(),
+                ~pl.col("SNP").str.contains(","),
+                ~pl.col("SNP").str.contains(";"),
+                ~pl.col("SNP").str.contains(" ")
+            )
+            .with_columns(
+                pl.col("N").round(0).cast(pl.Int64)
+            )
         )
 
+        print(f"[TRACKING] Removed {n_before - df.height} invalid / incomplete GWAS rows for SMR")
+        print(f"[TRACKING] {df.height} GWAS variants retained for SMR")
         temp_sumstats = temp_dir / f"{pheno_id}.ma"
         df.write_csv(temp_sumstats, separator="\t")
         cell_types = ["Ast", "Ext", "MG", "OD", "OPC", "End", "IN"]
         eqtls = "./dat/sc-eQTL/SingleBrain/SMR_ready"
         eqtls = Path(eqtls)
-        for file in eqtls.glob("*.besd"):
-            cell = file.stem
-            if str(cell) in cell_types:
-                print(f"[TRACKING] Cell type {cell} found!")
-            else:
-                print(f"Yowza! Cell type {cell} not found")
+        for cell in cell_types:
+            cell_dir = eqtls / cell
+            besd_file = cell_dir / f"{cell}.besd"
+            esi_file = cell_dir / f"{cell}.esi"
+            epi_file = cell_dir / f"{cell}.epi"
+
+            if not cell_dir.exists():
+                print(f"[CONCERN] Cell type directory {cell_dir} not found")
                 continue
-            
-            # continue 
+
+            if not besd_file.exists():
+                print(f"[CONCERN] {besd_file} not found")
+                continue
+
+            if not esi_file.exists():
+                print(f"[CONCERN] {esi_file} not found")
+                continue
+
+            if not epi_file.exists():
+                print(f"[CONCERN] {epi_file} not found")
+                continue
+
+            print(f"[TRACKING] Cell type {cell} found!")
+
+            # continue
             # use prefix without .besd / .esi / .epi for SMR
 
             #####
             #####
             #####
-            beqtl_summary = eqtls / cell
+            beqtl_summary = cell_dir / cell
             #####
             #####
             #####
@@ -198,11 +247,17 @@ def run_single_cell_smr(pqtl_dataset: str, eqtl_dataset: str, pheno_id: str, sum
                     print(f"[CONCERN] Probe column not found in {f.name}")
                     continue
 
-                target_genes = [target.split("_")[0] for target in hits]
+                target_map = {
+                    target.split("_")[0]: target for target in hits
+                }
+
+                target_genes = list(target_map.keys())
+
                 target_smr = (
                     smr_df
                     .filter(pl.col("Probe").is_in(target_genes))
                     .with_columns(
+                        pl.col("Probe").replace(target_map).alias("protein"),
                         pl.lit(cell).alias("cell_type"),
                         pl.lit(pheno_id).alias("phenotype"),
                         pl.lit(eqtl_dataset).alias("eqtl_dataset"),
@@ -225,36 +280,67 @@ def run_single_cell_smr(pqtl_dataset: str, eqtl_dataset: str, pheno_id: str, sum
             print(f"[CONCERN] No SMR results found for the promising {pqtl_dataset} targets")
 
 
-# --------------------
-# NEED TO PERFECT THIS 
-# ____________________
+
+
 
 def compile_multi_omics_targets(pheno_id: str, pqtl_dataset: str, eqtl_dataset: str):
     # out_dir = Path(f"./results/SMR/{eqtl_dataset}/{pheno_id}")
     # out_file = out_dir / f"{pqtl_dataset}_{pheno_id}_promising_targets_SMR.tsv"
-    # necessary file -> "./results/SMR/{eqtl_dataset}/{pheno_id}/{pqtl_dataset}_{pheno_id}_promising_targets_SMR.tsv"
+    # necessary file -> "./results/SMR/{eqtl_dataset}/{pheno_id}/{pqtl_dataset}_{pheno_id}_promising_targets_SMR.tsv"
     out_dir = f"./results/SMR/{eqtl_dataset}/{pheno_id}"
     out_dir = Path(out_dir)
     os.makedirs(out_dir, exist_ok=True)
-    targets_path = f"./results/SMR/{eqtl_dataset}/{pheno_id}/{pqtl_dataset}_{pheno_id}_promising_targets_SMR.tsv"
+    targets_path = out_dir / f"{pqtl_dataset}_{pheno_id}_promising_targets_SMR.tsv"
     df = pl.read_csv(targets_path, separator="\t")
-    # HEIDI CUT OFF = 0.01 
+
+    # HEIDI CUT OFF = 0.01
     # SMR CUT OFF = 0.05
-    # q_SMR - P_HEIDI
-    targets = []
-    for row in df.iter_rows(named=True):
-        p = df["protein"]
-        p_smr = df["q_SMR"]
-        p_heidi = df["P_HEIDI"]
-        if p_smr < 0.05 and p_smr is not None and p_heidi > 0.01 and p_heidi is not None:
-            targets.append(row)
-            targets = pd.DataFrame(targets)
-            targets.to_csv(out_dir / f"final_targets.txt")
+    # q_SMR - P_HEIDI
 
-# --------------------
-# NEED TO PERFECT THIS 
-# ____________________
+    heidi_col = "P_HEIDI"
+    if "p_HEIDI" in df.columns:
+        heidi_col = "p_HEIDI"
 
+    final_targets_df = (
+        df
+        .filter(
+            pl.col("q_SMR").is_not_null(),
+            pl.col(heidi_col).is_not_null(),
+            pl.col("q_SMR") < 0.05,
+            pl.col(heidi_col) > 0.01
+        )
+        .sort(["protein", "cell_type", "q_SMR"])
+    )
+
+    if final_targets_df.height == 0:
+        print(f"[CONCERN] No drug targets passed cis-MR (pQTLs) + COLOC + single-cell eQTL SMR")
+        return []
+
+    # save all rows - 1 row per target x cell type
+    final_targets_file = out_dir / f"{pqtl_dataset}_{pheno_id}_final_multi_omics_targets.tsv"
+    final_targets_df.write_csv(final_targets_file, separator="\t")
+    # unique targets only for the next steps
+    targets = (
+        final_targets_df
+        .select("protein")
+        .unique()
+        .sort("protein")
+        .get_column("protein")
+        .to_list()
+    )
+
+    print(f"[TRACKING] {final_targets_df.height} target x cell-type SMR hits found")
+    print(f"[TRACKING] {len(targets)} unique drug targets passed cis-MR (pQTLs) + COLOC + single-cell eQTL SMR")
+    print(f"[TRACKING] Final target x cell-type results saved to {final_targets_file}")
+    print(f"[TRACKING] Drug targets: {targets}")
+    return targets
+
+
+# THEN
+# -> For each prioritised target
+# -> Check original cis-region (matched with GWAS)
+# -> Match cis-region with sc-eQTL for cell type X
+# -> RUN MOLOC / pairwise coloc
 
 # sumstats: str, ref_bfile: str, maf: float
 def main():
@@ -264,7 +350,7 @@ def main():
     p.add_argument("--pqtl_dataset", required=True)
     p.add_argument("--eqtl_dataset", required=True)
     p.add_argument("--ref_bfile", required=True)
-    p.add_argument("--maf", required=True, default=0.01)
+    p.add_argument("--maf", type=float, default=0.01)
     args = p.parse_args()
 
     # running SMR (genome-wide)
