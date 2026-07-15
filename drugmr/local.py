@@ -216,6 +216,13 @@ def local(config: str = "assets/config.yaml"):
         / f"{pqtl_dataset}_{pheno_id}_final_multi_omics_targets.tsv"
     )
 
+    # coloc and moloc with multi-omics
+    prepared_multi_omics_out = project_root / "results" / "SMR" / eqtl_dataset / pheno_id / f"{pqtl_dataset}_{pheno_id}_prepared_multi_omics_targets.tsv"
+    eqtl_coloc_out = project_root / "results" / "eQTL_coloc" / pqtl_dataset / eqtl_dataset / pheno_id / f"{pqtl_dataset}_{pheno_id}_{eqtl_dataset}_all_eqtl_coloc.tsv"
+    moloc_out = project_root / "results" / "QTL_moloc" / pqtl_dataset / eqtl_dataset / pheno_id / f"{pqtl_dataset}_{pheno_id}_{eqtl_dataset}_moloc_summary.tsv"
+    
+
+
     # change this where NetworkMR saves its final compiled output
     network_mr_out = (
         project_root
@@ -506,5 +513,49 @@ docker run --rm \\
         print(f"[TRACKING] Final multi-omics targets found: {final_smr_out}")
     else:
         print(f"[CONCERN] Final multi-omics target file not found or empty: {final_smr_out}")
+
+        # ------ -------------------- ------
+    # Multi-omics QTL colocalisation
+    # GWAS - sc-eQTL pairwise coloc
+    # GWAS - pQTL - sc-eQTL MOLOC
+    # ------ -------------------- ------
+
+    require_output(final_smr_out, "single-cell SMR", "multi-omics QTL colocalisation")
+
+    cmd_multi_omics_coloc = f"""
+set -euo pipefail
+docker run --rm \\
+  --platform linux/amd64 \\
+  -v "{project_root}:/work" \\
+  -w /work \\
+  -e PYTHONPATH=. \\
+  "{image_name}" \\
+  python bin/assort_moloc_for_sc_hits.py \\
+    --pheno_id {pheno_id} \\
+    --pqtl_dataset {pqtl_dataset} \\
+    --eqtl_dataset {eqtl_dataset} \\
+    --n_cases {n_cases} \\
+    --n_controls {n_controls}
+"""
+
+    multi_omics_complete = (
+        prepared_multi_omics_out.exists() and prepared_multi_omics_out.stat().st_size > 0
+        and eqtl_coloc_out.exists() and eqtl_coloc_out.stat().st_size > 0
+        and moloc_out.exists() and moloc_out.stat().st_size > 0
+    )
+
+    if overwrite or not multi_omics_complete:
+        print("[TRACKING] Running multi-omics QTL colocalisation locally...")
+        cmd_base(cmd_multi_omics_coloc)
+    else:
+        print("[TRACKING] Multi-omics QTL colocalisation already completed.")
+        print("[TRACKING] Skipping multi-omics QTL colocalisation...")
+
+    require_output(prepared_multi_omics_out, "multi-omics target preparation", "pipeline completion")
+    require_output(eqtl_coloc_out, "GWAS - sc-eQTL COLOC", "pipeline completion")
+    require_output(moloc_out, "GWAS - pQTL - sc-eQTL MOLOC", "pipeline completion")
+    print(f"[TRACKING] Prepared multi-omics target manifest found: {prepared_multi_omics_out}")
+    print(f"[TRACKING] GWAS - sc-eQTL COLOC results found: {eqtl_coloc_out}")
+    print(f"[TRACKING] GWAS - pQTL - sc-eQTL MOLOC results found: {moloc_out}")
 
     print("[DONE] Local Docker run completed.")
