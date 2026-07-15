@@ -12,20 +12,111 @@ from drugmr.config import Config
 # pull TSV output also into local 
 # then just script running stuff - for each part as a sequence with an main() in sequence as well (with appropaite ifs as checks and prints)
 
-def ssh(cmd: str, falcon_user: str):
+def ssh(cmd: str, falcon_user: str, allowed_returncodes: tuple = (0,)):
     full_cmd = f"ssh {falcon_user}@falconlogin.cf.ac.uk '{cmd}'"
     result = subprocess.run(full_cmd, shell=True, executable="/bin/bash", capture_output=True, text=True)
     if result.stdout:
         print(result.stdout)
-    if result.returncode != 0:
+    if result.returncode not in allowed_returncodes:
         print("[ERROR] Falcon command failed.")
         print(result.stderr)
         raise subprocess.CalledProcessError(result.returncode, full_cmd)
+    return result
 
 def get_remote_paths(falcon_user: str):
     remote = f"/shared/home1/{falcon_user}/drugMR"
     sif = f"{remote}/env/drugmr.sif"
     return remote, sif
+
+def check_remote_output(
+    falcon_user: str,
+    path: str,
+    step: str,
+    overwrite: bool = False
+):
+    # run step if overwrite == True
+    if overwrite:
+        print(f"[TRACKING] Overwrite enabled - rerunning {step}...")
+        return False
+
+    remote, _ = get_remote_paths(falcon_user)
+
+    result = ssh(f"""
+set -euo pipefail
+cd "{remote}"
+
+if [ -s "{path}" ]; then
+    echo "[TRACKING] {step} already completed: {path}"
+    exit 0
+fi
+
+exit 3
+""", falcon_user, allowed_returncodes=(0, 3))
+
+    if result.returncode == 0:
+        print(f"[TRACKING] Skipping {step}...")
+        return True
+
+    print(f"[TRACKING] No existing {step} output found - running step...")
+    return False
+
+def check_remote_cis_regions(
+    falcon_user: str,
+    pqtl_dataset: str,
+    overwrite: bool = False
+):
+    # run step if overwrite == True
+    if overwrite:
+        print("[TRACKING] Overwrite enabled - rerunning cis-region preparation...")
+        return False
+
+    remote, _ = get_remote_paths(falcon_user)
+
+    result = ssh(f"""
+set -euo pipefail
+cd "{remote}"
+
+n_cis=$(find "dat/cis_regions/{pqtl_dataset}" -mindepth 2 -maxdepth 2 -name "pqtl.parquet" 2>/dev/null | wc -l)
+
+if [ "$n_cis" -gt 0 ]; then
+    echo "[TRACKING] cis-regions already completed: $n_cis loci found"
+    exit 0
+fi
+
+exit 3
+""", falcon_user, allowed_returncodes=(0, 3))
+
+    if result.returncode == 0:
+        print("[TRACKING] Skipping cis-region preparation...")
+        return True
+
+    print("[TRACKING] No complete cis-region output found - running step...")
+    return False
+
+def require_remote_output(
+    falcon_user: str,
+    path: str,
+    step: str,
+    required_for: str
+):
+    remote, _ = get_remote_paths(falcon_user)
+
+    ssh(f"""
+set -euo pipefail
+cd "{remote}"
+
+if [ ! -f "{path}" ]; then
+    echo "[ERROR] {required_for} cannot run because {step} output was not found: {path}"
+    exit 1
+fi
+
+if [ ! -s "{path}" ]; then
+    echo "[ERROR] {required_for} cannot run because {step} output is empty: {path}"
+    exit 1
+fi
+
+echo "[TRACKING] Required {step} output found for {required_for}"
+""", falcon_user)
 
 def clone_repo(falcon_user: str):
     ssh("""
@@ -39,7 +130,11 @@ if [ -d "$HOME/drugMR" ]; then
     echo "[TRACKING] Resetting Falcon repo to GitHub main..."
     git fetch origin main
     git reset --hard origin/main
-    git clean -fd
+    git clean -fd \
+      -e dat/ \
+      -e results/ \
+      -e work/ \
+      -e assets/config.yaml
 else
     echo "[CONCERN] Yowza! I cannot see the drugMR directory..."
     echo "[TRACKING] Cloning from GitHub..."
@@ -260,14 +355,16 @@ def run_coloc_without_mediators(
 set -euo pipefail
 cd "{remote}"
 
-apptainer exec --bind "{remote}:/work" "{sif}" \\
-bash -c "cd /work && python bin/coloc_targets.py \\
-  --pqtl_dataset {pqtl_dataset} \\
-  --local_results_dir results/cis-MR \\
-  --pqtl_dir dat/cis_regions/{pqtl_dataset} \\
-  --pheno_id {pheno_id} \\
-  --n_cases {n_cases} \\
-  --n_controls {n_controls}"
+apptainer exec --bind "{remote}:/work" \\
+  --env PYTHONPATH=. \\
+  "{sif}" \\
+  bash -c "cd /work && python bin/coloc_targets.py \\
+    --pqtl_dataset {pqtl_dataset} \\
+    --local_results_dir results/cis-MR \\
+    --pqtl_dir dat/cis_regions/{pqtl_dataset} \\
+    --pheno_id {pheno_id} \\
+    --n_cases {n_cases} \\
+    --n_controls {n_controls}"
 """, falcon_user)
 
 
@@ -280,54 +377,59 @@ def run_coloc_with_mediators(
     mediators: bool = False,
     mediator_manifest: str = ""
 ):
-    
+
     remote, sif = get_remote_paths(falcon_user)
 
     ssh(f"""
 set -euo pipefail
 cd "{remote}"
 
-apptainer exec --bind "{remote}:/work" "{sif}" \\
-bash -c "cd /work && python bin/coloc_targets.py \\
-  --pqtl_dataset {pqtl_dataset} \\
-  --local_results_dir results/cis-MR \\
-  --pqtl_dir dat/cis_regions \\
-  --pheno_id {pheno_id} \\
-  --n_cases {n_cases} \\
-  --n_controls {n_controls} \\
-  --mediators \\
-  --mediator_manifest {mediator_manifest}"
+apptainer exec --bind "{remote}:/work" \\
+  --env PYTHONPATH=. \\
+  "{sif}" \\
+  bash -c "cd /work && python bin/coloc_targets.py \\
+    --pqtl_dataset {pqtl_dataset} \\
+    --local_results_dir results/cis-MR \\
+    --pqtl_dir dat/cis_regions/{pqtl_dataset} \\
+    --pheno_id {pheno_id} \\
+    --n_cases {n_cases} \\
+    --n_controls {n_controls} \\
+    --mediators \\
+    --mediator_manifest {mediator_manifest}"
 """, falcon_user)
 
 
-# def run_smr(
-#         falcon_user: str, 
-#         pqtl_dataset: str,
-#         pheno_id: str,
+# def run_smr(
+#         falcon_user: str, 
+#         pqtl_dataset: str,
+#         pheno_id: str,
 # ):
 
 def run_smr(
-        falcon_user: str,
-        pqtl_dataset: str, 
-        pheno_id: str,
-        eqtl_dataset: str,
-        sumstats: str,
-        ref_bfile: str,
-        maf: float
+    falcon_user: str,
+    pqtl_dataset: str, 
+    pheno_id: str,
+    eqtl_dataset: str,
+    sumstats: str,
+    ref_bfile: str,
+    maf: float
 ):
     remote, sif = get_remote_paths(falcon_user)
 
     ssh(f"""
 set -euo pipefail 
-cd "{remote}
-apptainer exec --bind "{remote}:/work" "{sif}" \\
-bash -c "cd /work && python bin/sort_single_cell_smr \\
-  --pqtl_dataset {pqtl_dataset} \\
-  --pheno_id {pheno_id} \\
-  --eqtl_dataset {eqtl_dataset} \\
-  --sumstats {sumstats} \\
-  --maf {maf} \\
-  --ref_bfile {ref_bfile}
+cd "{remote}"
+
+apptainer exec --bind "{remote}:/work" \\
+  --env PYTHONPATH=. \\
+  "{sif}" \\
+  bash -c "cd /work && python bin/sort_single_cell_smr.py \\
+    --pqtl_dataset {pqtl_dataset} \\
+    --pheno_id {pheno_id} \\
+    --eqtl_dataset {eqtl_dataset} \\
+    --sumstats {sumstats} \\
+    --maf {maf} \\
+    --ref_bfile {ref_bfile}"
 """, falcon_user)
 
 
@@ -378,20 +480,23 @@ def pull_results_local(
     falcon_user: str,
     pqtl_dataset: str,
     pheno_id: str,
+    eqtl_dataset: str,
     local_results_dir: str = "results",
     overwrite: bool = True
 ):
     remote, _ = get_remote_paths(falcon_user)
     remote_mr = f"{remote}/results/cis-MR/{pqtl_dataset}_{pheno_id}_all_MR.tsv"
     remote_coloc = f"{remote}/results/coloc/{pqtl_dataset}/{pqtl_dataset}_{pheno_id}_all_coloc.tsv"
+    remote_smr = f"{remote}/results/SMR/{eqtl_dataset}/{pheno_id}"
     local_results_dir = Path(local_results_dir)
     local_mr_dir = local_results_dir / "cis-MR"
     local_coloc_dir = local_results_dir / "coloc" / pqtl_dataset
+    local_smr_dir = local_results_dir / "SMR" / eqtl_dataset / pheno_id
     local_mr_dir.mkdir(parents=True, exist_ok=True)
     local_coloc_dir.mkdir(parents=True, exist_ok=True)
+    local_smr_dir.mkdir(parents=True, exist_ok=True)
     local_mr = local_mr_dir / f"{pqtl_dataset}_{pheno_id}_all_MR.tsv"
     local_coloc = local_coloc_dir / f"{pqtl_dataset}_{pheno_id}_all_coloc.tsv"
-
     for remote_file, local_file in [
         (remote_mr, local_mr),
         (remote_coloc, local_coloc),
@@ -407,6 +512,19 @@ def pull_results_local(
         print(cmd)
         subprocess.run(cmd, shell=True, check=True)
         print(f"[DONE] Pulled results into {local_file}")
+
+    # pull all compiled SMR results
+    if any(local_smr_dir.iterdir()) and not overwrite:
+        print(f"[TRACKING] {local_smr_dir} already contains SMR results. Skipping pull.")
+    else:
+        cmd = (
+            f"scp -r "
+            f"{falcon_user}@falconlogin.cf.ac.uk:{remote_smr}/. "
+            f"{local_smr_dir}/"
+        )
+        print(cmd)
+        subprocess.run(cmd, shell=True, check=True)
+        print(f"[DONE] Pulled SMR results into {local_smr_dir}")
 
 
 # STREAMLIT DASHBOARD
@@ -429,23 +547,54 @@ python -m streamlit run dashboard/mr_app.py -- \\
 def check_outputs(
     falcon_user: str,
     pqtl_dataset: str,
-    pheno_id: str
+    pheno_id: str,
+    eqtl_dataset: str
 ):
     remote, _ = get_remote_paths(falcon_user)
     mr_res = f"results/cis-MR/{pqtl_dataset}_{pheno_id}_all_MR.tsv"
     coloc_res = f"results/coloc/{pqtl_dataset}/{pqtl_dataset}_{pheno_id}_all_coloc.tsv"
+    smr_res = f"results/SMR/{eqtl_dataset}/{pheno_id}/{pqtl_dataset}_{pheno_id}_promising_targets_SMR.tsv"
+    final_targets = f"results/SMR/{eqtl_dataset}/{pheno_id}/{pqtl_dataset}_{pheno_id}_final_multi_omics_targets.tsv"
 
     ssh(f"""
 set -euo pipefail
 cd "{remote}"
 
 echo "[TRACKING] Checking MR output..."
-ls -lh results/cis-MR/
-head -5 "{mr_res}"
+if [ -s "{mr_res}" ]; then
+    ls -lh "{mr_res}"
+    head -5 "{mr_res}"
+else
+    echo "[CONCERN] MR output not found or empty"
+fi
 
 echo "[TRACKING] Checking COLOC output..."
-ls -lh results/coloc/{pqtl_dataset}/
-head -5 "{coloc_res}"
+if [ -s "{coloc_res}" ]; then
+    ls -lh "{coloc_res}"
+    head -5 "{coloc_res}"
+else
+    echo "[CONCERN] COLOC output not found or empty"
+fi
+
+echo "[TRACKING] Checking SMR output..."
+if [ -d "results/SMR/{eqtl_dataset}/{pheno_id}" ]; then
+    ls -lh "results/SMR/{eqtl_dataset}/{pheno_id}/"
+else
+    echo "[CONCERN] SMR output directory not found"
+fi
+
+if [ -s "{smr_res}" ]; then
+    head -5 "{smr_res}"
+else
+    echo "[CONCERN] Promising target SMR file not found or empty"
+fi
+
+if [ -s "{final_targets}" ]; then
+    echo "[TRACKING] Final multi-omics targets found!"
+    head -5 "{final_targets}"
+else
+    echo "[CONCERN] No final multi-omics target TSV found or file is empty"
+fi
 """, falcon_user)
 
 
@@ -481,7 +630,17 @@ def hpc(config: str = "assets/config.yaml"):
     remove_mhc = getattr(cfg, "remove_mhc", True)
     remove_apoe = getattr(cfg, "remove_apoe", False)
     local_results_dir = getattr(cfg, "local_results_dir", "results")
-    overwrite = getattr(cfg, "overwrite", True)
+    overwrite = getattr(cfg, "overwrite", False)
+
+    # define all outputs first so pipeline knows what has already been ran
+    qc_out = f"{out_dir}/QC/{pheno_id}/{pheno_id}.tsv"
+    mr_out = f"results/cis-MR/{pqtl_dataset}_{pheno_id}_all_MR.tsv"
+    coloc_out = f"results/coloc/{pqtl_dataset}/{pqtl_dataset}_{pheno_id}_all_coloc.tsv"
+    promising_smr_out = f"results/SMR/{eqtl_dataset}/{pheno_id}/{pqtl_dataset}_{pheno_id}_promising_targets_SMR.tsv"
+    final_smr_out = f"results/SMR/{eqtl_dataset}/{pheno_id}/{pqtl_dataset}_{pheno_id}_final_multi_omics_targets.tsv"
+
+    # change this where NetworkMR saves its final compiled output
+    network_mr_out = f"results/network-MR/{pqtl_dataset}/{pqtl_dataset}_{pheno_id}_network_MR.tsv"
 
     print("[TRACKING] Preparing Falcon repo...")
     clone_repo(falcon_user)
@@ -489,30 +648,43 @@ def hpc(config: str = "assets/config.yaml"):
     print("[TRACKING] Preparing Falcon env...")
     container_checks(falcon_user)
 
-    print("[TRACKING] Running GWAS QC...")
-    run_gwas_qc(
+    if not check_remote_output(
         falcon_user=falcon_user,
-        pheno_id=pheno_id,
-        sumstats=sumstats,
-        out_dir=out_dir,
-        snp_col=snp_col,
-        a1_col=a1_col,
-        a2_col=a2_col,
-        beta_col=beta_col,
-        se_col=se_col,
-        p_col=p_col,
-        pos_col=pos_col,
-        chr_col=chr_col,
-        af_col=af_col,
-        genome_build=genome_build,
-        target_build=target_build,
-        n_cases=n_cases,
-        n_controls=n_controls,
-        maf=maf,
-        info_threshold=info_threshold,
-        info_col=info_col,
-        remove_mhc=remove_mhc,
-        remove_apoe=remove_apoe,
+        path=qc_out,
+        step="GWAS QC",
+        overwrite=overwrite
+    ):
+        print("[TRACKING] Running GWAS QC...")
+        run_gwas_qc(
+            falcon_user=falcon_user,
+            pheno_id=pheno_id,
+            sumstats=sumstats,
+            out_dir=out_dir,
+            snp_col=snp_col,
+            a1_col=a1_col,
+            a2_col=a2_col,
+            beta_col=beta_col,
+            se_col=se_col,
+            p_col=p_col,
+            pos_col=pos_col,
+            chr_col=chr_col,
+            af_col=af_col,
+            genome_build=genome_build,
+            target_build=target_build,
+            n_cases=n_cases,
+            n_controls=n_controls,
+            maf=maf,
+            info_threshold=info_threshold,
+            info_col=info_col,
+            remove_mhc=remove_mhc,
+            remove_apoe=remove_apoe,
+        )
+
+    require_remote_output(
+        falcon_user=falcon_user,
+        path=qc_out,
+        step="GWAS QC",
+        required_for="cis-region preparation"
     )
 
     if mediators:
@@ -528,78 +700,133 @@ def hpc(config: str = "assets/config.yaml"):
     else:
         print("[TRACKING] No mediators specificed, running drugMR without them then!")
 
-    print("[TRACKING] Preparing cis-regions...")
-    prep_cis_regions(
-        falcon_user=falcon_user,
-        pheno_id=pheno_id,
-        pqtl_dataset=pqtl_dataset,
-        pqtl_dir=pqtl_dir,
-    )
-
-    print("[TRACKING] Running cis-MR...")
-    run_cis_mr(
+    if not check_remote_cis_regions(
         falcon_user=falcon_user,
         pqtl_dataset=pqtl_dataset,
-        pqtl_dir=f"dat/cis_regions/{pqtl_dataset}",
-        pheno_id=pheno_id,
-        pheno_gwas=f"results/QC/{pheno_id}/{pheno_id}.tsv",
-        ref_bfile=ref_bfile,
-    )
-
-    if mediators:
-        print("[TRACKING] Running NetworkMR with mediators...")
-        run_network_mr(
+        overwrite=overwrite
+    ):
+        print("[TRACKING] Preparing cis-regions...")
+        prep_cis_regions(
             falcon_user=falcon_user,
             pheno_id=pheno_id,
-            pheno_gwas=f"results/QC/{pheno_id}/{pheno_id}.tsv",
-            ref_bfile=ref_bfile,
             pqtl_dataset=pqtl_dataset,
             pqtl_dir=pqtl_dir,
         )
+
+    if not check_remote_output(
+        falcon_user=falcon_user,
+        path=mr_out,
+        step="cis-MR",
+        overwrite=overwrite
+    ):
+        print("[TRACKING] Running cis-MR...")
+        run_cis_mr(
+            falcon_user=falcon_user,
+            pqtl_dataset=pqtl_dataset,
+            pqtl_dir=f"dat/cis_regions/{pqtl_dataset}",
+            pheno_id=pheno_id,
+            pheno_gwas=qc_out,
+            ref_bfile=ref_bfile,
+        )
+
+    require_remote_output(
+        falcon_user=falcon_user,
+        path=mr_out,
+        step="cis-MR",
+        required_for="COLOC"
+    )
+
+    if mediators:
+        require_remote_output(
+            falcon_user=falcon_user,
+            path=mr_out,
+            step="cis-MR",
+            required_for="NetworkMR"
+        )
+
+        if not check_remote_output(
+            falcon_user=falcon_user,
+            path=network_mr_out,
+            step="NetworkMR",
+            overwrite=overwrite
+        ):
+            print("[TRACKING] Running NetworkMR with mediators...")
+            run_network_mr(
+                falcon_user=falcon_user,
+                pheno_id=pheno_id,
+                pheno_gwas=qc_out,
+                ref_bfile=ref_bfile,
+                pqtl_dataset=pqtl_dataset,
+                pqtl_dir=f"dat/cis_regions/{pqtl_dataset}",
+            )
     else:
         print("[TRACKING] No mediators specified, skipping NetworkMR.")
 
-    # ******** RE-DO -> ADD if mediators:
-    # ******** RE-DO -> ADD if mediators:
-    # ******** RE-DO -> ADD if mediators:
-    print("[TRACKING] Running COLOC...")
-
-    if mediators:
-        run_coloc_with_mediators(
+    if not check_remote_output(
         falcon_user=falcon_user,
-        pqtl_dataset=pqtl_dataset,
-        pheno_id=pheno_id,
-        n_cases=n_cases,
-        n_controls=n_controls,
-        mediators=mediators,
-        mediator_manifest=mediator_manifest    
-        )
-    else:
-        run_coloc_without_mediators(
+        path=coloc_out,
+        step="COLOC",
+        overwrite=overwrite
+    ):
+        print("[TRACKING] Running COLOC...")
+
+        if mediators:
+            run_coloc_with_mediators(
+                falcon_user=falcon_user,
+                pqtl_dataset=pqtl_dataset,
+                pheno_id=pheno_id,
+                n_cases=n_cases,
+                n_controls=n_controls,
+                mediators=mediators,
+                mediator_manifest=mediator_manifest    
+            )
+        else:
+            run_coloc_without_mediators(
+                falcon_user=falcon_user,
+                pqtl_dataset=pqtl_dataset,
+                pheno_id=pheno_id,
+                n_cases=n_cases,
+                n_controls=n_controls,
+            )
+
+    require_remote_output(
+        falcon_user=falcon_user,
+        path=mr_out,
+        step="cis-MR",
+        required_for="single-cell SMR"
+    )
+
+    require_remote_output(
+        falcon_user=falcon_user,
+        path=coloc_out,
+        step="COLOC",
+        required_for="single-cell SMR"
+    )
+
+    # SMR
+    if not check_remote_output(
+        falcon_user=falcon_user,
+        path=final_smr_out,
+        step="single-cell SMR",
+        overwrite=overwrite
+    ):
+        print(f"[TRACKING] Running single-cell SMR for {eqtl_dataset}...")
+        run_smr(
             falcon_user=falcon_user,
             pqtl_dataset=pqtl_dataset,
-            pheno_id=pheno_id,
-            n_cases=n_cases,
-            n_controls=n_controls,
+            eqtl_dataset=eqtl_dataset,
+            maf=maf,
+            ref_bfile=ref_bfile,
+            sumstats=qc_out,
+            pheno_id=pheno_id
         )
-    
-    # SMR
-    print(f"[TRACKING] Running single-cell SMR for {eqtl_dataset}...")
-    run_smr(
-        falcon_user=falcon_user,
-        pqtl_dataset=pqtl_dataset,
-        eqtl_dataset=eqtl_dataset,
-        maf=maf,
-        ref_bfile=ref_bfile,
-        sumstats=sumstats,
-        pheno_id=pheno_id
-    )
 
     print("[TRACKING] Checking outputs...")
     check_outputs(
         falcon_user=falcon_user,
         pqtl_dataset=pqtl_dataset,
         pheno_id=pheno_id,
+        eqtl_dataset=eqtl_dataset,
     )
 
     print("[TRACKING] Pulling results locally...")
@@ -607,9 +834,11 @@ def hpc(config: str = "assets/config.yaml"):
         falcon_user=falcon_user,
         pqtl_dataset=pqtl_dataset,
         pheno_id=pheno_id,
+        eqtl_dataset=eqtl_dataset,
         local_results_dir=local_results_dir,
         overwrite=overwrite,
     )
 
-
+    print(f"[TRACKING] Expected promising target SMR output: {promising_smr_out}")
+    print(f"[TRACKING] Expected final multi-omics target output: {final_smr_out}")
     print("[DONE] drugMR pipeline completed successfully.")

@@ -16,6 +16,61 @@ def cmd_base(cmd):
     """
     return subprocess.run(cmd, shell=True, check=True, executable="/bin/bash")
 
+def check_output(path: Path, step: str, overwrite: bool = False):
+    # run step if overwrite == True
+    if overwrite:
+        print(f"[TRACKING] Overwrite enabled - rerunning {step}...")
+        return False
+
+    # run step if output does not exist
+    if not path.exists():
+        print(f"[TRACKING] No existing {step} output found - running step...")
+        return False
+
+    # run step if output exists but is empty
+    if path.stat().st_size == 0:
+        print(f"[CONCERN] {step} output exists but is empty - rerunning step...")
+        return False
+
+    print(f"[TRACKING] {step} already completed: {path}")
+    print(f"[TRACKING] Skipping {step}...")
+    return True
+
+def check_cis_regions(cis_dir: Path, overwrite: bool = False):
+    # run step if overwrite == True
+    if overwrite:
+        print("[TRACKING] Overwrite enabled - rerunning cis-region preparation...")
+        return False
+
+    # run step if cis-region directory does not exist
+    if not cis_dir.exists():
+        print("[TRACKING] No existing cis-region directory found - running step...")
+        return False
+
+    # check whether any pQTL cis-regions actually exist
+    n_cis = len(list(cis_dir.glob("*/pqtl.parquet")))
+
+    if n_cis == 0:
+        print("[CONCERN] cis-region directory exists but no pqtl.parquet files were found - rerunning step...")
+        return False
+
+    print(f"[TRACKING] cis-regions already completed: {n_cis} loci found")
+    print("[TRACKING] Skipping cis-region preparation...")
+    return True
+
+def require_output(path: Path, step: str, required_for: str):
+    # do not run downstream step where required upstream output does not exist
+    if not path.exists():
+        raise FileNotFoundError(
+            f"{required_for} cannot run because {step} output was not found: {path}"
+        )
+
+    # do not run downstream step where required upstream output is empty
+    if path.stat().st_size == 0:
+        raise RuntimeError(
+            f"{required_for} cannot run because {step} output is empty: {path}"
+        )
+
 def results(
     config: str = "assets/config.yaml",
     db_id: str = "drugmr",
@@ -31,6 +86,9 @@ def results(
     coloc_res = project_root / "results" / "coloc" / pqtl_dataset / f"{pqtl_dataset}_{pheno_id}_all_coloc.tsv"
     db_script = project_root / db_script
     dashboard_script = project_root / dashboard_script
+
+    require_output(mr_res, "cis-MR", "PostgreSQL loading")
+    require_output(coloc_res, "COLOC", "PostgreSQL loading")
 
     print("[TRACKING] Loading MR results into PostgreSQL...")
 
@@ -118,7 +176,7 @@ def local(config: str = "assets/config.yaml"):
     pos_col = cfg.pos_col
     chr_col = cfg.chr_col
     af_col = cfg.af_col
-    eqtl_dataset = cfg.eqtl_dataset ###### Only SingleBrain ATM
+    eqtl_dataset = cfg.eqtl_dataset ###### Only SingleBrain ATM
     genome_build = cfg.genome_build
     target_build = cfg.target_build
     out_dir = getattr(cfg, "out_dir", "results")
@@ -129,11 +187,43 @@ def local(config: str = "assets/config.yaml"):
     mediator_manifest = getattr(cfg, "mediator_manifest", "")
     remove_mhc = getattr(cfg, "remove_mhc", True)
     remove_apoe = getattr(cfg, "remove_apoe", False)
+    overwrite = getattr(cfg, "overwrite", False)
     image_uri = getattr(cfg, "image_uri", "ghcr.io/guillermocomesanacimadevila/drugmr:latest")
     image_name = getattr(cfg, "image_name", "ghcr.io/guillermocomesanacimadevila/drugmr:latest")
-    
+
     # set projectDir()
     project_root = Path(__file__).resolve().parents[1] # i.e. "Users/.../drugMR"
+
+    # define all outputs first so pipeline knows what has already been ran
+    qc_out = project_root / out_dir / "QC" / pheno_id / f"{pheno_id}.tsv"
+    cis_dir = project_root / "dat" / "cis_regions" / pqtl_dataset
+    mr_out = project_root / "results" / "cis-MR" / f"{pqtl_dataset}_{pheno_id}_all_MR.tsv"
+    coloc_out = project_root / "results" / "coloc" / pqtl_dataset / f"{pqtl_dataset}_{pheno_id}_all_coloc.tsv"
+    promising_smr_out = (
+        project_root
+        / "results"
+        / "SMR"
+        / eqtl_dataset
+        / pheno_id
+        / f"{pqtl_dataset}_{pheno_id}_promising_targets_SMR.tsv"
+    )
+    final_smr_out = (
+        project_root
+        / "results"
+        / "SMR"
+        / eqtl_dataset
+        / pheno_id
+        / f"{pqtl_dataset}_{pheno_id}_final_multi_omics_targets.tsv"
+    )
+
+    # change this where NetworkMR saves its final compiled output
+    network_mr_out = (
+        project_root
+        / "results"
+        / "network-MR"
+        / pqtl_dataset
+        / f"{pqtl_dataset}_{pheno_id}_network_MR.tsv"
+    )
 
     def check_docker():
         print("[TRACKING] Checking Docker...")
@@ -168,7 +258,7 @@ fi
 
     info_args = ""
     if info_col is not None:
-        info_args += f"--info-col {info_col}"
+        info_args += f" --info-col {info_col}"
     if info_threshold is not None:
         info_args += f" --info-threshold {info_threshold}"
 
@@ -179,8 +269,6 @@ fi
         flag_args += " --remove_apoe"
 
     # running individual modules
-    print("[TRACKING] Running GWAS QC locally via Docker...")
-
     cmd_qc = f"""
 set -euo pipefail 
 docker run --rm \\
@@ -209,7 +297,12 @@ docker run --rm \\
     {info_args} \\
     {flag_args}
 """
-    cmd_base(cmd_qc)
+
+    if not check_output(qc_out, "GWAS QC", overwrite):
+        print("[TRACKING] Running GWAS QC locally via Docker...")
+        cmd_base(cmd_qc)
+
+    require_output(qc_out, "GWAS QC", "cis-region preparation")
 
     # mediators stuff
     if mediators:
@@ -232,17 +325,18 @@ docker run --rm \\
     {mediator_args} \\
     --maf {maf}
 """
+        # mediator preparation does not currently have one definite output file
+        # so this reruns where mediators == True
         cmd_base(cmd_m_qc)
 
     else:
         print("[TRACKING] No mediators specificed, running drugMR without them then!")
 
     # cis-region module
-    print("[TRACKING] Preparing cis-regions locally...")
-    
     cmd_cis = f"""
 set -euo pipefail
 docker run --rm \\
+  --platform linux/amd64 \\
   -v "{project_root}:/work" \\
   -w /work \\
   "{image_name}" \\
@@ -251,9 +345,11 @@ docker run --rm \\
     --pheno_id {pheno_id} \\
     --pqtl_dir {pqtl_dir}
 """
-    cmd_base(cmd_cis)
 
-    cis_dir = project_root / "dat" / "cis_regions" / pqtl_dataset
+    if not check_cis_regions(cis_dir, overwrite):
+        print("[TRACKING] Preparing cis-regions locally...")
+        cmd_base(cmd_cis)
+
     print(f"[TRACKING] Checking cis-region output: {cis_dir}")
 
     if not cis_dir.exists():
@@ -266,8 +362,6 @@ docker run --rm \\
         raise RuntimeError("No cis-region files generated. Check pqtl_dir path.")
 
     # cis-MR module 
-    print("[TRACKING] Running cis-MR locally via Docker...")
-
     cmd_mr = f"""
 set -euo pipefail
 docker run --rm \\
@@ -281,15 +375,12 @@ docker run --rm \\
     {out_dir}/QC/{pheno_id}/{pheno_id}.tsv \\
     {ref_bfile}
 """
-    cmd_base(cmd_mr)
 
-    mr_out = project_root / "results" / "cis-MR" / f"{pqtl_dataset}_{pheno_id}_all_MR.tsv"
+    if not check_output(mr_out, "cis-MR", overwrite):
+        print("[TRACKING] Running cis-MR locally via Docker...")
+        cmd_base(cmd_mr)
 
-    if not mr_out.exists():
-        print(f"[CONCERN] MR results file not found: {mr_out}")
-        print("[CONCERN] Skipping COLOC because no MR results were generated.")
-        print("[DONE] Local Docker run completed.")
-        return
+    require_output(mr_out, "cis-MR", "COLOC")
 
     # CMD COLOC TARGETS
     # CMD RUN COLOC (Pairwise)
@@ -299,7 +390,7 @@ docker run --rm \\
     # networkMR (HERE)
         # networkMR
     if mediators:
-        print("[TRACKING] Running NetworkMR with mediators!")
+        require_output(mr_out, "cis-MR", "NetworkMR")
 
         cmd_network_mr = f"""
 set -euo pipefail
@@ -313,82 +404,107 @@ docker run --rm \\
     --pheno_gwas {out_dir}/QC/{pheno_id}/{pheno_id}.tsv \\
     --ref_bfile {ref_bfile} \\
     --pqtl_dataset {pqtl_dataset} \\
-    --pqtl_dir {pqtl_dir} \\
+    --pqtl_dir dat/cis_regions/{pqtl_dataset} \\
     --run_genomewide_mr \\
     --run_cis_mr_X_M \\
     --run_network_mr
 """
-        cmd_base(cmd_network_mr)
+
+        if not check_output(network_mr_out, "NetworkMR", overwrite):
+            print("[TRACKING] Running NetworkMR with mediators!")
+            cmd_base(cmd_network_mr)
     else:
         print("[TRACKING] No mediators specified, skipping NetworkMR.")
 
 
     # coloc target module
     # ******** RE-DO -> AD if mediators:
-    print("[TRACKING] Running COLOC locally...")
-
     # cmd_coloc with mediators
     cmd_coloc_with_mediators = f"""
 set -euo pipefail
 docker run --rm \\
   -v "{project_root}:/work" \\
   -w /work \\
+  -e PYTHONPATH=. \\
   "{image_name}" \\
   python bin/coloc_targets.py \\
     --pqtl_dataset {pqtl_dataset} \\
     --local_results_dir results/cis-MR \\
-    --pqtl_dir dat/cis_regions \\
+    --pqtl_dir dat/cis_regions/{pqtl_dataset} \\
     --pheno_id {pheno_id} \\
     --n_cases {n_cases} \\
     --n_controls {n_controls} \\
     --mediators \\
     --mediator_manifest {mediator_manifest}
 """
-    
-    # without mediators
+
+    # without mediators
     cmd_coloc_without_mediators = f"""
 set -euo pipefail
 docker run --rm \\
   -v "{project_root}:/work" \\
   -w /work \\
+  -e PYTHONPATH=. \\
   "{image_name}" \\
   python bin/coloc_targets.py \\
     --pqtl_dataset {pqtl_dataset} \\
     --local_results_dir results/cis-MR \\
-    --pqtl_dir dat/cis_regions \\
+    --pqtl_dir dat/cis_regions/{pqtl_dataset} \\
     --pheno_id {pheno_id} \\
     --n_cases {n_cases} \\
     --n_controls {n_controls}
 """
-    
-    if mediators:
-        cmd_base(cmd_coloc_with_mediators)
-    else:
-        cmd_base(cmd_coloc_without_mediators)
 
-    print("[DONE] Local Docker run completed.")
+    if not check_output(coloc_out, "COLOC", overwrite):
+        print("[TRACKING] Running COLOC locally...")
 
+        if mediators:
+            cmd_base(cmd_coloc_with_mediators)
+        else:
+            cmd_base(cmd_coloc_without_mediators)
+
+    require_output(coloc_out, "COLOC", "single-cell SMR")
 
     # Integration with other omics layers 
-    # ------ sc-eQTL ------
-    # single-ceLL SMR
-    # ------ ------- ------
-    print(f"[TRACKING] Runnig single-cell SMR for {eqtl_dataset}!")
+    # ------ sc-eQTL ------
+    # single-ceLL SMR
+    # ------ ------- ------
 
     cmd_smr = f"""
 set -euo pipefail 
 docker run --rm \\
   -v "{project_root}:/work" \\
   -w /work \\
-  "{image_name} \\
+  -e PYTHONPATH=. \\
+  "{image_name}" \\
   python bin/sort_single_cell_smr.py \\
     --pqtl_dataset {pqtl_dataset} \\
     --pheno_id {pheno_id} \\
     --eqtl_dataset {eqtl_dataset} \\
-    --sumstats {sumstats} \\
+    --sumstats {out_dir}/QC/{pheno_id}/{pheno_id}.tsv \\
     --ref_bfile {ref_bfile} \\
     --maf {maf}
- """
-    
-    # run this stuff
-    cmd_base(cmd_smr)
+"""
+
+    # SMR depends on both cis-MR and COLOC because it extracts promising targets
+    require_output(mr_out, "cis-MR", "single-cell SMR")
+    require_output(coloc_out, "COLOC", "single-cell SMR")
+
+    # check final compiled output first
+    # where this exists -> no need to rerun genome-wide SMR and compilation
+    if not check_output(final_smr_out, "single-cell SMR", overwrite):
+        print(f"[TRACKING] Runnig single-cell SMR for {eqtl_dataset}!")
+        cmd_base(cmd_smr)
+
+    # check both intermediate and final SMR outputs
+    if promising_smr_out.exists() and promising_smr_out.stat().st_size > 0:
+        print(f"[TRACKING] Promising target SMR results found: {promising_smr_out}")
+    else:
+        print(f"[CONCERN] Promising target SMR file not found or empty: {promising_smr_out}")
+
+    if final_smr_out.exists() and final_smr_out.stat().st_size > 0:
+        print(f"[TRACKING] Final multi-omics targets found: {final_smr_out}")
+    else:
+        print(f"[CONCERN] Final multi-omics target file not found or empty: {final_smr_out}")
+
+    print("[DONE] Local Docker run completed.")
