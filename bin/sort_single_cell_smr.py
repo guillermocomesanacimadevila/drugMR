@@ -90,21 +90,15 @@ def run_single_cell_smr(pqtl_dataset: str, eqtl_dataset: str, pheno_id: str, sum
         df = (
             df
             .select([
-                "SNP",
-                "A1",
-                "A2",
-                "FRQ",
-                "BETA",
-                "SE",
-                "P",
-                "N"
+                pl.col("SNP"),
+                pl.col("A1"),
+                pl.col("A2"),
+                pl.col("FRQ").alias("freq"),
+                pl.col("BETA").alias("b"),
+                pl.col("SE").alias("se"),
+                pl.col("P").alias("p"),
+                pl.col("N")
             ])
-            .rename({
-                "FRQ": "freq",
-                "BETA": "b",
-                "SE": "se",
-                "P": "p"
-            })
             .filter(
                 pl.col("SNP").is_not_null(),
                 pl.col("A1").is_not_null(),
@@ -127,7 +121,8 @@ def run_single_cell_smr(pqtl_dataset: str, eqtl_dataset: str, pheno_id: str, sum
         print(f"[TRACKING] {df.height} GWAS variants retained for SMR")
         temp_sumstats = temp_dir / f"{pheno_id}.ma"
         df.write_csv(temp_sumstats, separator="\t")
-        cell_types = ["Ast", "Ext", "MG", "OD", "OPC", "End", "IN"]
+        # cell_types = ["Ast", "Ext", "MG", "OD", "OPC", "End", "IN"]
+        cell_types = ["MG"]
         eqtls = "./dat/sc-eQTL/SingleBrain/SMR_ready"
         eqtls = Path(eqtls)
         for cell in cell_types:
@@ -243,8 +238,8 @@ def run_single_cell_smr(pqtl_dataset: str, eqtl_dataset: str, pheno_id: str, sum
 
                 # SMR usually calls the gene / probe column Probe
                 # match the gene part of GENE_UNIPROT targets to the SMR Probe column
-                if "Probe" not in smr_df.columns:
-                    print(f"[CONCERN] Probe column not found in {f.name}")
+                if "Gene" not in smr_df.columns:
+                    print(f"[CONCERN] Gene column not found in {f.name}")
                     continue
 
                 target_map = {
@@ -255,9 +250,9 @@ def run_single_cell_smr(pqtl_dataset: str, eqtl_dataset: str, pheno_id: str, sum
 
                 target_smr = (
                     smr_df
-                    .filter(pl.col("Probe").is_in(target_genes))
+                    .filter(pl.col("Gene").is_in(target_genes))
                     .with_columns(
-                        pl.col("Probe").replace(target_map).alias("protein"),
+                        pl.col("Gene").replace(target_map).alias("protein"),
                         pl.lit(cell).alias("cell_type"),
                         pl.lit(pheno_id).alias("phenotype"),
                         pl.lit(eqtl_dataset).alias("eqtl_dataset"),
@@ -278,7 +273,6 @@ def run_single_cell_smr(pqtl_dataset: str, eqtl_dataset: str, pheno_id: str, sum
             print(f"[TRACKING] Compiled promising target SMR results saved to {out_file}")
         else:
             print(f"[CONCERN] No SMR results found for the promising {pqtl_dataset} targets")
-
 
 
 
