@@ -42,7 +42,7 @@ RUN micromamba create -y -n drugmr \
 SHELL ["micromamba", "run", "-n", "drugmr", "/bin/bash", "-c"]
 
 RUN pip install \
-    polars \
+    "polars[rtcompat]" \
     pandas \
     pyarrow \
     sqlalchemy \
@@ -77,7 +77,9 @@ USER root
 COPY dat/ref/SMR/smr /usr/local/bin/smr
 
 # Reminder for myself: DO NOT specify rmr you bellend.
-RUN chmod +x /usr/local/bin/smr
+RUN chmod +x /usr/local/bin/smr && \
+    /usr/local/bin/smr --help >/dev/null 2>&1 || \
+    /usr/local/bin/smr 2>&1 | head
 
 # FIX THIS -----------------
 
