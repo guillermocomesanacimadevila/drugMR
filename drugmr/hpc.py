@@ -458,6 +458,26 @@ apptainer exec --bind "{remote}:/work" \\
     --n_controls {n_controls}"
 """, falcon_user)
 
+def run_multi_omics_summary(
+    falcon_user: str,
+    pheno_id: str,
+    pqtl_dataset: str,
+    eqtl_dataset: str
+):
+    remote, sif = get_remote_paths(falcon_user)
+
+    ssh(f"""
+set -euo pipefail
+cd "{remote}"
+apptainer exec --bind "{remote}:/work" \\
+  --env PYTHONPATH=. \\
+  "{sif}" \\
+  bash -c "cd /work && python bin/summarise_multi_omics.py \\
+    --pheno_id {pheno_id} \\
+    --pqtl_dataset {pqtl_dataset} \\
+    --eqtl_dataset {eqtl_dataset}"
+""", falcon_user)
+
 # **************************
 # **************************
 # ANALYTICS PIPELINE - END
@@ -714,6 +734,8 @@ def hpc(config: str = "assets/config.yaml"):
     prepared_multi_omics_out = f"results/SMR/{eqtl_dataset}/{pheno_id}/{pqtl_dataset}_{pheno_id}_prepared_multi_omics_targets.tsv"
     eqtl_coloc_out = f"results/eQTL_coloc/{pqtl_dataset}/{eqtl_dataset}/{pheno_id}/{pqtl_dataset}_{pheno_id}_{eqtl_dataset}_all_eqtl_coloc.tsv"
     moloc_out = f"results/QTL_moloc/{pqtl_dataset}/{eqtl_dataset}/{pheno_id}/{pqtl_dataset}_{pheno_id}_{eqtl_dataset}_moloc_summary.tsv"
+    summary_out = f"results/SMR/{eqtl_dataset}/{pheno_id}/{pqtl_dataset}_{pheno_id}_multi_omics_overview.tsv"
+    snp_evidence_out = f"results/SMR/{eqtl_dataset}/{pheno_id}/{pqtl_dataset}_{pheno_id}_multi_omics_snp_evidence.tsv"
 
     # change this where NetworkMR saves its final compiled output
     network_mr_out = f"results/network-MR/{pqtl_dataset}/{pqtl_dataset}_{pheno_id}_network_MR.tsv"
@@ -941,6 +963,44 @@ def hpc(config: str = "assets/config.yaml"):
         falcon_user=falcon_user,
         path=moloc_out,
         step="GWAS - pQTL - sc-eQTL MOLOC",
+        required_for="pipeline completion"
+    )
+
+    # grab onto master df for 2 key SNPs
+    overview_done = check_remote_output(
+        falcon_user=falcon_user,
+        path=summary_out,
+        step="multi-omics overview",
+        overwrite=overwrite
+    )
+
+    snp_done = check_remote_output(
+        falcon_user=falcon_user,
+        path=snp_evidence_out,
+        step="multi-omics SNP evidence",
+        overwrite=overwrite
+    )
+
+    if not (overview_done and snp_done):
+        print("[TRACKING] Building dashboard-ready multi-omics tables...")
+        run_multi_omics_summary(
+            falcon_user=falcon_user,
+            pheno_id=pheno_id,
+            pqtl_dataset=pqtl_dataset,
+            eqtl_dataset=eqtl_dataset,
+        )
+
+    require_remote_output(
+        falcon_user=falcon_user,
+        path=summary_out,
+        step="multi-omics overview",
+        required_for="pipeline completion"
+    )
+
+    require_remote_output(
+        falcon_user=falcon_user,
+        path=snp_evidence_out,
+        step="multi-omics SNP evidence",
         required_for="pipeline completion"
     )
 
