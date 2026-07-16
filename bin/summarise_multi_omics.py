@@ -9,7 +9,6 @@ import polars as pl
 # -> extract SNP-level evidence
 # -> save dashboard-ready tables
 
-
 # load all downstream result files
 def load_results(pheno_id: str, pqtl_dataset: str, eqtl_dataset: str):
     base_dir = Path("./results")
@@ -41,7 +40,6 @@ def load_results(pheno_id: str, pqtl_dataset: str, eqtl_dataset: str):
 # merge everything into one final overview
 def build_overview(cis_mr, pqtl_coloc, smr, eqtl_coloc, moloc):
     print("[TRACKING] Building multi-omics overview")
-
     overview = (
         smr
         .join(cis_mr, on="protein", how="left")
@@ -49,9 +47,7 @@ def build_overview(cis_mr, pqtl_coloc, smr, eqtl_coloc, moloc):
         .join(eqtl_coloc, on=["protein","cell_type"], how="left")
         .join(moloc, on=["protein","cell_type"], how="left")
     )
-
     print(overview)
-    
     print(f"[TRACKING] {overview.height} overview rows created")
     return overview
 
