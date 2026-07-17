@@ -1,6 +1,4 @@
 #!/usr/bin/env python3
-import argparse
-import polars as pl
 import numpy as np 
 from scipy.stats import norm
 
