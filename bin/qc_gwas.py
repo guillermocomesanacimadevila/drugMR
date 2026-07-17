@@ -167,7 +167,17 @@ def perform_qc(
     df = df.filter(~pal)
 
     # remove rare variants anf info SCORE 
-    df = df.filter(pl.col(af_col) >= maf)
+    if af_col not in [None, "", "None", "NA", "nan"]:
+        df = df.with_columns(pl.col(af_col).cast(pl.Float64, strict=False))
+        df = df.filter(
+            pl.col(af_col).is_not_null()
+            & (pl.col(af_col) >= maf)
+            & (pl.col(af_col) <= 1 - maf)
+        )
+        print(f"[TRACKING] Applied MAF filter using {af_col}: {maf}")
+    else:
+        print("[TRACKING] No allele-frequency column provided, skipping MAF filtering...")
+    
     if info_col is not None and info_threshold is not None:
         df = df.filter(pl.col(info_col) >= info_threshold)
     

@@ -9,6 +9,10 @@ suppressPackageStartupMessages({
   library(data.table)
 })
 
+# ADD MR-PRESSO
+
+
+
 args <- commandArgs(trailingOnly = TRUE)
 
 if (length(args) < 7) {

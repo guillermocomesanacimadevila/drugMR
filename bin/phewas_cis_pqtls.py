@@ -17,14 +17,12 @@ from statsmodels.stats.multitest import fdrcorrection
 # Make sure pQTL beta == aligned to the FinnGen ALT allele before running Wald ratio
 # For each pheno -> ensure ICD-10 coded
 # For each pheno (from p_nominal and beta) -> compute SE
-
-
 # TO DO'S
 # ONLY KEEP THE ONES WHICH FOLLOW ICD-10 CODING
 # ICD-10 disease endpoints
 # ONLY KEEP ICD-10 disease endpoint pertaining to the defined 2019 chapters (see Supplementary)
-
 # clean pheWAS file to only include the phenos which == present in FinnGen
+
 def clean_phewas_hit(snp: str, rsid: str):
     # snp = "10-96304051-A-G" # chromosome-position-reference-alternative format
     # query SNP using the FinnGen API

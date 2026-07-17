@@ -7,29 +7,29 @@ from drugmr import NetworkMR
 import os
 
 # what do we need to run it for CI/CD testing
-# AD GWAS (pheno_id)
-# ukb_ppp pQTLs (dir) -> after SLURM ETL pipeline
+# AD GWAS (pheno_id)
+# ukb_ppp pQTLs (dir) -> after SLURM ETL pipeline
 # cp -R SCZ GWAS (with different header names onto a mediators directory)
 # adjust params to be permisive for CI/CD testing rather than standard significance thresholds
 
-# DS NetworkMR pipeline
+# DS NetworkMR pipeline
 # dictionary in jupyter notebook {M_id: 'User/Path/...'}
 # FROM NOTEBOOK -> MAKE A MEDIATOR MANIFEST
 # For each protein part of dataset X
 # Run cis-MR (twice) -> For each X -> M
 # Also run M -> Y (whole genome) 
 # results/networkMR/ 3 subdirectories
-# results/networkMR/M_Y/....csv (Genome-wide - one CSV with MR outputs where 1 entry == univariable MR from a mediator M on Y)
-# results/networkMR/X_M/mediator_1/....csv (1 entry == univariable cis-MR - 1 protein vs that mediator)
-# results/networkMR/X_M/mediator_2/....csv (1 entry == univariable cis-MR - 1 protein vs that mediator)
-# results/networkMR/X_M/mediator_N/....csv (1 entry == univariable cis-MR - 1 protein vs that mediator)
+# results/networkMR/M_Y/....csv (Genome-wide - one CSV with MR outputs where 1 entry == univariable MR from a mediator M on Y)
+# results/networkMR/X_M/mediator_1/....csv (1 entry == univariable cis-MR - 1 protein vs that mediator)
+# results/networkMR/X_M/mediator_2/....csv (1 entry == univariable cis-MR - 1 protein vs that mediator)
+# results/networkMR/X_M/mediator_N/....csv (1 entry == univariable cis-MR - 1 protein vs that mediator)
 # results/networkMR/mediation_estimates/...csv (massive CSV with a given protein that FDR significant in X->M and X->Y and also if IVW_p < 0.05 in X->Y run NetworkMR package - here the output of NetworkMR package)
 
 # ARGS
 # pheno_id   
-# pheno_gwas 
-# ref_bfile  
-# out_dir    
+# pheno_gwas 
+# ref_bfile  
+# out_dir    
 # mediator_dict (or another data type which allows for >1 value) THIS IT FOR MEDIATOR SAMPLE SIZE!!!!!
 # pqtl_dataset
 # pqtl_dir
@@ -39,7 +39,7 @@ import os
 # For each M -> run M -> Y (genome-wide)
 # Inherit NMR library from drugmr/ and run NetworkMR
 
-# for each mediatror 
+# for each mediatror 
 
 def run_genomewide_mr(ref_bfile: str, pheno_id: str, pheno_gwas: str):
     genomewide_mr = "./bin/genomewide_mr.R"
@@ -68,10 +68,13 @@ Rscript {genomewide_mr} \\
         res_file = out_dir / f"{M_id}_{pheno_id}_genomewide_MR.tsv"
 
         if res_file.exists():
-            all_results.append(pl.read_csv(res_file, separator="\t"))
+            result = pl.read_csv(res_file, separator="\t", null_values=["NA", "NaN", "nan", ""])
+            numeric_cols = ["mediator_N", "n_instruments", "IVW_beta", "IVW_se", "IVW_pval", "Egger_beta", "Egger_se", "Egger_pval", "egger_intercept", "egger_intercept_pval", "WME_beta", "WME_se", "WME_pval", "Wald_beta", "Wald_se", "Wald_pval", "Q", "Q_df", "Q_pval"]
+            result = result.with_columns([pl.col(col).cast(pl.Float64, strict=False) for col in numeric_cols if col in result.columns])
+            all_results.append(result)
 
     if all_results:
-        compiled = pl.concat(all_results, how="diagonal")
+        compiled = pl.concat(all_results, how="diagonal_relaxed")
         compiled_file = out_dir / f"{pheno_id}_mediator_genomewide_MR.tsv"
         compiled.write_csv(compiled_file, separator="\t")
         print(f"[TRACKING] Saved compiled genome-wide mediator MR results: {compiled_file}")
@@ -168,10 +171,10 @@ mv ./results/cis-MR/{pqtl_dataset}_{mediator_id}_all_MR.tsv \\
             
 
 # B_XM: float  
-# SE_XM: float
-# B_XY: float
+# SE_XM: float
+# B_XY: float
 # SE_XY: float
-# B_MY: float 
+# B_MY: float 
 # SE_MY: float
 
 
@@ -195,11 +198,11 @@ def perform_network_mr(pheno_id: str, pqtl_dataset: str):
     # read M -> Y results
     # AD_mediator_genomewide_MR.tsv
     m_M_to_Y = M_to_Y / f"{pheno_id}_mediator_genomewide_MR.tsv"
-    df_M_to_Y = pl.read_csv(m_M_to_Y, separator="\t")
+    df_M_to_Y = pl.read_csv(m_M_to_Y, separator="\t", null_values=["NA", "NaN", "nan", ""])
 
     # read X -> Y results once
     cis_X_to_Y = X_to_Y / f"{pqtl_dataset}_{pheno_id}_all_MR.tsv"
-    df_X_to_Y = pl.read_csv(cis_X_to_Y, separator="\t")
+    df_X_to_Y = pl.read_csv(cis_X_to_Y, separator="\t", null_values=["NA", "NaN", "nan", ""])
 
     for m in mediators:
         row_M_to_Y = df_M_to_Y.filter(pl.col("mediator") == m)
@@ -208,7 +211,22 @@ def perform_network_mr(pheno_id: str, pqtl_dataset: str):
             print(f"[CONCERN] No M -> Y result for {m}")
             continue
 
-        ivw_p = row_M_to_Y["IVW_pval"][0]
+        n_instruments = int(row_M_to_Y["n_instruments"][0])
+
+        if n_instruments == 1:
+            m_y_method = "Wald ratio"
+            m_y_beta = row_M_to_Y["Wald_beta"][0]
+            m_y_se = row_M_to_Y["Wald_se"][0]
+            m_y_pval = row_M_to_Y["Wald_pval"][0]
+        else:
+            m_y_method = "IVW"
+            m_y_beta = row_M_to_Y["IVW_beta"][0]
+            m_y_se = row_M_to_Y["IVW_se"][0]
+            m_y_pval = row_M_to_Y["IVW_pval"][0]
+
+        if m_y_beta is None or m_y_se is None or m_y_pval is None:
+            print(f"[CONCERN] Missing {m_y_method} result for {m}. Skipping.")
+            continue
 
         # declare cis-MR result output for mediator M
         cis_X_to_M = X_to_M / f"{pqtl_dataset}_{m}_all_MR.tsv"
@@ -217,12 +235,12 @@ def perform_network_mr(pheno_id: str, pqtl_dataset: str):
             print(f"[CONCERN] Missing X -> M cis-MR file for {m}")
             continue
 
-        df_X_to_M = pl.read_csv(cis_X_to_M, separator="\t")
+        df_X_to_M = pl.read_csv(cis_X_to_M, separator="\t", null_values=["NA", "NaN", "nan", ""])
 
-        if ivw_p < 1: ########### CHANGE TO 0.05 -> POST CI/CD TESTING
-            print("[TRACKING] All good! M -> Y IVW p-value < 0.05!")
+        if m_y_pval < 1: ########### CHANGE TO 0.05 -> POST CI/CD TESTING
+            print(f"[TRACKING] All good! M -> Y {m_y_method} p-value passed!")
         else:
-            print(f"[CONCERN] {m} -> {pheno_id} IVW p-value >= 0.05. Skipping.")
+            print(f"[CONCERN] {m} -> {pheno_id} {m_y_method} p-value failed. Skipping.")
             continue
 
         proteins = set(df_X_to_M["protein"].to_list()).intersection(set(df_X_to_Y["protein"].to_list()))
@@ -244,6 +262,14 @@ def perform_network_mr(pheno_id: str, pqtl_dataset: str):
             egger_i_p_x_y = row_X_to_Y["egger_intercept_pval"][0]
             cochan_p_x_y = row_X_to_Y["Q_pval"][0]
 
+            if cis_ivw_p is None or egger_i_p is None or cochan_p is None:
+                print(f"[CONCERN] Missing X -> M IVW sensitivity results for {p} / {m}. Skipping.")
+                continue
+
+            if cis_ivw_p_x_y is None or egger_i_p_x_y is None or cochan_p_x_y is None:
+                print(f"[CONCERN] Missing X -> Y IVW sensitivity results for {p}. Skipping.")
+                continue
+
             if cis_ivw_p < 1 and egger_i_p > 0 and cochan_p > 0: ########### CHANGE ALL TO 0.05 -> POST CI/CD TESTING
                 print(f"[TRACKING] Protein {p} -> passed X -> M cis-MR!")
 
@@ -256,8 +282,8 @@ def perform_network_mr(pheno_id: str, pqtl_dataset: str):
                         SE_XM=row_X_to_M["IVW_se"][0],
                         B_XY=row_X_to_Y["IVW_beta"][0],
                         SE_XY=row_X_to_Y["IVW_se"][0],
-                        B_MY=row_M_to_Y["IVW_beta"][0],
-                        SE_MY=row_M_to_Y["IVW_se"][0],
+                        B_MY=m_y_beta,
+                        SE_MY=m_y_se,
                     )
 
                     # store networkMR res
@@ -272,9 +298,11 @@ def perform_network_mr(pheno_id: str, pqtl_dataset: str):
                         "X_Y_IVW_beta": row_X_to_Y["IVW_beta"][0],
                         "X_Y_IVW_se": row_X_to_Y["IVW_se"][0],
                         "X_Y_IVW_FDR_q": cis_ivw_p_x_y,
-                        "M_Y_IVW_beta": row_M_to_Y["IVW_beta"][0],
-                        "M_Y_IVW_se": row_M_to_Y["IVW_se"][0],
-                        "M_Y_IVW_pval": ivw_p,
+                        "M_Y_method": m_y_method,
+                        "M_Y_n_instruments": n_instruments,
+                        "M_Y_beta": m_y_beta,
+                        "M_Y_se": m_y_se,
+                        "M_Y_pval": m_y_pval,
                         **res
                     }) 
     
