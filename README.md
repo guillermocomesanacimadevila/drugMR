@@ -1,7 +1,6 @@
-# cis-MR pipeline
+drugMR: A Multi-Fluid Multi-Omics Drug Target Discovery Pipeline
 
-Plasma proteins pQTLs from UKBB-PPP and deCODE sources for Alzheimer's disease drug discovery. End-to-end pipeline (local+cloud hybrid) from raw GWAS and pQTL data to a production-ready dashboard.
-
+End-to-end local + cloud hybrid pipeline leveraging plasma and CSF protein QTLs (pQTLs; >10,000 proteins) from UKBB-PPP, deCODE and WU (Olink + SomaScan) for any phenotype of interest (demonstrated in Alzheimer's disease), with or without mediating biomarkers. From raw GWAS and pQTL data to single-cell target prioritisation, mediation analysis and drug safety assessment. Outputs are compiled into a production-ready dashboard.
 ---
 
 ## Clone the repo!
