@@ -9,6 +9,9 @@ import streamlit as st
 from sqlalchemy import inspect
 
 
+# KEY CHANGES DOWN THE LINE WITH MORE PQTL DATASETS 
+# -> CHANGE THE DASHBOARD FUNCT TO ADD EQTL AND PQL ARGS
+
 def create_streamlit_ammenities(db_name: str, port_number: str):
     cmd = f"""
 set -euo pipefail 
@@ -40,6 +43,7 @@ def dashboard(db_name: str, phenotype: str):
     moloc_table = "moloc_results"
     overview_table = "multi_omics_overview"
     snp_table = "multi_omics_snp_evidence"
+    phewas_table = "phewas_safety"
 
     # main aesthetics
     st.set_page_config(page_title=f"{db_name}", layout="wide")
@@ -52,6 +56,8 @@ def dashboard(db_name: str, phenotype: str):
     moloc_file = project_dir / f"results/QTL_moloc/ukb_ppp/SingleBrain/{phenotype}/ukb_ppp_{phenotype}_SingleBrain_moloc_summary.tsv"
     overview_file = project_dir / f"results/SMR/SingleBrain/{phenotype}/ukb_ppp_{phenotype}_multi_omics_overview.tsv"
     snp_file = project_dir / f"results/SMR/SingleBrain/{phenotype}/ukb_ppp_{phenotype}_multi_omics_snp_evidence.tsv"
+    phewas_file = project_dir / f"results/PheWAS/ukb_ppp/{phenotype}/ukb_ppp_{phenotype}_PheWAS.tsv"
+    # "{pqtl_dataset}_{pheno_id}_PheWAS.tsv"
 
     # create new dashboard tables if they do not exist yet
     tables = inspect(conn.engine).get_table_names()
@@ -99,6 +105,26 @@ def dashboard(db_name: str, phenotype: str):
     snp.to_sql(snp_table, conn.engine, if_exists="replace", index=False)
     st.write(f"[TRACKING] Loaded {len(snp)} rows into {snp_table}")
 
+    # phewas gist
+    if not phewas_file.exists():
+        st.warning(f"PheWAS safety result file not found: {phewas_file}")
+        phewas_available = False
+    else:
+        phewas = pd.read_csv(phewas_file, sep="\t")
+        if phewas.empty:
+            st.warning(f"PheWAS safety result file is empty: {phewas_file}")
+            phewas_available = False
+        else:
+            phewas.to_sql(
+                phewas_table,
+                conn.engine,
+                if_exists="replace",
+                index=False
+            )
+
+            st.write(f"[TRACKING] Loaded {len(phewas)} rows into {phewas_table}")
+            phewas_available = True
+
     # load MR + COLOC + multi-omics results
     mr = conn.query(f"SELECT * FROM {mr_table};", ttl=0)
     coloc = conn.query(f"SELECT * FROM {coloc_table};", ttl=0)
@@ -108,6 +134,12 @@ def dashboard(db_name: str, phenotype: str):
     overview = conn.query(f"SELECT * FROM {overview_table};", ttl=0)
     snp = conn.query(f"SELECT * FROM {snp_table};", ttl=0)
     snp = snp[snp["phenotype"] == phenotype].copy()
+    
+    # check whether phewas is avaulable cuz snp_targets.shape[0] might == 0
+    if phewas_available:
+        phewas = conn.query(f"SELECT * FROM {phewas_table};", ttl=0)
+    else:
+        phewas = pd.DataFrame()
 
     # standardise cols of QTL stuff
     # make SMR columns easier to use
@@ -135,6 +167,52 @@ def dashboard(db_name: str, phenotype: str):
     # make MOLOC columns consistent
     moloc = moloc.rename(columns={"model": "moloc_model", "PPA": "moloc_ppa"})
 
+    # make PheWAS columns consistent
+    if not phewas.empty:
+        phewas = phewas.rename(columns={
+            "PROTEIN": "protein",
+            "protein_id": "protein",
+            "PHENO_ID": "pheno_id",
+            "OUTCOME_TRAIT": "outcome_trait",
+            "PHENOCODE": "phenocode",
+            "PHENOSTRING": "phenostring",
+            "CATEGORY": "category",
+            "SNP": "SNP",
+            "RSID": "SNP",
+            "BETA": "beta",
+            "SEBETA": "sebeta",
+            "PVAL": "pval",
+            "WALD_RATIO": "wald_ratio",
+            "WALD_SE": "wald_se",
+            "P_WALD_RATIO": "p_wald_ratio",
+            "WALD_PVAL": "p_wald_ratio",
+            "Q_FDR_WALD_RATIO": "q_fdr_wald_ratio",
+            "WALD_FDR_Q": "q_fdr_wald_ratio",
+            "FDR_SIGNIFICANT": "fdr_significant"
+        })
+
+        for col in [
+            "beta",
+            "sebeta",
+            "pval",
+            "wald_ratio",
+            "wald_se",
+            "p_wald_ratio",
+            "q_fdr_wald_ratio"
+        ]:
+            if col in phewas.columns:
+                phewas[col] = pd.to_numeric(phewas[col], errors="coerce")
+
+        if "fdr_significant" in phewas.columns:
+            phewas["fdr_significant"] = (
+                phewas["fdr_significant"]
+                .astype(str)
+                .str.lower()
+                .isin(["true", "1", "yes"])
+            )
+        elif "q_fdr_wald_ratio" in phewas.columns:
+            phewas["fdr_significant"] = phewas["q_fdr_wald_ratio"].fillna(np.inf) <= 0.05
+
     # MR ammenities
     # if 1 instrument -> use Wald
     # otherwise -> use IVW
@@ -157,10 +235,10 @@ def dashboard(db_name: str, phenotype: str):
     fdr = st.sidebar.slider("MR FDR threshold", 0.0, 1.0, 0.05, 0.01)
     q_pval = st.sidebar.slider("Minimum Cochran Q p-value", 0.0, 1.0, 0.05, 0.01)
     # egger_pval = st.sidebar.slider("Minimum Egger intercept p-value", 0.0, 1.0, 0.05, 0.01)
-    pp4 = st.sidebar.slider("pQTL–GWAS COLOC PP.H4 threshold", 0.0, 1.0, 0.75, 0.01)
+    pp4 = st.sidebar.slider("pQTL–GWAS COLOC PP.H4 threshold", 0.0, 1.0, 0.70, 0.01)
     smr_q = st.sidebar.slider("Single-cell SMR FDR threshold", 0.0, 1.0, 0.05, 0.01)
     heidi_p = st.sidebar.slider("Minimum HEIDI p-value", 0.0, 1.0, 0.01, 0.01)
-    eqtl_pp4 = st.sidebar.slider("GWAS–eQTL COLOC PP.H4 threshold", 0.0, 1.0, 0.75, 0.01)
+    eqtl_pp4 = st.sidebar.slider("GWAS–eQTL COLOC PP.H4 threshold", 0.0, 1.0, 0.70, 0.01)
     moloc_ppa = st.sidebar.slider("Three-trait MOLOC PPA threshold", 0.0, 1.0, 0.70, 0.01)
     cell_types = sorted(smr["cell_type"].dropna().unique())
     selected_cell_types = st.sidebar.multiselect("Cell types", cell_types, default=cell_types)
@@ -182,6 +260,16 @@ def dashboard(db_name: str, phenotype: str):
     moloc_outcome = moloc[moloc["phenotype"] == outcome].copy()
     overview_outcome = overview[overview["phenotype"] == outcome].copy()
     snp_outcome = snp[snp["phenotype"] == outcome].copy()
+
+    if not phewas.empty:
+        phewas_outcome = phewas.copy()
+
+        if "outcome_trait" in phewas_outcome.columns:
+            phewas_outcome = phewas_outcome[phewas_outcome["outcome_trait"] == outcome].copy()
+        elif "pheno_id" in phewas_outcome.columns:
+            phewas_outcome = phewas_outcome[phewas_outcome["pheno_id"] == outcome].copy()
+    else:
+        phewas_outcome = pd.DataFrame()
 
     if "cell_type" in overview_outcome.columns:
         overview_outcome = overview_outcome[overview_outcome["cell_type"].isin(selected_cell_types)]
@@ -273,6 +361,9 @@ def dashboard(db_name: str, phenotype: str):
         overview_outcome = overview_outcome[overview_outcome["protein"].str.contains(protein, case=False, na=False)]
         snp_outcome = snp_outcome[snp_outcome["protein"].str.contains(protein, case=False, na=False)]
 
+        if not phewas_outcome.empty and "protein" in phewas_outcome.columns:
+            phewas_outcome = phewas_outcome[phewas_outcome["protein"].str.contains(protein, case=False, na=False)]
+
     # round coloc posterior probs
     for col in ["pp_h0_abf", "pp_h1_abf", "pp_h2_abf", "pp_h3_abf", "pp_h4_abf"]:
         if col in coloc_pass.columns:
@@ -302,12 +393,13 @@ def dashboard(db_name: str, phenotype: str):
     n_eqtl_coloc = smr_eqtl_coloc_stage["protein"].nunique()
     n_final = final_multi_omics["protein"].nunique()
 
-    tab1, tab2, tab3, tab4, tab5 = st.tabs([
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
         "Overview",
         "cis-MR results",
         "pQTL COLOC",
         "Single-cell evidence",
-        "Final targets"
+        "Final targets",
+        "PheWAS safety"
     ])
 
     with tab1:
@@ -370,21 +462,21 @@ def dashboard(db_name: str, phenotype: str):
             # beta for each 
             # pvalue on that specific thingy (of both top SNPs) (top pQTL SNP and top SMR SNP)
 
-            # so (top pQTL SNP)
+            # so (top pQTL SNP)
             # SNP (rsID)
-            # CHR
+            # CHR
             # POS (GRCh38)
             # protein_id
             # pheno_id
             # pqtl_dataset
-            # A1 (risk allele) on GWAS
+            # A1 (risk allele) on GWAS
             # A2
             # Top pQTL SNP
             # GWAS beta
             # GWAS P
             # pQTL beta
             # pQTL P
-            # sc-eQTL beta
+            # sc-eQTL beta
             # sc-eQTL P
             # ---- NOW THE SAME FOR THE TOP SMR SNP 
 
@@ -504,11 +596,9 @@ def dashboard(db_name: str, phenotype: str):
 
     with tab3:
         st.subheader("pQTL–GWAS colocalisation")
-
         col1, col2 = st.columns(2)
         col1.metric("All COLOC-supported proteins", coloc_pass["protein"].nunique())
         col2.metric("Proteins supported by cis-MR + COLOC", mr_coloc_pass["protein"].nunique())
-
         coloc_tab1, coloc_tab2 = st.tabs(["All COLOC-supported proteins", "cis-MR + COLOC targets"])
 
         with coloc_tab1:
@@ -708,6 +798,233 @@ def dashboard(db_name: str, phenotype: str):
                 "No targets currently pass cis-MR, pQTL COLOC, single-cell SMR/HEIDI, "
                 "GWAS–eQTL COLOC and three-trait MOLOC using the selected thresholds."
             )
+
+
+    with tab6:
+        st.subheader("FinnGen PheWAS safety assessment")
+
+        if phewas_outcome.empty:
+            st.info("No local PheWAS safety results are available for this outcome.")
+
+        elif "protein" not in phewas_outcome.columns:
+            st.error("The PheWAS result file does not contain a protein column.")
+
+        else:
+            phewas_targets = sorted(phewas_outcome["protein"].dropna().astype(str).unique())
+
+            if len(phewas_targets) == 0:
+                st.info("No proteins were found in the PheWAS safety table.")
+
+            else:
+                default_phewas_target = 0
+                final_target_names = final_multi_omics["protein"].dropna().astype(str).unique().tolist()
+
+                for target in final_target_names:
+                    if target in phewas_targets:
+                        default_phewas_target = phewas_targets.index(target)
+                        break
+
+                selected_phewas_target = st.selectbox(
+                    "Select target for PheWAS",
+                    phewas_targets,
+                    index=default_phewas_target,
+                    key="selected_phewas_target"
+                )
+
+                target_phewas = phewas_outcome[
+                    phewas_outcome["protein"].astype(str) == selected_phewas_target
+                ].copy()
+
+                p_col = None
+                beta_col = None
+                fdr_col = None
+
+                for col in ["p_wald_ratio", "pval"]:
+                    if col in target_phewas.columns:
+                        p_col = col
+                        break
+
+                for col in ["wald_ratio", "beta"]:
+                    if col in target_phewas.columns:
+                        beta_col = col
+                        break
+
+                for col in ["q_fdr_wald_ratio", "fdr_q", "qval"]:
+                    if col in target_phewas.columns:
+                        fdr_col = col
+                        break
+
+                if p_col is None or beta_col is None:
+                    st.error(
+                        "The PheWAS result file needs an effect column "
+                        "(wald_ratio or beta) and a p-value column "
+                        "(p_wald_ratio or pval)."
+                    )
+
+                else:
+                    target_phewas = target_phewas[
+                        target_phewas[p_col].notna() &
+                        target_phewas[beta_col].notna() &
+                        (target_phewas[p_col] > 0)
+                    ].copy()
+
+                    if target_phewas.empty:
+                        st.info(f"No valid PheWAS associations were found for {selected_phewas_target}.")
+
+                    else:
+                        target_phewas["minus_log10_p"] = -np.log10(target_phewas[p_col])
+
+                        if fdr_col is not None:
+                            target_phewas["fdr_significant"] = target_phewas[fdr_col].fillna(np.inf) <= 0.05
+                        elif "fdr_significant" not in target_phewas.columns:
+                            target_phewas["fdr_significant"] = False
+
+                        phenotype_col = "phenostring" if "phenostring" in target_phewas.columns else "phenocode"
+                        category_col = "category" if "category" in target_phewas.columns else None
+
+                        n_phenotypes = target_phewas[phenotype_col].nunique()
+                        n_nominal = int((target_phewas[p_col] < 0.05).sum())
+                        n_fdr = int(target_phewas["fdr_significant"].sum())
+
+                        metric1, metric2, metric3 = st.columns(3)
+                        metric1.metric("FinnGen phenotypes tested", int(n_phenotypes))
+                        metric2.metric("Nominal associations", n_nominal)
+                        metric3.metric("FDR-significant associations", n_fdr)
+
+                        st.caption(
+                            "PheWAS effect estimates show the association of the selected cis-pQTL instrument "
+                            "with each FinnGen phenotype. Positive and negative directions should be interpreted "
+                            "after checking the aligned effect allele."
+                        )
+
+                        plot_kwargs = {
+                            "data_frame": target_phewas,
+                            "x": beta_col,
+                            "y": "minus_log10_p",
+                            "hover_name": phenotype_col,
+                            "symbol": "fdr_significant",
+                            "hover_data": {
+                                beta_col: ":.4f",
+                                p_col: ":.3e",
+                                "minus_log10_p": False,
+                                "fdr_significant": True
+                            },
+                            "labels": {
+                                beta_col: "PheWAS effect estimate",
+                                "minus_log10_p": "-log10(PheWAS p-value)",
+                                "fdr_significant": "FDR significant"
+                            },
+                            "title": f"FinnGen PheWAS profile: {selected_phewas_target}",
+                            "height": 600
+                        }
+
+                        if "phenocode" in target_phewas.columns:
+                            plot_kwargs["hover_data"]["phenocode"] = True
+
+                        if category_col is not None:
+                            plot_kwargs["color"] = category_col
+                            plot_kwargs["labels"][category_col] = "FinnGen category"
+
+                        phewas_fig = px.scatter(**plot_kwargs)
+                        phewas_fig.add_hline(y=-np.log10(0.05), line_dash="dash", line_color="grey")
+                        phewas_fig.add_vline(x=0, line_dash="dash", line_color="grey")
+                        st.plotly_chart(phewas_fig, use_container_width=True)
+
+                        st.subheader("FDR-significant PheWAS associations")
+
+                        top_phewas = target_phewas[target_phewas["fdr_significant"]].copy()
+
+                        if fdr_col is not None:
+                            top_phewas = top_phewas.sort_values(fdr_col, ascending=True)
+                        else:
+                            top_phewas = top_phewas.sort_values(p_col, ascending=True)
+
+                        top_phewas = top_phewas.sort_values(beta_col, ascending=True)
+
+                        if top_phewas.empty:
+                            st.info(
+                                f"No FinnGen phenotype associations survive FDR correction for "
+                                f"{selected_phewas_target}."
+                            )
+
+                        else:
+                            top_plot_kwargs = {
+                                "data_frame": top_phewas,
+                                "x": beta_col,
+                                "y": phenotype_col,
+                                "hover_data": {
+                                    beta_col: ":.4f",
+                                    p_col: ":.3e",
+                                    "minus_log10_p": ":.3f"
+                                },
+                                "labels": {
+                                    beta_col: "PheWAS effect estimate",
+                                    phenotype_col: ""
+                                },
+                                "title": "FDR-significant PheWAS associations",
+                                "height": max(450, 45 * len(top_phewas))
+                            }
+
+                            if "phenocode" in top_phewas.columns:
+                                top_plot_kwargs["hover_data"]["phenocode"] = True
+
+                            if category_col is not None:
+                                top_plot_kwargs["color"] = category_col
+                                top_plot_kwargs["labels"][category_col] = "FinnGen category"
+
+                            top_phewas_fig = px.scatter(**top_plot_kwargs)
+                            top_phewas_fig.add_vline(x=0, line_dash="dash", line_color="grey")
+                            st.plotly_chart(top_phewas_fig, use_container_width=True)
+
+                        phewas_cols = [
+                            "protein",
+                            "SNP",
+                            "phenocode",
+                            "phenostring",
+                            "category",
+                            beta_col,
+                            p_col,
+                            fdr_col,
+                            "fdr_significant"
+                        ]
+
+                        phewas_cols = [
+                            col for col in phewas_cols
+                            if col is not None and col in target_phewas.columns
+                        ]
+
+                        significant_phewas = target_phewas[
+                            target_phewas["fdr_significant"]
+                        ].copy()
+
+                        if fdr_col is not None:
+                            significant_phewas = significant_phewas.sort_values(fdr_col, ascending=True)
+                        else:
+                            significant_phewas = significant_phewas.sort_values(p_col, ascending=True)
+
+                        if significant_phewas.empty:
+                            st.success("No FinnGen phenotype associations survive FDR correction for this target.")
+                        else:
+                            st.dataframe(
+                                significant_phewas[phewas_cols],
+                                use_container_width=True,
+                                hide_index=True
+                            )
+
+                        with st.expander("View all PheWAS associations"):
+                            remaining_cols = [col for col in target_phewas.columns if col not in phewas_cols]
+                            st.dataframe(
+                                target_phewas[phewas_cols + remaining_cols].sort_values(p_col, ascending=True),
+                                use_container_width=True,
+                                hide_index=True
+                            )
+
+                        st.download_button(
+                            label=f"Download {selected_phewas_target} PheWAS results",
+                            data=target_phewas.to_csv(index=False, sep="\t"),
+                            file_name=f"{selected_phewas_target}_{outcome}_FinnGen_PheWAS.tsv",
+                            mime="text/tab-separated-values"
+                        )
 
 
 def main():
