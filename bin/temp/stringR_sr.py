@@ -1,14 +1,22 @@
 import stringdb
 
-# Map gene symbol -> STRING ID
-ids = stringdb.get_string_ids(["ADAM10"])
+# Map BLNK to its STRING ID
+ids = stringdb.get_string_ids(["BLNK"])
+blnk_id = ids.loc[0, "stringId"]
 
-string_id = ids.loc[0, "stringId"]
+# Get BLNK's interaction partners
+partners = stringdb.get_interaction_partners([blnk_id])
 
-# Retrieve interaction partners
-partners = stringdb.get_interaction_partners([string_id])
+# BLNK + all returned partner IDs
+network_ids = [blnk_id, *partners["stringId_B"].drop_duplicates().tolist()]
 
-print(partners)
+# Retrieve every interaction among those proteins
+network = stringdb.get_network(network_ids)
+
+print(network)
+print()
+print(f"Nodes: {len(set(network['stringId_A']) | set(network['stringId_B']))}")
+print(f"Edges: {len(network)}")
 
 # BRANCH INTO TWO DIFFERNT BRANCHES OF TARGATS WHICH SURVIVED PASSED SMR AND COLOC
 # TREAT SEPARATELY 
