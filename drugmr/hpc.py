@@ -478,6 +478,70 @@ apptainer exec --bind "{remote}:/work" \\
     --eqtl_dataset {eqtl_dataset}"
 """, falcon_user)
 
+
+# RUN PHEWAS CHECKS FOR SAFETY (LOCALLY) -> API != WORK IN SLURM HPC
+# ******************************************************************
+
+def phewas_safety(
+    pheno_id: str,
+    pqtl_dataset: str,
+    eqtl_dataset: str,
+    local_results_dir: str = "results",
+    overwrite: bool = False
+):
+    project_root = Path(__file__).resolve().parents[1]
+    local_results_dir = Path(local_results_dir)
+
+    if not local_results_dir.is_absolute():
+        local_results_dir = project_root / local_results_dir
+
+    top_snp_file = (
+        local_results_dir
+        / "SMR"
+        / eqtl_dataset
+        / pheno_id
+        / f"{pqtl_dataset}_{pheno_id}_multi_omics_snp_evidence.tsv"
+    )
+
+    phewas_out = (
+        local_results_dir
+        / "PheWAS"
+        / pqtl_dataset
+        / pheno_id
+        / f"{pqtl_dataset}_{pheno_id}_PheWAS.tsv"
+    )
+
+    if phewas_out.exists() and phewas_out.stat().st_size > 0 and not overwrite:
+        print(f"[TRACKING] PheWAS safety analysis already completed: {phewas_out}")
+        print("[TRACKING] Skipping PheWAS safety analysis...")
+        return
+
+    if overwrite:
+        print("[TRACKING] Overwrite enabled - rerunning PheWAS safety analysis...")
+    else:
+        print("[TRACKING] No existing PheWAS safety output found - running step...")
+
+    phewas_out.parent.mkdir(parents=True, exist_ok=True)
+
+    cmd = f"""
+set -euo pipefail
+cd "{project_root}"
+python bin/phewas_cis_pqtls.py \\
+  --pheno_id {pheno_id} \\
+  --pqtl_dataset {pqtl_dataset} \\
+  --eqtl_dataset {eqtl_dataset}
+"""
+
+    print(f"[TRACKING] PheWAS SNP evidence input found: {top_snp_file}")
+    print("[TRACKING] Running PheWAS safety analysis locally...")
+    subprocess.run(cmd, shell=True, check=True, executable="/bin/bash")
+    print(f"[TRACKING] PheWAS safety results found: {phewas_out}")
+
+
+# ******************************************************************
+# ******************************************************************
+
+
 # **************************
 # **************************
 # ANALYTICS PIPELINE - END
@@ -1017,6 +1081,15 @@ def hpc(config: str = "assets/config.yaml"):
         falcon_user=falcon_user,
         pqtl_dataset=pqtl_dataset,
         pheno_id=pheno_id,
+        eqtl_dataset=eqtl_dataset,
+        local_results_dir=local_results_dir,
+        overwrite=overwrite,
+    )
+
+    print("[TRACKING] Running PheWAS safety analysis locally...")
+    phewas_safety(
+        pheno_id=pheno_id,
+        pqtl_dataset=pqtl_dataset,
         eqtl_dataset=eqtl_dataset,
         local_results_dir=local_results_dir,
         overwrite=overwrite,

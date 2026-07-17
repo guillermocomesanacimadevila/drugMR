@@ -239,6 +239,16 @@ def local(config: str = "assets/config.yaml"):
         / pheno_id
         / f"{pqtl_dataset}_{pheno_id}_multi_omics_snp_evidence.tsv"
     )
+
+    # phewas - ukb_ppp_AD_PheWAS.tsv
+    phewas_out = (
+        project_root
+        / "results"
+        / "PheWAS"
+        / pqtl_dataset
+        / pheno_id
+        / f"{pqtl_dataset}_{pheno_id}_PheWAS.tsv"
+    )
     
     # change this where NetworkMR saves its final compiled output
     network_mr_out = (
@@ -601,4 +611,31 @@ docker run --rm \\
     require_output(snp_evidence_out, "multi-omics SNP evidence", "pipeline completion")
     print(f"[TRACKING] Multi-omics overview found: {summary_out}")
     print(f"[TRACKING] SNP evidence table found: {snp_evidence_out}")
+
+
+        # PheWAS stuff
+    cmd_phewas = f"""
+set -euo pipefail 
+docker run --rm \\
+  -v "{project_root}:/work" \\
+  -w /work \\
+  -e PYTHONPATH=. \\
+  "{image_name}" \\
+  python bin/phewas_cis_pqtls.py \\
+    --pheno_id {pheno_id} \\
+    --pqtl_dataset {pqtl_dataset} \\
+    --eqtl_dataset {eqtl_dataset}
+"""
+
+    # PheWAS depends on the final multi-omics target results
+    require_output(summary_out, "multi-omics overview", "PheWAS")
+    require_output(snp_evidence_out, "multi-omics SNP evidence", "PheWAS")
+
+    if not check_output(phewas_out, "PheWAS safety analysis", overwrite):
+        print("[TRACKING] Running PheWAS safety analysis locally...")
+        cmd_base(cmd_phewas)
+
+    require_output(phewas_out, "PheWAS safety analysis", "pipeline completion")
+    print(f"[TRACKING] PheWAS safety results found: {phewas_out}")
+    
     print("[DONE] Local Docker run completed.")
