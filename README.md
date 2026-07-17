@@ -1,6 +1,7 @@
-drugMR: A Multi-Fluid Multi-Omics Drug Target Discovery Pipeline
+# drugMR: A Multi-Fluid Multi-Omics Drug Target Discovery Pipeline
 
 End-to-end local + cloud hybrid pipeline leveraging plasma and CSF protein QTLs (pQTLs; >10,000 proteins) from UKBB-PPP, deCODE and WU (Olink + SomaScan) for any phenotype of interest (demonstrated in Alzheimer's disease), with or without mediating biomarkers. From raw GWAS and pQTL data to single-cell target prioritisation, mediation analysis and drug safety assessment. Outputs are compiled into a production-ready dashboard.
+
 ---
 
 ## Clone the repo!
