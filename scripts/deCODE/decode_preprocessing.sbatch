@@ -3,16 +3,16 @@
 #SBATCH --job-name=decode
 #SBATCH --account=SCWF00036_v_escott-price_34
 #SBATCH --partition=compute
-#SBATCH --output=/shared/home1/c.c24102394/drugMR/logs/decode_%j.out
-#SBATCH --error=/shared/home1/c.c24102394/drugMR/logs/decode_%j.err
+#SBATCH --output=/shared/home1/c.user/drugMR/logs/decode_%j.out
+#SBATCH --error=/shared/home1/c.user/drugMR/logs/decode_%j.err
 #SBATCH --time=2-00:00
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=4
-#SBATCH --mem=64G
+#SBATCH --mem=16G
 
 set -euo pipefail
 
-project_dir="/shared/home1/c.c24102394/drugMR"
+project_dir="/shared/home1/c.user/drugMR"
 container="/usr/bin/apptainer"
 
 cd "${project_dir}"
@@ -52,6 +52,8 @@ fi
 }
 
 echo "[TRACKING] Starting deCODE preprocessing..."
+
+export POLARS_MAX_THREADS="${SLURM_CPUS_PER_TASK}"
 
 "${container}" exec \
     --bind "${project_dir}:${project_dir}" \
