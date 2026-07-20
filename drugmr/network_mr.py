@@ -31,6 +31,10 @@ from scipy.stats import norm
 # results/networkMR/X_M/mediator_N/....csv (1 entry == univariable cis-MR - 1 protein vs that mediator)
 # results/networkMR/mediation_estimates/...csv (massive CSV with a given protein that FDR significant in X->M and X->Y and also if IVW_p < 0.05 in X->Y run NetworkMR package - here the output of NetworkMR package)
 
+# MR object
+
+# IVW for  
+# class PyTwoSampleMR(self):
 
 
 # CREATE A MEDIATOR MANIFEST FUNCTION
