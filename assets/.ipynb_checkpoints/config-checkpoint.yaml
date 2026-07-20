@@ -18,7 +18,7 @@
   eqtl_dataset: SingleBrain                                  # eQTL (single-cell) dataset of use (currently only SingleBrain)
   pqtl_dir: dat/pqtl/ukb_ppp                                 # Path to dataset pQTLs
   ref_bfile: dat/ref/1000G_EUR_Phase3_plink/1000G.EUR.QC.ALL # Path to reference pannel (1,000 genomes)
-  mediators: true                                            # True / False flag as to whether you want to include mediator analysis 
+  mediators: false                                           # True / False flag as to whether you want to include mediator analysis 
   mediator_manifest: assets/mediator_manifest.csv            # Path to mediator manifest outlining mediators
   maf: 0.01                                                  # Minor allele frequency cut-off in outcome GWAS
   overwrite: false                                           # Overwrite all current output files

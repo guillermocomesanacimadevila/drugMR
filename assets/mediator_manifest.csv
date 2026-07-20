@@ -1,7 +1,4 @@
 pheno_id,sumstats,snp_col,a1_col,a2_col,chr_col,pos_col,beta_col,se_col,p_col,af_col,info_col,info_threshold,genome_build,target_build,n_total
-AB40,./dat/gwas/mediators/AB40.tsv,SNP,A1,A2,CHR,BP,BETA,SE,P,FRQ,,,GRCh38,GRCh38,1907
-AB42,./dat/gwas/mediators/AB42.tsv,SNP,A1,A2,CHR,BP,BETA,SE,P,FRQ,,,GRCh38,GRCh38,1903
-AB42_AB40,./dat/gwas/mediators/AB42_AB40.tsv,SNP,A1,A2,CHR,BP,BETA,SE,P,FRQ,,,GRCh38,GRCh38,1894
-GFAP,./dat/gwas/mediators/GFAP.tsv,SNP,A1,A2,CHR,BP,BETA,SE,P,FRQ,,,GRCh38,GRCh38,1895
-pTau,./dat/gwas/mediators/pTau.tsv,SNP,A1,A2,CHR,BP,BETA,SE,P,FRQ,,,GRCh38,GRCh38,1861
-NfL,./dat/gwas/mediators/NfL.tsv,SNP,A1,A2,CHR,BP,BETA,SE,P,FRQ,,,GRCh38,GRCh38,1839
+AB42,./dat/gwas/mediators/AB42.tsv,SNP,A1,A2,CHR,BP,BETA,SE,P,FRQ,,,GRCh38,GRCh38,18948
+flTau,./dat/gwas/mediators/flTau.tsv,SNP,A1,A2,CHR,BP,BETA,SE,P,FRQ,,,GRCh38,GRCh38,18948
+pTau181,./dat/gwas/mediators/pTau181.tsv,SNP,A1,A2,CHR,BP,BETA,SE,P,FRQ,,,GRCh38,GRCh38,18948
