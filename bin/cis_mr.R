@@ -50,399 +50,428 @@ dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
 mr_function <- function(pqtl_dataset, pqtl_dir, pheno_id, pheno_gwas, ref_bfile, out_dir) {
   
   # dataset specfic 
+  supported_datasets <- c(
+    "ukb_ppp",
+    "decode",
+    "wu_csf"
+  )
+  
+  if (!pqtl_dataset %in% supported_datasets) {
+    stop(
+      paste0(
+        "Unsupported pQTL dataset: ",
+        pqtl_dataset,
+        ". Supported datasets: ",
+        paste(supported_datasets, collapse = ", ")
+      )
+    )
+  }
+  
   if (pqtl_dataset == "ukb_ppp") {
-    protein_dirs <- list.dirs(
-      pqtl_dir,
-      recursive = FALSE,
-      full.names = TRUE
-    )
+    dataset_label <- "UKBB-PPP"
+  }
+  
+  if (pqtl_dataset == "decode") {
+    dataset_label <- "deCODE"
+  }
+  
+  if (pqtl_dataset == "wu_csf") {
+    dataset_label <- "WU-CSF"
+  }
+  
+  protein_dirs <- list.dirs(
+    pqtl_dir,
+    recursive = FALSE,
+    full.names = TRUE
+  )
+  
+  pb <- progress_bar$new(
+    total = length(protein_dirs),
+    format = "[:bar] :current/:total (:percent) ETA: :eta | :protein",
+    clear = FALSE
+  )
+  
+  # compile all res
+  all_results <- list()
+  
+  # this is just so if one protein crashes later, we dont lose all the ones that worked
+  out_file_running <- file.path(out_dir, paste0(pqtl_dataset, "_", pheno_id, "_all_MR.running.tsv"))
+  out_file_final <- file.path(out_dir, paste0(pqtl_dataset, "_", pheno_id, "_all_MR.tsv"))
+  
+  if (file.exists(out_file_running)) {
+    file.remove(out_file_running)
+  }
+  
+  for (i in protein_dirs) {
     
-    pb <- progress_bar$new(
-      total = length(protein_dirs),
-      format = "[:bar] :current/:total (:percent) ETA: :eta | :protein",
-      clear = FALSE
-    )
-    
-    # compile all res
-    all_results <- list()
-    
-    # this is just so if one protein crashes later, we dont lose all the ones that worked
-    out_file_running <- file.path(out_dir, paste0(pqtl_dataset, "_", pheno_id, "_all_MR.running.tsv"))
-    out_file_final <- file.path(out_dir, paste0(pqtl_dataset, "_", pheno_id, "_all_MR.tsv"))
-    
-    if (file.exists(out_file_running)) {
-      file.remove(out_file_running)
-    }
-    
-    for (i in protein_dirs) {
+    tryCatch({
       
-      tryCatch({
-        
-        protein <- basename(i)
-        print(paste0("[TRACKING] Processing ", protein))
-        pqtl_file <- file.path(i, "pqtl.parquet")
-        gwas_file <- file.path(i, "gwas.parquet")
-        
-        if (!file.exists(pqtl_file)) {
-          print(paste0("[CONCERN] Missing pqtl.parquet for ", protein))
-          pb$tick(tokens = list(protein = protein))
-          next
-        }
-        
-        if (!file.exists(gwas_file)) {
-          print(paste0("[CONCERN] Missing gwas.parquet for ", protein))
-          pb$tick(tokens = list(protein = protein))
-          next
-        }
-        
-        # read exposure (i.e. pQTL)
-        cat("> Reading exposure pQTLs from UKBB-PPP...\n")
-        df <- arrow::read_parquet(pqtl_file)
-        
-        # skip empty pQTL datasets
-        if (nrow(df) == 0) {
-          print(paste0("[CONCERN] Empty pqtl.parquet for ", protein))
-          pb$tick(tokens = list(protein = protein))
-          next
-        }
-        
-        df <- as.data.table(df)
-        setorder(df, P)
-        df <- df[!duplicated(SNP)]
-        df <- as.data.frame(df)
-        print(dim(df))
-        
-        # read outcome data
-        cat("> Reading outcome GWAS...\n")
-        df_pheno <- arrow::read_parquet(gwas_file)
-        
-        # skip empty GWAS datasets
-        if (nrow(df_pheno) == 0) {
-          print(paste0("[CONCERN] Empty gwas.parquet for ", protein))
-          pb$tick(tokens = list(protein = protein))
-          next
-        }
-        
-        df_pheno <- as.data.table(df_pheno)
-        setorder(df_pheno, P)
-        df_pheno <- df_pheno[!duplicated(SNP)]
-        df_pheno <- as.data.frame(df_pheno)
-        print(dim(df_pheno))
-        
-        exposure <- format_data(
-          df,
-          type              = "exposure",
-          snp_col           = "SNP",
-          beta_col          = "BETA",
-          se_col            = "SE",
-          effect_allele_col = "A1",
-          other_allele_col  = "A2",
-          eaf_col           = "FRQ",
-          pval_col          = "P",
-          samplesize_col    = "N",
-          phenotype_col     = protein
-        )
-        # check shape 
-        dim(exposure)
-        
-        outcome <- format_data(
-          df_pheno,
-          type              = "outcome",
-          snp_col           = "SNP",
-          beta_col          = "BETA",
-          se_col            = "SE",
-          effect_allele_col = "A1",
-          other_allele_col  = "A2",
-          eaf_col           = "FRQ",
-          pval_col          = "P",
-          samplesize_col    = "N",
-          phenotype_col     = pheno_id
-        )
-        # check shape
-        dim(outcome)
-        
-        # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-        # Relevance assumption ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-        # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-        exposure$pval.exposure <- as.numeric(exposure$pval.exposure)
-        exposure <- exposure[exposure$pval.exposure < 5e-8, ]
-        exposure <- exposure[
-          exposure$eaf.exposure > 0.01 &
-            exposure$eaf.exposure < 0.99,
-        ]
-        exposure$F <- (exposure$beta.exposure^2) / (exposure$se.exposure^2)
-        exposure <- exposure[exposure$F >= 10, ]
-        
-        print(paste0("[TRACKING] Instruments after p/F filters: ", nrow(exposure)))
-        
-        if (nrow(exposure) == 0) {
-          print(paste0("No instruments after p/F filters for ", protein))
-          pb$tick(tokens = list(protein = protein))
-          next
-        }
-        
-        # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-        # LD Clump -> Ind IVs ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-        # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-        dat <- harmonise_data(exposure, outcome)
-        if (nrow(dat) > 0) {
-          dat.clump <- data.table::as.data.table(dat)
-          dat.clump[, rsid := SNP]
-          dat.clump[, pval := pval.exposure]
-          
-          dat.clump <- tryCatch(
-            {
-              ld_clump(
-                dat.clump,
-                clump_kb = 10000,
-                clump_r2 = 0.001,
-                plink_bin = Sys.which("plink"),
-                # plink_bin = genetics.binaRies::get_plink_binary(),
-                bfile = ref_bfile
-              )
-            },
-            error = function(e) {
-              print(paste0("[CONCERN] LD clumping failed for ", protein, " - ", e$message))
-              return(NULL)
-            }
-          )
-          
-          if (is.null(dat.clump)) {
-            print(paste0("[CONCERN] No clumped file / no LD clump results for ", protein))
-            pb$tick(tokens = list(protein = protein))
-            next
-          }
-          
-          if (nrow(dat.clump) == 0) {
-            print(paste0("[CONCERN] No instruments after clumping for ", protein))
-            pb$tick(tokens = list(protein = protein))
-            next
-          }
-          
-          print(paste0("[TRACKING] Instruments after clumping: ", nrow(dat.clump)))
-          
-          # HEREE ******* - SAVE as INSTRUMENTS.tsv (for that particular protein)
-          # Then save onto results/IVs/protein-wide .parquet file with instruments
-        } else {
-          print(paste0("No harmonised SNPs for ", protein))
-          pb$tick(tokens = list(protein = protein))
-          next
-        }
-        
-        # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-        # Steiger filtering
-        # Keep SNPs where R2_GX > R2_GY
-        # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-        
-        dat.clump <- as.data.frame(dat.clump)
+      protein <- basename(i)
+      print(paste0("[TRACKING] Processing ", protein))
+      pqtl_file <- file.path(i, "pqtl.parquet")
+      gwas_file <- file.path(i, "gwas.parquet")
+      
+      if (!file.exists(pqtl_file)) {
+        print(paste0("[CONCERN] Missing pqtl.parquet for ", protein))
+        pb$tick(tokens = list(protein = protein))
+        next
+      }
+      
+      if (!file.exists(gwas_file)) {
+        print(paste0("[CONCERN] Missing gwas.parquet for ", protein))
+        pb$tick(tokens = list(protein = protein))
+        next
+      }
+      
+      # read exposure (i.e. pQTL)
+      cat(paste0("> Reading exposure pQTLs from ", dataset_label, "...\n"))
+      df <- arrow::read_parquet(pqtl_file)
+      
+      # skip empty pQTL datasets
+      if (nrow(df) == 0) {
+        print(paste0("[CONCERN] Empty pqtl.parquet for ", protein))
+        pb$tick(tokens = list(protein = protein))
+        next
+      }
+      
+      df <- as.data.table(df)
+      setorder(df, P)
+      df <- df[!duplicated(SNP)]
+      df <- as.data.frame(df)
+      print(dim(df))
+      
+      # read outcome data
+      cat("> Reading outcome GWAS...\n")
+      df_pheno <- arrow::read_parquet(gwas_file)
+      
+      # skip empty GWAS datasets
+      if (nrow(df_pheno) == 0) {
+        print(paste0("[CONCERN] Empty gwas.parquet for ", protein))
+        pb$tick(tokens = list(protein = protein))
+        next
+      }
+      
+      df_pheno <- as.data.table(df_pheno)
+      setorder(df_pheno, P)
+      df_pheno <- df_pheno[!duplicated(SNP)]
+      df_pheno <- as.data.frame(df_pheno)
+      print(dim(df_pheno))
+      
+      exposure <- format_data(
+        df,
+        type              = "exposure",
+        snp_col           = "SNP",
+        beta_col          = "BETA",
+        se_col            = "SE",
+        effect_allele_col = "A1",
+        other_allele_col  = "A2",
+        eaf_col           = "FRQ",
+        pval_col          = "P",
+        samplesize_col    = "N",
+        phenotype_col     = protein
+      )
+      # check shape 
+      dim(exposure)
+      
+      outcome <- format_data(
+        df_pheno,
+        type              = "outcome",
+        snp_col           = "SNP",
+        beta_col          = "BETA",
+        se_col            = "SE",
+        effect_allele_col = "A1",
+        other_allele_col  = "A2",
+        eaf_col           = "FRQ",
+        pval_col          = "P",
+        samplesize_col    = "N",
+        phenotype_col     = pheno_id
+      )
+      # check shape
+      dim(outcome)
+      
+      # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+      # Relevance assumption ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+      # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+      exposure$pval.exposure <- as.numeric(exposure$pval.exposure)
+      exposure <- exposure[exposure$pval.exposure < 5e-8, ]
+      exposure <- exposure[
+        exposure$eaf.exposure > 0.01 &
+          exposure$eaf.exposure < 0.99,
+      ]
+      exposure$F <- (exposure$beta.exposure^2) / (exposure$se.exposure^2)
+      exposure <- exposure[exposure$F >= 10, ]
+      
+      print(paste0("[TRACKING] Instruments after p/F filters: ", nrow(exposure)))
+      
+      if (nrow(exposure) == 0) {
+        print(paste0("No instruments after p/F filters for ", protein))
+        pb$tick(tokens = list(protein = protein))
+        next
+      }
+      
+      # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+      # LD Clump -> Ind IVs ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+      # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+      dat <- harmonise_data(exposure, outcome)
+      if (nrow(dat) > 0) {
+        dat.clump <- data.table::as.data.table(dat)
+        dat.clump[, rsid := SNP]
+        dat.clump[, pval := pval.exposure]
         
         dat.clump <- tryCatch(
           {
-            steiger_filtering(dat.clump)
+            ld_clump(
+              dat.clump,
+              clump_kb = 10000,
+              clump_r2 = 0.001,
+              plink_bin = Sys.which("plink"),
+              # plink_bin = genetics.binaRies::get_plink_binary(),
+              bfile = ref_bfile
+            )
           },
           error = function(e) {
-            print(paste0("[CONCERN] Steiger filtering failed for ", protein, " - ", e$message))
+            print(paste0("[CONCERN] LD clumping failed for ", protein, " - ", e$message))
             return(NULL)
           }
         )
         
         if (is.null(dat.clump)) {
+          print(paste0("[CONCERN] No clumped file / no LD clump results for ", protein))
           pb$tick(tokens = list(protein = protein))
           next
         }
-        
-        dat.clump <- dat.clump[dat.clump$steiger_dir == TRUE, ]
-        
-        print(paste0("[TRACKING] Instruments after Steiger filtering: ", nrow(dat.clump)))
         
         if (nrow(dat.clump) == 0) {
-          print(paste0("No instruments after Steiger filtering for ", protein))
+          print(paste0("[CONCERN] No instruments after clumping for ", protein))
           pb$tick(tokens = list(protein = protein))
           next
         }
         
-        dat.clump <- data.table::as.data.table(dat.clump)
+        print(paste0("[TRACKING] Instruments after clumping: ", nrow(dat.clump)))
         
-        # ~~~~~~~~~~
-        # run MR
-        # ~~~~~~~~~~
-        if (nrow(dat.clump) >= 3) {
-          res.temp <- tryCatch(
-            {
-              mr(
-                dat.clump,
-                method_list = c(
-                  "mr_ivw",
-                  "mr_egger_regression",
-                  "mr_weighted_median"
-                )
+        # HEREE ******* - SAVE as INSTRUMENTS.tsv (for that particular protein)
+        # Then save onto results/IVs/protein-wide .parquet file with instruments
+      } else {
+        print(paste0("No harmonised SNPs for ", protein))
+        pb$tick(tokens = list(protein = protein))
+        next
+      }
+      
+      # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+      # Steiger filtering
+      # Keep SNPs where R2_GX > R2_GY
+      # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+      
+      dat.clump <- as.data.frame(dat.clump)
+      
+      dat.clump <- tryCatch(
+        {
+          steiger_filtering(dat.clump)
+        },
+        error = function(e) {
+          print(paste0("[CONCERN] Steiger filtering failed for ", protein, " - ", e$message))
+          return(NULL)
+        }
+      )
+      
+      if (is.null(dat.clump)) {
+        pb$tick(tokens = list(protein = protein))
+        next
+      }
+      
+      dat.clump <- dat.clump[dat.clump$steiger_dir == TRUE, ]
+      
+      print(paste0("[TRACKING] Instruments after Steiger filtering: ", nrow(dat.clump)))
+      
+      if (nrow(dat.clump) == 0) {
+        print(paste0("No instruments after Steiger filtering for ", protein))
+        pb$tick(tokens = list(protein = protein))
+        next
+      }
+      
+      dat.clump <- data.table::as.data.table(dat.clump)
+      
+      # ~~~~~~~~~~
+      # run MR
+      # ~~~~~~~~~~
+      if (nrow(dat.clump) >= 3) {
+        res.temp <- tryCatch(
+          {
+            mr(
+              dat.clump,
+              method_list = c(
+                "mr_ivw",
+                "mr_egger_regression",
+                "mr_weighted_median"
               )
-            },
-            error = function(e) {
-              print(paste0("[CONCERN] MR failed for ", protein, " - ", e$message))
-              return(NULL)
-            }
-          )
-          
-          if (is.null(res.temp)) {
-            pb$tick(tokens = list(protein = protein))
-            next
+            )
+          },
+          error = function(e) {
+            print(paste0("[CONCERN] MR failed for ", protein, " - ", e$message))
+            return(NULL)
           }
-          
-          res.pleio <- tryCatch(
-            {
-              mr_pleiotropy_test(dat.clump)
-            },
-            error = function(e) {
-              print(paste0("[CONCERN] Pleiotropy test failed for ", protein, " - ", e$message))
-              data.table(egger_intercept = NA_real_, pval = NA_real_)
-            }
-          )
-          
-          res.het <- tryCatch(
-            {
-              mr_heterogeneity(dat.clump, method_list = c("mr_ivw"))
-            },
-            error = function(e) {
-              print(paste0("[CONCERN] Heterogeneity test failed for ", protein, " - ", e$message))
-              data.table(Q = NA_real_, Q_df = NA_real_, Q_pval = NA_real_)
-            }
-          )
-          
-          res.temp <- data.table::as.data.table(res.temp)
-          
-        } else if (nrow(dat.clump) == 1) {
-          res.temp <- tryCatch(
-            {
-              mr(dat.clump, method_list = c("mr_wald_ratio"))
-            },
-            error = function(e) {
-              print(paste0("[CONCERN] Wald ratio failed for ", protein, " - ", e$message))
-              return(NULL)
-            }
-          )
-          
-          if (is.null(res.temp)) {
-            pb$tick(tokens = list(protein = protein))
-            next
-          }
-          
-          res.pleio <- data.table(egger_intercept = NA_real_, pval = NA_real_)
-          res.het <- data.table(Q = NA_real_, Q_df = NA_real_, Q_pval = NA_real_)
-          res.temp <- data.table::as.data.table(res.temp)
-          
-        } else {
-          print(paste0("Not enough instruments for ", protein))
-          pb$tick(tokens = list(protein = protein))
-          next
-        }
-        
-        res.temp <- dcast(res.temp, id.exposure + id.outcome ~ method, value.var = c("b", "se", "pval"))
-        setnames(res.temp, old = grep("Inverse variance weighted", names(res.temp), value = TRUE), new = gsub("Inverse variance weighted", "IVW", grep("Inverse variance weighted", names(res.temp), value = TRUE)))
-        setnames(res.temp, old = grep("MR Egger", names(res.temp), value = TRUE), new = gsub("MR Egger", "Egger", grep("MR Egger", names(res.temp), value = TRUE)))
-        setnames(res.temp, old = grep("Weighted median", names(res.temp), value = TRUE), new = gsub("Weighted median", "WME", grep("Weighted median", names(res.temp), value = TRUE)))
-        res.temp[, protein := protein]
-        res.temp[, outcome_trait := pheno_id]
-        res.temp[, n_instruments := nrow(dat.clump)]
-        res.temp[, egger_intercept := res.pleio$egger_intercept[1]]
-        res.temp[, egger_intercept_pval := res.pleio$pval[1]]
-        res.temp[, Q := res.het$Q[1]]
-        res.temp[, Q_df := res.het$Q_df[1]]
-        res.temp[, Q_pval := res.het$Q_pval[1]]
-        all_results[[protein]] <- res.temp
-        
-        # save as it goes, because otherwise if one protein explodes everything is gone
-        fwrite(
-          res.temp,
-          out_file_running,
-          sep = "\t",
-          append = file.exists(out_file_running),
-          col.names = !file.exists(out_file_running)
         )
         
-        pb$tick(tokens = list(protein = protein))
+        if (is.null(res.temp)) {
+          pb$tick(tokens = list(protein = protein))
+          next
+        }
         
-      }, error = function(e) {
-        protein <- basename(i)
-        print(paste0("[CONCERN] Protein fully failed but moving on: ", protein, " - ", e$message))
+        res.pleio <- tryCatch(
+          {
+            mr_pleiotropy_test(dat.clump)
+          },
+          error = function(e) {
+            print(paste0("[CONCERN] Pleiotropy test failed for ", protein, " - ", e$message))
+            data.table(egger_intercept = NA_real_, pval = NA_real_)
+          }
+        )
+        
+        res.het <- tryCatch(
+          {
+            mr_heterogeneity(dat.clump, method_list = c("mr_ivw"))
+          },
+          error = function(e) {
+            print(paste0("[CONCERN] Heterogeneity test failed for ", protein, " - ", e$message))
+            data.table(Q = NA_real_, Q_df = NA_real_, Q_pval = NA_real_)
+          }
+        )
+        
+        res.temp <- data.table::as.data.table(res.temp)
+        
+      } else if (nrow(dat.clump) == 1) {
+        res.temp <- tryCatch(
+          {
+            mr(dat.clump, method_list = c("mr_wald_ratio"))
+          },
+          error = function(e) {
+            print(paste0("[CONCERN] Wald ratio failed for ", protein, " - ", e$message))
+            return(NULL)
+          }
+        )
+        
+        if (is.null(res.temp)) {
+          pb$tick(tokens = list(protein = protein))
+          next
+        }
+        
+        res.pleio <- data.table(egger_intercept = NA_real_, pval = NA_real_)
+        res.het <- data.table(Q = NA_real_, Q_df = NA_real_, Q_pval = NA_real_)
+        res.temp <- data.table::as.data.table(res.temp)
+        
+      } else {
+        print(paste0("Not enough instruments for ", protein))
         pb$tick(tokens = list(protein = protein))
-      })
-    }
-    
-    all_results <- rbindlist(all_results, fill = TRUE)
-    
-    if (nrow(all_results) == 0) {
-      print("[CONCERN] No MR results generated.")
-      return(NULL)
-    }
-    
-    # reformat for shiny app / dashboard
-    setnames(all_results,
-             old = c(
-               "b_IVW", "se_IVW", "pval_IVW",
-               "b_Egger", "se_Egger", "pval_Egger",
-               "b_WME", "se_WME", "pval_WME",
-               "b_Wald ratio", "se_Wald ratio", "pval_Wald ratio"
-             ),
-             new = c(
-               "IVW_beta", "IVW_se", "IVW_pval",
-               "Egger_beta", "Egger_se", "Egger_pval",
-               "WME_beta", "WME_se", "WME_pval",
-               "Wald_beta", "Wald_se", "Wald_pval"
-             ),
-             skip_absent = TRUE
-    )
-    
-    # check whether FDR correct or not
-    if (length(protein_dirs) > 1) {
-      if ("IVW_pval" %in% names(all_results)) {all_results[, IVW_FDR_q := p.adjust(IVW_pval, method = "fdr")]}
-      if ("Egger_pval" %in% names(all_results)) {all_results[, Egger_FDR_q := p.adjust(Egger_pval, method = "fdr")]}
-      if ("WME_pval" %in% names(all_results)) {all_results[, WME_FDR_q := p.adjust(WME_pval, method = "fdr")]}
-      if ("Wald_pval" %in% names(all_results)) {all_results[, Wald_FDR_q := p.adjust(Wald_pval, method = "fdr")]}
-    } else {
-      if ("IVW_pval" %in% names(all_results)) {all_results[, IVW_FDR_q := IVW_pval]}
-      if ("Egger_pval" %in% names(all_results)) {all_results[, Egger_FDR_q := Egger_pval]}
-      if ("WME_pval" %in% names(all_results)) {all_results[, WME_FDR_q := WME_pval]}
-      if ("Wald_pval" %in% names(all_results)) {all_results[, Wald_FDR_q := Wald_pval]}
-    }
-    
-    keep_cols <- c(
-      "protein",
-      "outcome_trait",
-      "n_instruments",
-      "IVW_beta",
-      "IVW_se",
-      "IVW_pval",
-      "IVW_FDR_q",
-      "Egger_beta",
-      "Egger_se",
-      "Egger_pval",
-      "Egger_FDR_q",
-      "egger_intercept",
-      "egger_intercept_pval",
-      "WME_beta",
-      "WME_se",
-      "WME_pval",
-      "WME_FDR_q",
-      "Wald_beta",
-      "Wald_se",
-      "Wald_pval",
-      "Wald_FDR_q",
-      "Q",
-      "Q_df",
-      "Q_pval"
-    )
-    
-    keep_cols <- keep_cols[keep_cols %in% names(all_results)]
-    all_results <- all_results[, ..keep_cols]
-    
-    out_file <- file.path(out_dir, paste0(pqtl_dataset, "_", pheno_id, "_all_MR.tsv"))
-    fwrite(all_results, out_file, sep = "\t")
-    print(paste0("Saved all MR results: ", out_file))
-    
-    if (file.exists(out_file_running)) {
-      print(paste0("Saved running MR results too: ", out_file_running))
-    }
+        next
+      }
+      
+      res.temp <- dcast(res.temp, id.exposure + id.outcome ~ method, value.var = c("b", "se", "pval"))
+      setnames(res.temp, old = grep("Inverse variance weighted", names(res.temp), value = TRUE), new = gsub("Inverse variance weighted", "IVW", grep("Inverse variance weighted", names(res.temp), value = TRUE)))
+      setnames(res.temp, old = grep("MR Egger", names(res.temp), value = TRUE), new = gsub("MR Egger", "Egger", grep("MR Egger", names(res.temp), value = TRUE)))
+      setnames(res.temp, old = grep("Weighted median", names(res.temp), value = TRUE), new = gsub("Weighted median", "WME", grep("Weighted median", names(res.temp), value = TRUE)))
+      res.temp[, protein := protein]
+      res.temp[, pqtl_dataset := pqtl_dataset]
+      res.temp[, outcome_trait := pheno_id]
+      res.temp[, n_instruments := nrow(dat.clump)]
+      res.temp[, egger_intercept := res.pleio$egger_intercept[1]]
+      res.temp[, egger_intercept_pval := res.pleio$pval[1]]
+      res.temp[, Q := res.het$Q[1]]
+      res.temp[, Q_df := res.het$Q_df[1]]
+      res.temp[, Q_pval := res.het$Q_pval[1]]
+      all_results[[protein]] <- res.temp
+      
+      # save as it goes, because otherwise if one protein explodes everything is gone
+      fwrite(
+        res.temp,
+        out_file_running,
+        sep = "\t",
+        append = file.exists(out_file_running),
+        col.names = !file.exists(out_file_running)
+      )
+      
+      pb$tick(tokens = list(protein = protein))
+      
+    }, error = function(e) {
+      protein <- basename(i)
+      print(paste0("[CONCERN] Protein fully failed but moving on: ", protein, " - ", e$message))
+      pb$tick(tokens = list(protein = protein))
+    })
+  }
+  
+  all_results <- rbindlist(all_results, fill = TRUE)
+  
+  if (nrow(all_results) == 0) {
+    print("[CONCERN] No MR results generated.")
+    return(NULL)
+  }
+  
+  # reformat for shiny app / dashboard
+  setnames(all_results,
+           old = c(
+             "b_IVW", "se_IVW", "pval_IVW",
+             "b_Egger", "se_Egger", "pval_Egger",
+             "b_WME", "se_WME", "pval_WME",
+             "b_Wald ratio", "se_Wald ratio", "pval_Wald ratio"
+           ),
+           new = c(
+             "IVW_beta", "IVW_se", "IVW_pval",
+             "Egger_beta", "Egger_se", "Egger_pval",
+             "WME_beta", "WME_se", "WME_pval",
+             "Wald_beta", "Wald_se", "Wald_pval"
+           ),
+           skip_absent = TRUE
+  )
+  
+  # check whether FDR correct or not
+  if (length(protein_dirs) > 1) {
+    if ("IVW_pval" %in% names(all_results)) {all_results[, IVW_FDR_q := p.adjust(IVW_pval, method = "fdr")]}
+    if ("Egger_pval" %in% names(all_results)) {all_results[, Egger_FDR_q := p.adjust(Egger_pval, method = "fdr")]}
+    if ("WME_pval" %in% names(all_results)) {all_results[, WME_FDR_q := p.adjust(WME_pval, method = "fdr")]}
+    if ("Wald_pval" %in% names(all_results)) {all_results[, Wald_FDR_q := p.adjust(Wald_pval, method = "fdr")]}
+  } else {
+    if ("IVW_pval" %in% names(all_results)) {all_results[, IVW_FDR_q := IVW_pval]}
+    if ("Egger_pval" %in% names(all_results)) {all_results[, Egger_FDR_q := Egger_pval]}
+    if ("WME_pval" %in% names(all_results)) {all_results[, WME_FDR_q := WME_pval]}
+    if ("Wald_pval" %in% names(all_results)) {all_results[, Wald_FDR_q := Wald_pval]}
+  }
+  
+  keep_cols <- c(
+    "protein",
+    "pqtl_dataset",
+    "outcome_trait",
+    "n_instruments",
+    "IVW_beta",
+    "IVW_se",
+    "IVW_pval",
+    "IVW_FDR_q",
+    "Egger_beta",
+    "Egger_se",
+    "Egger_pval",
+    "Egger_FDR_q",
+    "egger_intercept",
+    "egger_intercept_pval",
+    "WME_beta",
+    "WME_se",
+    "WME_pval",
+    "WME_FDR_q",
+    "Wald_beta",
+    "Wald_se",
+    "Wald_pval",
+    "Wald_FDR_q",
+    "Q",
+    "Q_df",
+    "Q_pval"
+  )
+  
+  keep_cols <- keep_cols[keep_cols %in% names(all_results)]
+  all_results <- all_results[, ..keep_cols]
+  
+  out_file <- file.path(out_dir, paste0(pqtl_dataset, "_", pheno_id, "_all_MR.tsv"))
+  fwrite(all_results, out_file, sep = "\t")
+  print(paste0("Saved all MR results: ", out_file))
+  
+  if (file.exists(out_file_running)) {
+    print(paste0("Saved running MR results too: ", out_file_running))
   }
 }
 
