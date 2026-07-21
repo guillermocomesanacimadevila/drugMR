@@ -11,6 +11,7 @@ from sqlalchemy import inspect
 
 # KEY CHANGES DOWN THE LINE WITH MORE PQTL DATASETS 
 # -> CHANGE THE DASHBOARD FUNCT TO ADD EQTL AND PQL ARGS
+# biomarker meta analysis: https://pmc.ncbi.nlm.nih.gov/articles/instance/12136742/pdf/nihpp-rs6597595v1.pdf
 
 def create_streamlit_ammenities(db_name: str, port_number: str):
     cmd = f"""
@@ -177,28 +178,31 @@ def dashboard(db_name: str, phenotype: str):
             "PHENOCODE": "phenocode",
             "PHENOSTRING": "phenostring",
             "CATEGORY": "category",
-            "SNP": "SNP",
-            "RSID": "SNP",
-            "BETA": "beta",
-            "SEBETA": "sebeta",
-            "PVAL": "pval",
-            "WALD_RATIO": "wald_ratio",
-            "WALD_SE": "wald_se",
-            "P_WALD_RATIO": "p_wald_ratio",
-            "WALD_PVAL": "p_wald_ratio",
-            "Q_FDR_WALD_RATIO": "q_fdr_wald_ratio",
-            "WALD_FDR_Q": "q_fdr_wald_ratio",
+            "SNP": "snp",
+            "RSID": "rsid",
+            "METHOD": "method",
+            "N_INSTRUMENTS": "n_instruments",
+            "BETA_MR": "beta_mr",
+            "SE_MR": "se_mr",
+            "P_MR": "p_mr",
+            "Q_FDR_MR": "q_fdr_mr",
             "FDR_SIGNIFICANT": "fdr_significant"
         })
 
+        # A1/A2 already come from the original outcome GWAS
+        # do not overwrite them with FinnGen ALT/REF
+        if "A1" in phewas.columns:
+            phewas["A1"] = phewas["A1"].astype(str).str.upper()
+
+        if "A2" in phewas.columns:
+            phewas["A2"] = phewas["A2"].astype(str).str.upper()
+
         for col in [
-            "beta",
-            "sebeta",
-            "pval",
-            "wald_ratio",
-            "wald_se",
-            "p_wald_ratio",
-            "q_fdr_wald_ratio"
+            "n_instruments",
+            "beta_mr",
+            "se_mr",
+            "p_mr",
+            "q_fdr_mr"
         ]:
             if col in phewas.columns:
                 phewas[col] = pd.to_numeric(phewas[col], errors="coerce")
@@ -210,8 +214,8 @@ def dashboard(db_name: str, phenotype: str):
                 .str.lower()
                 .isin(["true", "1", "yes"])
             )
-        elif "q_fdr_wald_ratio" in phewas.columns:
-            phewas["fdr_significant"] = phewas["q_fdr_wald_ratio"].fillna(np.inf) <= 0.05
+        elif "q_fdr_mr" in phewas.columns:
+            phewas["fdr_significant"] = phewas["q_fdr_mr"].fillna(np.inf) <= 0.05
 
     # MR ammenities
     # if 1 instrument -> use Wald
@@ -839,26 +843,26 @@ def dashboard(db_name: str, phenotype: str):
                 beta_col = None
                 fdr_col = None
 
-                for col in ["p_wald_ratio", "pval"]:
+                for col in ["p_mr"]:
                     if col in target_phewas.columns:
                         p_col = col
                         break
 
-                for col in ["wald_ratio", "beta"]:
+                for col in ["beta_mr"]:
                     if col in target_phewas.columns:
                         beta_col = col
                         break
 
-                for col in ["q_fdr_wald_ratio", "fdr_q", "qval"]:
+                for col in ["q_fdr_mr"]:
                     if col in target_phewas.columns:
                         fdr_col = col
                         break
 
                 if p_col is None or beta_col is None:
                     st.error(
-                        "The PheWAS result file needs an effect column "
-                        "(wald_ratio or beta) and a p-value column "
-                        "(p_wald_ratio or pval)."
+                        "The PheWAS result file needs the MR effect column "
+                        "(beta_mr) and the MR p-value column "
+                        "(p_mr)."
                     )
 
                 else:
@@ -892,9 +896,9 @@ def dashboard(db_name: str, phenotype: str):
                         metric3.metric("FDR-significant associations", n_fdr)
 
                         st.caption(
-                            "PheWAS effect estimates show the association of the selected cis-pQTL instrument "
-                            "with each FinnGen phenotype. Positive and negative directions should be interpreted "
-                            "after checking the aligned effect allele."
+                            "PheWAS MR estimates show the effect of genetically predicted protein levels "
+                            "on each FinnGen phenotype (ICD-10 coded). Wald ratio is used for targets with "
+                            "one COJO-selected cis-pQTL instrument and IVW is used for targets with more than one."
                         )
 
                         plot_kwargs = {
@@ -910,7 +914,7 @@ def dashboard(db_name: str, phenotype: str):
                                 "fdr_significant": True
                             },
                             "labels": {
-                                beta_col: "PheWAS effect estimate",
+                                beta_col: "PheWAS MR beta",
                                 "minus_log10_p": "-log10(PheWAS p-value)",
                                 "fdr_significant": "FDR significant"
                             },
@@ -958,7 +962,7 @@ def dashboard(db_name: str, phenotype: str):
                                     "minus_log10_p": ":.3f"
                                 },
                                 "labels": {
-                                    beta_col: "PheWAS effect estimate",
+                                    beta_col: "PheWAS MR beta",
                                     phenotype_col: ""
                                 },
                                 "title": "FDR-significant PheWAS associations",
@@ -978,13 +982,18 @@ def dashboard(db_name: str, phenotype: str):
 
                         phewas_cols = [
                             "protein",
-                            "SNP",
+                            "method",
+                            "n_instruments",
+                            "rsid",
+                            "A1",
+                            "A2",
                             "phenocode",
                             "phenostring",
                             "category",
-                            beta_col,
-                            p_col,
-                            fdr_col,
+                            "beta_mr",
+                            "se_mr",
+                            "p_mr",
+                            "q_fdr_mr",
                             "fdr_significant"
                         ]
 
