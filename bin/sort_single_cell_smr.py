@@ -121,8 +121,8 @@ def run_single_cell_smr(pqtl_dataset: str, eqtl_dataset: str, pheno_id: str, sum
         print(f"[TRACKING] {df.height} GWAS variants retained for SMR")
         temp_sumstats = temp_dir / f"{pheno_id}.ma"
         df.write_csv(temp_sumstats, separator="\t")
-        # cell_types = ["Ast", "Ext", "MG", "OD", "OPC", "End", "IN"]
-        cell_types = ["MG"]
+        cell_types = ["Ast", "Ext", "MG", "OD", "OPC", "End", "IN"]
+        # cell_types = ["MG"]
         eqtls = "./dat/sc-eQTL/SingleBrain/SMR_ready"
         eqtls = Path(eqtls)
         for cell in cell_types:
@@ -149,7 +149,6 @@ def run_single_cell_smr(pqtl_dataset: str, eqtl_dataset: str, pheno_id: str, sum
 
             print(f"[TRACKING] Cell type {cell} found!")
 
-            # continue
             # use prefix without .besd / .esi / .epi for SMR
 
             #####
@@ -160,17 +159,24 @@ def run_single_cell_smr(pqtl_dataset: str, eqtl_dataset: str, pheno_id: str, sum
             #####
             #####
 
-            SMR(
-                pheno_id=pheno_id,
-                sumstats=temp_sumstats,
-                ref_bfile=ref_bfile,
-                beqtl_summary=beqtl_summary,
-                eqtl_dataset=f"{eqtl_dataset}/{cell}",
-                peqtl_smr=5.0e-8, #### change to default one 
-                peqtl_heidi=1.57e-3, ###### change to real default 
-                thread_num=8,
-                maf=maf
-            )
+            # check whether SMR has already been ran for trait X in cell type Y
+            smr_res = Path(f"./results/SMR/{eqtl_dataset}/{cell}/{pheno_id}")
+            existing_smr = [f for f in smr_res.glob(f"*{pheno_id}*.smr") if f.stat().st_size > 0]
+
+            if len(existing_smr) > 0:
+                print(f"[TRACKING] SMR already completed for {pheno_id} in {cell} - skipping SMR")
+            else:
+                SMR(
+                    pheno_id=pheno_id,
+                    sumstats=temp_sumstats,
+                    ref_bfile=ref_bfile,
+                    beqtl_summary=beqtl_summary,
+                    eqtl_dataset=f"{eqtl_dataset}/{cell}",
+                    peqtl_smr=5.0e-8, #### change to default one 
+                    peqtl_heidi=1.57e-3, ###### change to real default 
+                    thread_num=8,
+                    maf=maf
+                )
 
             # load SMR results
             # saving into out_dir 1 results file per cell type for trait X

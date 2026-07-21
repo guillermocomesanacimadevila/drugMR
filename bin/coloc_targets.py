@@ -210,7 +210,7 @@ Rscript {moloc} \
 def main():
     # if mediators: true - do NOT run this one - if mediators = true run coloc_with_mediators():
     p = argparse.ArgumentParser()
-    p.add_argument("--pqtl_dataset", required=True, choices=["ukb_ppp", "decode"])
+    p.add_argument("--pqtl_dataset", required=True, choices=["ukb_ppp", "decode", "wu_csf"])
     p.add_argument("--local_results_dir", required=True)
     p.add_argument("--pqtl_dir", required=True)
     p.add_argument("--pheno_id", required=True)

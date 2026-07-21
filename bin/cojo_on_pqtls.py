@@ -5,7 +5,6 @@ from pathlib import Path
 import os
 from drugmr import COJO
 
-
 def cojo_on_pqtl_loci(ref_bfile: str, eqtl_dataset: str, pqtl_dataset: str, pheno_id: str):
     
     """
@@ -40,14 +39,8 @@ def cojo_on_pqtl_loci(ref_bfile: str, eqtl_dataset: str, pqtl_dataset: str, phen
         gwas = pl.read_parquet(target_gwas_region)
         print(f"Loaded {gwas.height:,} GWAS SNPs")
         print("GWAS columns:", gwas.columns)
-
         # standardise allele columns
-        cis = cis.with_columns(
-            pl.col("SNP").cast(pl.Utf8),
-            pl.col("A1").cast(pl.Utf8).str.to_uppercase(),
-            pl.col("A2").cast(pl.Utf8).str.to_uppercase(),
-        )
-
+        cis = cis.with_columns(pl.col("SNP").cast(pl.Utf8), pl.col("A1").cast(pl.Utf8).str.to_uppercase(), pl.col("A2").cast(pl.Utf8).str.to_uppercase(),)
         gwas = (
             gwas
             .select(
@@ -62,7 +55,6 @@ def cojo_on_pqtl_loci(ref_bfile: str, eqtl_dataset: str, pqtl_dataset: str, phen
         # match pQTL SNPs against outcome GWAS SNPs
         cis = cis.join(gwas, on="SNP", how="inner")
         print(f"Retained {cis.height:,} SNPs present in both pQTL and GWAS files")
-
         # align pQTL BETA + FRQ to outcome GWAS A1
         cis = cis.with_columns(
             pl.when(
@@ -106,13 +98,7 @@ def cojo_on_pqtl_loci(ref_bfile: str, eqtl_dataset: str, pqtl_dataset: str, phen
         )
 
         n_before_alignment = cis.height
-        cis = cis.drop_nulls([
-            "GWAS_A1",
-            "GWAS_A2",
-            "BETA_ALIGNED",
-            "A1FREQ_ALIGNED",
-        ])
-
+        cis = cis.drop_nulls(["GWAS_A1", "GWAS_A2", "BETA_ALIGNED", "A1FREQ_ALIGNED"])
         print(
             f"Retained {cis.height:,}/{n_before_alignment:,} SNPs "
             f"after aligning pQTL effects to {pheno_id} GWAS A1"
@@ -166,12 +152,10 @@ def cojo_on_pqtl_loci(ref_bfile: str, eqtl_dataset: str, pqtl_dataset: str, phen
         cojo_file = temp_out_path / f"{target}_cojo.input"
         cis_cojo.write_csv(cojo_file, separator="\t")
         print(f"Wrote {cojo_file}")
-
         # COJO output prefix
         out_prefix = f"./results/COJO/{pqtl_dataset}/{pheno_id}/{target}/{target}"
         out_prefix = Path(out_prefix)
         os.makedirs(out_prefix.parent, exist_ok=True)
-
         # run COJO
         print("Running COJO...")
         COJO(
@@ -182,7 +166,6 @@ def cojo_on_pqtl_loci(ref_bfile: str, eqtl_dataset: str, pqtl_dataset: str, phen
             wind_thresh=10000,
             out_prefix=out_prefix,
         )
-
         # results/COJO/ukb_ppp/AD/BLNK_Q8WV28/BLNK_Q8WV28.jma.cojo
 
 
