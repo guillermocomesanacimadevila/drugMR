@@ -27,18 +27,8 @@ class PyTwoSampleMR:
             outcome_se_col):  # IVW + delta method
         
         # compile inputs and match SNPs between exposure and outcome
-        exposure = exposure_df.select(
-            pl.col(exposure_snp_col).cast(pl.Utf8).alias("SNP"),
-            pl.col(exposure_beta_col).cast(pl.Float64).alias("BETA_EXPOSURE"),
-            pl.col(exposure_se_col).cast(pl.Float64).alias("SE_EXPOSURE")
-        )
-
-        outcome = outcome_df.select(
-            pl.col(outcome_snp_col).cast(pl.Utf8).alias("SNP"),
-            pl.col(outcome_beta_col).cast(pl.Float64).alias("BETA_OUTCOME"),
-            pl.col(outcome_se_col).cast(pl.Float64).alias("SE_OUTCOME")
-        )
-
+        exposure = exposure_df.select(pl.col(exposure_snp_col).cast(pl.Utf8).alias("SNP"), pl.col(exposure_beta_col).cast(pl.Float64).alias("BETA_EXPOSURE"), pl.col(exposure_se_col).cast(pl.Float64).alias("SE_EXPOSURE"))
+        outcome = outcome_df.select(pl.col(outcome_snp_col).cast(pl.Utf8).alias("SNP"), pl.col(outcome_beta_col).cast(pl.Float64).alias("BETA_OUTCOME"), pl.col(outcome_se_col).cast(pl.Float64).alias("SE_OUTCOME"))
         df = (
             exposure
             .join(
