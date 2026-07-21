@@ -732,13 +732,15 @@ def pull_results_local(
 def run_dashboard_local(
     db_name: str,
     phenotype: str,
+    pqtl_dataset: str,
     port_number: int = 5432
 ):
     cmd = f"""
 python -m streamlit run dashboard/mr_app.py -- \\
   --db_name {db_name} \\
   --port_number {port_number} \\
-  --phenotype {phenotype}
+  --phenotype {phenotype} \\
+  --pqtl_dataset {pqtl_dataset}
 """
     print(cmd)
     subprocess.run(cmd, shell=True, check=True)

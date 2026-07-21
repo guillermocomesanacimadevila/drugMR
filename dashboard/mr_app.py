@@ -36,7 +36,7 @@ def retention(current: int, previous: int):
     return 0.0 if previous == 0 else 100 * current / previous
 
 
-def dashboard(db_name: str, phenotype: str):
+def dashboard(db_name: str, port_number: str, phenotype: str, pqtl_dataset: str):
     mr_table = "cis_mr_results"
     coloc_table = "coloc_results"
     smr_table = "single_cell_smr_results"
@@ -48,47 +48,46 @@ def dashboard(db_name: str, phenotype: str):
 
     # main aesthetics
     st.set_page_config(page_title=f"{db_name}", layout="wide")
-    conn = st.connection("postgresql", type="sql")
+    conn = st.connection("postgresql", type="sql", url=f"postgresql://localhost:{port_number}/{db_name}")
 
     # corresponding multi-omics result files
     project_dir = Path(__file__).resolve().parent.parent
-    smr_file = project_dir / f"results/SMR/SingleBrain/{phenotype}/ukb_ppp_{phenotype}_promising_targets_SMR.tsv"
-    eqtl_coloc_file = project_dir / f"results/eQTL_coloc/ukb_ppp/SingleBrain/{phenotype}/ukb_ppp_{phenotype}_SingleBrain_all_eqtl_coloc.tsv"
-    moloc_file = project_dir / f"results/QTL_moloc/ukb_ppp/SingleBrain/{phenotype}/ukb_ppp_{phenotype}_SingleBrain_moloc_summary.tsv"
-    overview_file = project_dir / f"results/SMR/SingleBrain/{phenotype}/ukb_ppp_{phenotype}_multi_omics_overview.tsv"
-    snp_file = project_dir / f"results/SMR/SingleBrain/{phenotype}/ukb_ppp_{phenotype}_multi_omics_snp_evidence.tsv"
-    phewas_file = project_dir / f"results/PheWAS/ukb_ppp/{phenotype}/ukb_ppp_{phenotype}_PheWAS.tsv"
+    smr_file = project_dir / f"results/SMR/SingleBrain/{phenotype}/{pqtl_dataset}_{phenotype}_promising_targets_SMR.tsv"
+    eqtl_coloc_file = project_dir / f"results/eQTL_coloc/{pqtl_dataset}/SingleBrain/{phenotype}/{pqtl_dataset}_{phenotype}_SingleBrain_all_eqtl_coloc.tsv"
+    moloc_file = project_dir / f"results/QTL_moloc/{pqtl_dataset}/SingleBrain/{phenotype}/{pqtl_dataset}_{phenotype}_SingleBrain_moloc_summary.tsv"
+    overview_file = project_dir / f"results/SMR/SingleBrain/{phenotype}/{pqtl_dataset}_{phenotype}_multi_omics_overview.tsv"
+    snp_file = project_dir / f"results/SMR/SingleBrain/{phenotype}/{pqtl_dataset}_{phenotype}_multi_omics_snp_evidence.tsv"
+    phewas_file = project_dir / f"results/PheWAS/{pqtl_dataset}/{phenotype}/{pqtl_dataset}_{phenotype}_PheWAS.tsv"
     # "{pqtl_dataset}_{pheno_id}_PheWAS.tsv"
 
     # create new dashboard tables if they do not exist yet
     tables = inspect(conn.engine).get_table_names()
 
-    if smr_table not in tables:
-        if not smr_file.exists():
-            st.error(f"SMR result file not found: {smr_file}")
-            st.stop()
+    if not smr_file.exists():
+        st.error(f"SMR result file not found: {smr_file}")
+        st.stop()
 
-        smr = pd.read_csv(smr_file, sep="\t")
-        smr.to_sql(smr_table, conn.engine, if_exists="replace", index=False)
-        st.write(f"[TRACKING] Loaded {len(smr)} rows into {smr_table}")
+    smr = pd.read_csv(smr_file, sep="\t")
+    smr.to_sql(smr_table, conn.engine, if_exists="replace", index=False)
+    st.write(
+    f"[TRACKING] Loaded {len(smr)} rows into {smr_table} "
+    f"for {pqtl_dataset}"
+    )
+    st.write("[TRACKING] Cell types found:",sorted(smr["cell_type"].dropna().unique()))
 
-    if eqtl_coloc_table not in tables:
-        if not eqtl_coloc_file.exists():
-            st.error(f"eQTL COLOC result file not found: {eqtl_coloc_file}")
-            st.stop()
+    
+    if not eqtl_coloc_file.exists():
+        st.error(f"eQTL COLOC result file not found: {eqtl_coloc_file}")
+        st.stop()
+    eqtl_coloc = pd.read_csv(eqtl_coloc_file, sep="\t")
+    eqtl_coloc.to_sql(eqtl_coloc_table, conn.engine, if_exists="replace", index=False)
 
-        eqtl_coloc = pd.read_csv(eqtl_coloc_file, sep="\t")
-        eqtl_coloc.to_sql(eqtl_coloc_table, conn.engine, if_exists="replace", index=False)
-        st.write(f"[TRACKING] Loaded {len(eqtl_coloc)} rows into {eqtl_coloc_table}")
+    if not moloc_file.exists():
+        st.error(f"MOLOC result file not found: {moloc_file}")
+        st.stop()
 
-    if moloc_table not in tables:
-        if not moloc_file.exists():
-            st.error(f"MOLOC result file not found: {moloc_file}")
-            st.stop()
-
-        moloc = pd.read_csv(moloc_file, sep="\t")
-        moloc.to_sql(moloc_table, conn.engine, if_exists="replace", index=False)
-        st.write(f"[TRACKING] Loaded {len(moloc)} rows into {moloc_table}")
+    moloc = pd.read_csv(moloc_file, sep="\t")
+    moloc.to_sql(moloc_table, conn.engine, if_exists="replace", index=False)
 
     if not overview_file.exists():
         st.error(f"Overview result file not found: {overview_file}")
@@ -116,13 +115,7 @@ def dashboard(db_name: str, phenotype: str):
             st.warning(f"PheWAS safety result file is empty: {phewas_file}")
             phewas_available = False
         else:
-            phewas.to_sql(
-                phewas_table,
-                conn.engine,
-                if_exists="replace",
-                index=False
-            )
-
+            phewas.to_sql(phewas_table, conn.engine, if_exists="replace", index=False)
             st.write(f"[TRACKING] Loaded {len(phewas)} rows into {phewas_table}")
             phewas_available = True
 
@@ -185,8 +178,8 @@ def dashboard(db_name: str, phenotype: str):
             "BETA_MR": "beta_mr",
             "SE_MR": "se_mr",
             "P_MR": "p_mr",
-            "Q_FDR_MR": "q_fdr_mr",
-            "FDR_SIGNIFICANT": "fdr_significant"
+            "P_BONFERRONI": "p_bonferroni",
+            "BONFERRONI_SIGNIFICANT": "bonferroni_significant"
         })
 
         # A1/A2 already come from the original outcome GWAS
@@ -202,20 +195,20 @@ def dashboard(db_name: str, phenotype: str):
             "beta_mr",
             "se_mr",
             "p_mr",
-            "q_fdr_mr"
+            "p_bonferroni"
         ]:
             if col in phewas.columns:
                 phewas[col] = pd.to_numeric(phewas[col], errors="coerce")
 
-        if "fdr_significant" in phewas.columns:
-            phewas["fdr_significant"] = (
-                phewas["fdr_significant"]
+        if "bonferroni_significant" in phewas.columns:
+            phewas["bonferroni_significant"] = (
+                phewas["bonferroni_significant"]
                 .astype(str)
                 .str.lower()
                 .isin(["true", "1", "yes"])
             )
-        elif "q_fdr_mr" in phewas.columns:
-            phewas["fdr_significant"] = phewas["q_fdr_mr"].fillna(np.inf) <= 0.05
+        elif "p_bonferroni" in phewas.columns:
+            phewas["bonferroni_significant"] = phewas["p_bonferroni"].fillna(np.inf) <= 0.05
 
     # MR ammenities
     # if 1 instrument -> use Wald
@@ -248,7 +241,10 @@ def dashboard(db_name: str, phenotype: str):
     selected_cell_types = st.sidebar.multiselect("Cell types", cell_types, default=cell_types)
     protein = st.sidebar.text_input("Protein search")
 
-    st.title(f"{db_name}: UKBB-PPP → {outcome}")
+    dataset_names = {"ukb_ppp": "UKB-PPP", "decode": "deCODE", "wu_csf": "WU-CSF"}
+    dataset_name = dataset_names.get(pqtl_dataset, pqtl_dataset)
+    st.title(f"{db_name}: {dataset_name} → {outcome}")
+    
     st.caption(
         # f"MR FDR ≤ {fdr:.2f} | Q p ≥ {q_pval:.2f} | Egger p ≥ {egger_pval:.2f} | "
         f"MR FDR ≤ {fdr:.2f} | Q p ≥ {q_pval:.2f} | "
@@ -408,12 +404,10 @@ def dashboard(db_name: str, phenotype: str):
 
     with tab1:
         st.subheader("Target prioritisation")
-
         metric1, metric2, metric3 = st.columns(3)
         metric1.metric("Proteins tested by cis-MR", n_tested)
         metric2.metric("cis-MR supported", n_mr, f"{retention(n_mr, n_tested):.1f}% of tested", delta_color="off")
         metric3.metric("cis-MR + pQTL COLOC", n_mr_coloc, f"{retention(n_mr_coloc, n_mr):.1f}% retained", delta_color="off")
-
         metric4, metric5, metric6 = st.columns(3)
         metric4.metric("+ cell-type SMR/HEIDI", n_smr, f"{retention(n_smr, n_mr_coloc):.1f}% retained", delta_color="off")
         metric5.metric("+ GWAS–eQTL COLOC", n_eqtl_coloc, f"{retention(n_eqtl_coloc, n_smr):.1f}% retained", delta_color="off")
@@ -841,7 +835,7 @@ def dashboard(db_name: str, phenotype: str):
 
                 p_col = None
                 beta_col = None
-                fdr_col = None
+                bonferroni_col = None
 
                 for col in ["p_mr"]:
                     if col in target_phewas.columns:
@@ -853,9 +847,9 @@ def dashboard(db_name: str, phenotype: str):
                         beta_col = col
                         break
 
-                for col in ["q_fdr_mr"]:
+                for col in ["p_bonferroni"]:
                     if col in target_phewas.columns:
-                        fdr_col = col
+                        bonferroni_col = col
                         break
 
                 if p_col is None or beta_col is None:
@@ -878,23 +872,23 @@ def dashboard(db_name: str, phenotype: str):
                     else:
                         target_phewas["minus_log10_p"] = -np.log10(target_phewas[p_col])
 
-                        if fdr_col is not None:
-                            target_phewas["fdr_significant"] = target_phewas[fdr_col].fillna(np.inf) <= 0.05
-                        elif "fdr_significant" not in target_phewas.columns:
-                            target_phewas["fdr_significant"] = False
+                        if bonferroni_col is not None:
+                            target_phewas["bonferroni_significant"] = target_phewas[bonferroni_col].fillna(np.inf) <= 0.05
+                        elif "bonferroni_significant" not in target_phewas.columns:
+                            target_phewas["bonferroni_significant"] = False
 
                         phenotype_col = "phenostring" if "phenostring" in target_phewas.columns else "phenocode"
                         category_col = "category" if "category" in target_phewas.columns else None
 
                         n_phenotypes = target_phewas[phenotype_col].nunique()
                         n_nominal = int((target_phewas[p_col] < 0.05).sum())
-                        n_fdr = int(target_phewas["fdr_significant"].sum())
+                        n_bonferroni = int(target_phewas["bonferroni_significant"].sum())
 
                         metric1, metric2, metric3 = st.columns(3)
                         metric1.metric("FinnGen phenotypes tested", int(n_phenotypes))
                         metric2.metric("Nominal associations", n_nominal)
-                        metric3.metric("FDR-significant associations", n_fdr)
-
+                        metric3.metric("Bonferroni-significant associations", n_bonferroni)
+                        
                         st.caption(
                             "PheWAS MR estimates show the effect of genetically predicted protein levels "
                             "on each FinnGen phenotype (ICD-10 coded). Wald ratio is used for targets with "
@@ -906,17 +900,17 @@ def dashboard(db_name: str, phenotype: str):
                             "x": beta_col,
                             "y": "minus_log10_p",
                             "hover_name": phenotype_col,
-                            "symbol": "fdr_significant",
+                            "symbol": "bonferroni_significant",
                             "hover_data": {
                                 beta_col: ":.4f",
                                 p_col: ":.3e",
                                 "minus_log10_p": False,
-                                "fdr_significant": True
+                                "bonferroni_significant": True
                             },
                             "labels": {
                                 beta_col: "PheWAS MR beta",
                                 "minus_log10_p": "-log10(PheWAS p-value)",
-                                "fdr_significant": "FDR significant"
+                                "bonferroni_significant": "Bonferroni significant"
                             },
                             "title": f"FinnGen PheWAS profile: {selected_phewas_target}",
                             "height": 600
@@ -930,16 +924,16 @@ def dashboard(db_name: str, phenotype: str):
                             plot_kwargs["labels"][category_col] = "FinnGen category"
 
                         phewas_fig = px.scatter(**plot_kwargs)
-                        phewas_fig.add_hline(y=-np.log10(0.05), line_dash="dash", line_color="grey")
+                        phewas_fig.add_hline(y=-np.log10(0.05 / 2511), line_dash="dash", line_color="grey")
                         phewas_fig.add_vline(x=0, line_dash="dash", line_color="grey")
                         st.plotly_chart(phewas_fig, use_container_width=True)
 
-                        st.subheader("FDR-significant PheWAS associations")
+                        st.subheader("Bonferroni-significant PheWAS associations")
 
-                        top_phewas = target_phewas[target_phewas["fdr_significant"]].copy()
+                        top_phewas = target_phewas[target_phewas["bonferroni_significant"]].copy()
 
-                        if fdr_col is not None:
-                            top_phewas = top_phewas.sort_values(fdr_col, ascending=True)
+                        if bonferroni_col is not None:
+                            top_phewas = top_phewas.sort_values(bonferroni_col, ascending=True)
                         else:
                             top_phewas = top_phewas.sort_values(p_col, ascending=True)
 
@@ -947,8 +941,8 @@ def dashboard(db_name: str, phenotype: str):
 
                         if top_phewas.empty:
                             st.info(
-                                f"No FinnGen phenotype associations survive FDR correction for "
-                                f"{selected_phewas_target}."
+                                f"No FinnGen phenotype associations survive Bonferroni correction across "
+                                f"2,511 ICD endpoints for {selected_phewas_target}."
                             )
 
                         else:
@@ -965,7 +959,7 @@ def dashboard(db_name: str, phenotype: str):
                                     beta_col: "PheWAS MR beta",
                                     phenotype_col: ""
                                 },
-                                "title": "FDR-significant PheWAS associations",
+                                "title": "Bonferroni-significant PheWAS associations",
                                 "height": max(450, 45 * len(top_phewas))
                             }
 
@@ -993,8 +987,8 @@ def dashboard(db_name: str, phenotype: str):
                             "beta_mr",
                             "se_mr",
                             "p_mr",
-                            "q_fdr_mr",
-                            "fdr_significant"
+                            "p_bonferroni",
+                            "bonferroni_significant"
                         ]
 
                         phewas_cols = [
@@ -1003,16 +997,16 @@ def dashboard(db_name: str, phenotype: str):
                         ]
 
                         significant_phewas = target_phewas[
-                            target_phewas["fdr_significant"]
+                            target_phewas["bonferroni_significant"]
                         ].copy()
 
-                        if fdr_col is not None:
-                            significant_phewas = significant_phewas.sort_values(fdr_col, ascending=True)
+                        if bonferroni_col is not None:
+                            significant_phewas = significant_phewas.sort_values(bonferroni_col, ascending=True)
                         else:
                             significant_phewas = significant_phewas.sort_values(p_col, ascending=True)
 
                         if significant_phewas.empty:
-                            st.success("No FinnGen phenotype associations survive FDR correction for this target.")
+                            st.success("No FinnGen phenotype associations survive Bonferroni correction across 2,511 ICD endpoints for this target.")
                         else:
                             st.dataframe(
                                 significant_phewas[phewas_cols],
@@ -1041,9 +1035,10 @@ def main():
     p.add_argument("--db_name", required=True, type=str)
     p.add_argument("--port_number", required=True, type=str)
     p.add_argument("--phenotype", required=True, type=str)
+    p.add_argument("--pqtl_dataset", required=True, type=str)
     args = p.parse_args()
     create_streamlit_ammenities(args.db_name, args.port_number)
-    dashboard(args.db_name, args.phenotype)
+    dashboard(db_name=args.db_name, port_number=args.port_number, phenotype=args.phenotype, pqtl_dataset=args.pqtl_dataset)
 
 
 if __name__ == "__main__":

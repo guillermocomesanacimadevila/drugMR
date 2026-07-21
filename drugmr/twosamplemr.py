@@ -3,18 +3,19 @@ import polars as pl
 import numpy as np 
 from scipy.stats import norm 
 
-
 class PyTwoSampleMR:
 
     """
     Assortment of Mendelian Randomisation functions for generalised usability in drugMR pipeline
     # 1. IVW
-    # -> need to add cochran Q
+    # 2. Cochran Q 
     """
 
     def __init__(self):
         pass
 
+
+    # standard IVW 
     def IVW(
             self,
             exposure_df,
@@ -120,3 +121,6 @@ class PyTwoSampleMR:
         })
 
         return ivw_result, snp_results
+    
+    # cochran q only for IVW
+    # def Cochran_Q():

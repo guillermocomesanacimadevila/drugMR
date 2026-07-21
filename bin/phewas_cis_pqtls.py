@@ -6,13 +6,14 @@ from pathlib import Path
 import polars as pl 
 import pandas as pd 
 from drugmr import PheWAS
-from statsmodels.stats.multitest import fdrcorrection
+# from statsmodels.stats.multitest import fdrcorrection
 from drugmr import PyTwoSampleMR
 
 # -----------------------------------
 # THIS SCRIPT SHALL NOT BE RAN IN HPC
 # -----------------------------------
-
+# 2,511 ICD coded endppoints vs total 2,755 
+finngen_icd_endpoints = 2511
 # For any targets on teh final file - focus strictly on cis-pQTL -> store that as a string within variable X
 # Query phewas for FinnGen r13 using the lead cis-pQTL SNP
 # FinnGen BETA == effect of ALT allele
@@ -78,6 +79,10 @@ def phewas_for_compelling_targets(pheno_id: str, pqtl_dataset: str, eqtl_dataset
     for row in df.iter_rows(named=True):
         protein = row["protein"]
         rsid = row["SNP"]
+        # A1/A2 from the multi-omics SNP evidence file
+        # this is the canonical allele orientation used across all downstream analyses
+        canonical_A1 = str(row["A1"]).upper()
+        canonical_A2 = str(row["A2"]).upper()
         # cojo results for any given target 
         mr = PyTwoSampleMR()
         cojo_file = Path(f"./results/COJO/{pqtl_dataset}/{pheno_id}/{protein}/{protein}.jma.cojo")
@@ -192,10 +197,38 @@ def phewas_for_compelling_targets(pheno_id: str, pqtl_dataset: str, eqtl_dataset
             pqtl_effect_allele = str(cojo_row["A1"]).upper()
             pqtl_other_allele = str(cojo_row["A2"]).upper()
 
-            # GWAS_A1/GWAS_A2 == outcome GWAS effect/other allele
-            A1 = str(cojo_row["GWAS_A1"]).upper()
-            A2 = str(cojo_row["GWAS_A2"]).upper()
-            gwas_beta = float(cojo_row["GWAS_BETA"])
+            # GWAS_A1/GWAS_A2 == original outcome GWAS effect/other allele
+            gwas_effect_allele = str(cojo_row["GWAS_A1"]).upper()
+            gwas_other_allele = str(cojo_row["GWAS_A2"]).upper()
+            gwas_beta_original = float(cojo_row["GWAS_BETA"])
+
+            # for the Lead pQTL SNP, use A1/A2 from the multi-omics SNP evidence file
+            if cojo_rsid == rsid:
+                A1 = canonical_A1
+                A2 = canonical_A2
+            else:
+                # additional COJO signals are not necessarily represented in the
+                # multi-omics SNP evidence file, so retain their outcome GWAS orientation
+                A1 = gwas_effect_allele
+                A2 = gwas_other_allele
+
+            # align outcome GWAS beta to the canonical A1
+            if gwas_effect_allele == A1 and gwas_other_allele == A2:
+                gwas_beta = gwas_beta_original
+                gwas_A1_flipped = False
+
+            elif gwas_effect_allele == A2 and gwas_other_allele == A1:
+                gwas_beta = -gwas_beta_original
+                gwas_A1_flipped = True
+
+            else:
+                print(
+                    f"[TRACKING] Outcome GWAS alleles "
+                    f"{gwas_effect_allele}/{gwas_other_allele} "
+                    f"do not match canonical A1/A2 {A1}/{A2} "
+                    f"for {cojo_rsid}..."
+                )
+                continue
 
             chromosome = str(cojo_row["CHR"])
             position = int(cojo_row["BP"])
@@ -345,27 +378,27 @@ def phewas_for_compelling_targets(pheno_id: str, pqtl_dataset: str, eqtl_dataset
                     "protein": protein,
                     "method": "Wald ratio",
                     "n_instruments": 1,
-                    "rsid": rsid,
-                    "snp": snp,
-                    "A1": A1,
-                    "A2": A2,
-                    "gwas_beta": gwas_beta,
-                    "finngen_ref": finngen_ref,
-                    "finngen_alt": finngen_alt,
-                    "pqtl_effect_allele_original": pqtl_effect_allele,
-                    "pqtl_other_allele_original": pqtl_other_allele,
-                    "beta_pqtl_original": beta_original,
-                    "beta_pqtl": beta,
-                    "pqtl_A1_flipped": pqtl_A1_flipped,
-                    "phewas_A1_flipped": phewas_A1_flipped,
-                    "se_pqtl": se,
-                    "p_pqtl": P,
+                    "rsid": str(rsid),
+                    "snp": str(snp),
+                    "A1": str(A1),
+                    "A2": str(A2),
+                    "gwas_beta": str(gwas_beta),
+                    "finngen_ref": str(finngen_ref),
+                    "finngen_alt": str(finngen_alt),
+                    "pqtl_effect_allele_original": str(pqtl_effect_allele),
+                    "pqtl_other_allele_original": str(pqtl_other_allele),
+                    "beta_pqtl_original": str(beta_original),
+                    "beta_pqtl": str(beta),
+                    "pqtl_A1_flipped": str(pqtl_A1_flipped),
+                    "phewas_A1_flipped": str(phewas_A1_flipped),
+                    "se_pqtl": str(se),
+                    "p_pqtl": str(P),
                     "beta_mr": res["wald_ratio"],
                     "se_mr": res["se_wald_ratio"],
                     "p_mr": res["P_nominal"],
-                    "beta_phewas": b,
-                    "se_phewas": s,
-                    "p_phewas": pheno["P"],
+                    "beta_phewas": str(b),
+                    "se_phewas": str(s),
+                    "p_phewas": str(pheno["P"]),
                     "PHENOCODE": pheno["PHENOCODE"],
                     "PHENOSTRING": pheno["PHENOSTRING"],
                     "CATEGORY": pheno["CATEGORY"],
@@ -535,10 +568,14 @@ def phewas_for_compelling_targets(pheno_id: str, pqtl_dataset: str, eqtl_dataset
         df_protein_results = pl.DataFrame(protein_results)
         # FDR correct across all phenotypes tested for this protein regardless of method
         # rejected, q = fdrcorrection(df_protein_results["p_mr"].to_numpy(), alpha=0.05, method="indep")
-        rejected, q = fdrcorrection(df_protein_results["p_mr"].to_numpy(), alpha=0.05)
         df_protein_results = df_protein_results.with_columns([
-            pl.Series("q_fdr_mr", q),
-            pl.Series("fdr_significant", rejected)
+            pl.min_horizontal(
+                pl.col("p_mr") * finngen_icd_endpoints,
+                pl.lit(1.0)
+            ).alias("p_bonferroni"),
+            (
+                pl.col("p_mr") < (0.05 / finngen_icd_endpoints)
+            ).alias("bonferroni_significant")
         ])
 
         results.extend(df_protein_results.to_dicts())
@@ -547,7 +584,7 @@ def phewas_for_compelling_targets(pheno_id: str, pqtl_dataset: str, eqtl_dataset
         print("[TRACKING] No PheWAS associations were generated...")
         return
 
-    df_results = pl.DataFrame(results)
+    df_results = pl.DataFrame(results, infer_schema_length=None)
     df_results = df_results.sort(["protein", "p_mr"])
     df_results.write_csv(os.path.join(out_dir, f"{pqtl_dataset}_{pheno_id}_PheWAS.tsv"), separator="\t")
     print(f"[TRACKING] PheWAS completed: {df_results.height} associations saved...")

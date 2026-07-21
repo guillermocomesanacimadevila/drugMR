@@ -146,6 +146,8 @@ def results(
             str(port_number),
             "--phenotype",
             pheno_id,
+            "--pqtl_dataset",
+            pqtl_dataset
         ],
         check=True,
     )
@@ -190,6 +192,7 @@ def local(config: str = "assets/config.yaml"):
     overwrite = getattr(cfg, "overwrite", False)
     image_uri = getattr(cfg, "image_uri", "ghcr.io/guillermocomesanacimadevila/drugmr:latest")
     image_name = getattr(cfg, "image_name", "ghcr.io/guillermocomesanacimadevila/drugmr:latest")
+    
 
     # set projectDir()
     project_root = Path(__file__).resolve().parents[1] # i.e. "Users/.../drugMR"
