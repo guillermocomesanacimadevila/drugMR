@@ -93,6 +93,40 @@ exit 3
     print("[TRACKING] No complete cis-region output found - running step...")
     return False
 
+def check_remote_cojo(
+    falcon_user: str,
+    pqtl_dataset: str,
+    pheno_id: str,
+    overwrite: bool = False
+):
+    # run step if overwrite == True
+    if overwrite:
+        print("[TRACKING] Overwrite enabled - rerunning GCTA-COJO...")
+        return False
+
+    remote, _ = get_remote_paths(falcon_user)
+
+    result = ssh(f"""
+set -euo pipefail
+cd "{remote}"
+
+n_cojo=$(find "results/COJO/{pqtl_dataset}/{pheno_id}" -mindepth 2 -maxdepth 2 -name "*.jma.cojo" -size +0c 2>/dev/null | wc -l)
+
+if [ "$n_cojo" -gt 0 ]; then
+    echo "[TRACKING] GCTA-COJO already completed: $n_cojo loci found"
+    exit 0
+fi
+
+exit 3
+""", falcon_user, allowed_returncodes=(0, 3))
+
+    if result.returncode == 0:
+        print("[TRACKING] Skipping GCTA-COJO...")
+        return True
+
+    print("[TRACKING] No complete GCTA-COJO outputs found - running step...")
+    return False
+
 def require_remote_output(
     falcon_user: str,
     path: str,
@@ -478,6 +512,28 @@ apptainer exec --bind "{remote}:/work" \\
     --eqtl_dataset {eqtl_dataset}"
 """, falcon_user)
 
+def run_cojo(
+    falcon_user: str,
+    pheno_id: str,
+    pqtl_dataset: str,
+    eqtl_dataset: str,
+    ref_bfile: str,
+):
+    remote, sif = get_remote_paths(falcon_user)
+
+    ssh(f"""
+set -euo pipefail
+cd "{remote}"
+
+apptainer exec --bind "{remote}:/work" \\
+  --env PYTHONPATH=/work \\
+  "{sif}" \\
+  bash -c "cd /work && python bin/cojo_on_pqtls.py \\
+    --pheno_id {pheno_id} \\
+    --pqtl_dataset {pqtl_dataset} \\
+    --eqtl_dataset {eqtl_dataset} \\
+    --ref_bfile {ref_bfile}"
+""", falcon_user)
 
 # RUN PHEWAS CHECKS FOR SAFETY (LOCALLY) -> API != WORK IN SLURM HPC
 # ******************************************************************
@@ -538,8 +594,8 @@ python bin/phewas_cis_pqtls.py \\
     print(f"[TRACKING] PheWAS safety results found: {phewas_out}")
 
 
-# ******************************************************************
-# ******************************************************************
+# ******************************************************************
+# ******************************************************************
 
 
 # **************************
@@ -599,17 +655,20 @@ def pull_results_local(
     remote_smr = f"{remote}/results/SMR/{eqtl_dataset}/{pheno_id}"
     remote_eqtl_coloc = f"{remote}/results/eQTL_coloc/{pqtl_dataset}/{eqtl_dataset}/{pheno_id}"
     remote_moloc = f"{remote}/results/QTL_moloc/{pqtl_dataset}/{eqtl_dataset}/{pheno_id}"
+    remote_cojo = f"{remote}/results/COJO/{pqtl_dataset}/{pheno_id}"
     local_results_dir = Path(local_results_dir)
     local_mr_dir = local_results_dir / "cis-MR"
     local_coloc_dir = local_results_dir / "coloc" / pqtl_dataset
     local_smr_dir = local_results_dir / "SMR" / eqtl_dataset / pheno_id
     local_eqtl_coloc_dir = local_results_dir / "eQTL_coloc" / pqtl_dataset / eqtl_dataset / pheno_id
     local_moloc_dir = local_results_dir / "QTL_moloc" / pqtl_dataset / eqtl_dataset / pheno_id
+    local_cojo_dir = local_results_dir / "COJO" / pqtl_dataset / pheno_id
     local_mr_dir.mkdir(parents=True, exist_ok=True)
     local_coloc_dir.mkdir(parents=True, exist_ok=True)
     local_smr_dir.mkdir(parents=True, exist_ok=True)
     local_eqtl_coloc_dir.mkdir(parents=True, exist_ok=True)
     local_moloc_dir.mkdir(parents=True, exist_ok=True)
+    local_cojo_dir.mkdir(parents=True, exist_ok=True)
     local_mr = local_mr_dir / f"{pqtl_dataset}_{pheno_id}_all_MR.tsv"
     local_coloc = local_coloc_dir / f"{pqtl_dataset}_{pheno_id}_all_coloc.tsv"
     for remote_file, local_file in [
@@ -659,6 +718,15 @@ def pull_results_local(
         subprocess.run(cmd, shell=True, check=True)
         print(f"[DONE] Pulled MOLOC results into {local_moloc_dir}")
 
+    # pull all GCTA-COJO results
+    if any(local_cojo_dir.iterdir()) and not overwrite:
+        print(f"[TRACKING] {local_cojo_dir} already contains COJO results. Skipping pull.")
+    else:
+        cmd = f"scp -r {falcon_user}@falconlogin.cf.ac.uk:{remote_cojo}/. {local_cojo_dir}/"
+        print(cmd)
+        subprocess.run(cmd, shell=True, check=True)
+        print(f"[DONE] Pulled COJO results into {local_cojo_dir}")
+
 
 # STREAMLIT DASHBOARD
 def run_dashboard_local(
@@ -691,6 +759,7 @@ def check_outputs(
     prepared_multi_omics = f"results/SMR/{eqtl_dataset}/{pheno_id}/{pqtl_dataset}_{pheno_id}_prepared_multi_omics_targets.tsv"
     eqtl_coloc = f"results/eQTL_coloc/{pqtl_dataset}/{eqtl_dataset}/{pheno_id}/{pqtl_dataset}_{pheno_id}_{eqtl_dataset}_all_eqtl_coloc.tsv"
     moloc = f"results/QTL_moloc/{pqtl_dataset}/{eqtl_dataset}/{pheno_id}/{pqtl_dataset}_{pheno_id}_{eqtl_dataset}_moloc_summary.tsv"
+    cojo_dir = f"results/COJO/{pqtl_dataset}/{pheno_id}"
 
     ssh(f"""
 set -euo pipefail
@@ -752,6 +821,15 @@ if [ -s "{moloc}" ]; then
 else
     echo "[CONCERN] GWAS - pQTL - sc-eQTL MOLOC output not found or empty"
 fi
+
+echo "[TRACKING] Checking GCTA-COJO output..."
+n_cojo=$(find "{cojo_dir}" -mindepth 2 -maxdepth 2 -name "*.jma.cojo" -size +0c 2>/dev/null | wc -l)
+if [ "$n_cojo" -gt 0 ]; then
+    echo "[TRACKING] GCTA-COJO outputs found for $n_cojo loci"
+    find "{cojo_dir}" -mindepth 2 -maxdepth 2 -name "*.jma.cojo" -size +0c -print
+else
+    echo "[CONCERN] No GCTA-COJO .jma.cojo outputs found"
+fi
 """, falcon_user)
 
 
@@ -800,6 +878,7 @@ def hpc(config: str = "assets/config.yaml"):
     moloc_out = f"results/QTL_moloc/{pqtl_dataset}/{eqtl_dataset}/{pheno_id}/{pqtl_dataset}_{pheno_id}_{eqtl_dataset}_moloc_summary.tsv"
     summary_out = f"results/SMR/{eqtl_dataset}/{pheno_id}/{pqtl_dataset}_{pheno_id}_multi_omics_overview.tsv"
     snp_evidence_out = f"results/SMR/{eqtl_dataset}/{pheno_id}/{pqtl_dataset}_{pheno_id}_multi_omics_snp_evidence.tsv"
+    cojo_dir = f"results/COJO/{pqtl_dataset}/{pheno_id}"
 
     # change this where NetworkMR saves its final compiled output
     network_mr_out = f"results/network-MR/{pqtl_dataset}/{pqtl_dataset}_{pheno_id}_network_MR.tsv"
@@ -1068,6 +1147,32 @@ def hpc(config: str = "assets/config.yaml"):
         required_for="pipeline completion"
     )
 
+    # GCTA-COJO
+    if not check_remote_cojo(
+        falcon_user=falcon_user,
+        pqtl_dataset=pqtl_dataset,
+        pheno_id=pheno_id,
+        overwrite=overwrite
+    ):
+        print("[TRACKING] Running GCTA-COJO...")
+        run_cojo(
+            falcon_user=falcon_user,
+            pheno_id=pheno_id,
+            pqtl_dataset=pqtl_dataset,
+            eqtl_dataset=eqtl_dataset,
+            ref_bfile=ref_bfile,
+        )
+
+    if not check_remote_cojo(
+        falcon_user=falcon_user,
+        pqtl_dataset=pqtl_dataset,
+        pheno_id=pheno_id,
+        overwrite=False
+    ):
+        raise RuntimeError(
+            f"No GCTA-COJO outputs were produced in {cojo_dir}"
+        )
+
     print("[TRACKING] Checking outputs...")
     check_outputs(
         falcon_user=falcon_user,
@@ -1100,4 +1205,5 @@ def hpc(config: str = "assets/config.yaml"):
     print(f"[TRACKING] Expected prepared multi-omics target output: {prepared_multi_omics_out}")
     print(f"[TRACKING] Expected GWAS - sc-eQTL COLOC output: {eqtl_coloc_out}")
     print(f"[TRACKING] Expected GWAS - pQTL - sc-eQTL MOLOC output: {moloc_out}")
+    print(f"[TRACKING] Expected GCTA-COJO output directory: {cojo_dir}")
     print("[DONE] drugMR pipeline completed successfully.")

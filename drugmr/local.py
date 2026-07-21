@@ -240,6 +240,15 @@ def local(config: str = "assets/config.yaml"):
         / f"{pqtl_dataset}_{pheno_id}_multi_omics_snp_evidence.tsv"
     )
 
+    # GCTA-COJO output directory
+    cojo_dir = (
+        project_root
+        / "results"
+        / "COJO"
+        / pqtl_dataset
+        / pheno_id
+    )
+
     # phewas - ukb_ppp_AD_PheWAS.tsv
     phewas_out = (
         project_root
@@ -613,7 +622,61 @@ docker run --rm \\
     print(f"[TRACKING] SNP evidence table found: {snp_evidence_out}")
 
 
-        # PheWAS stuff
+
+    # COJO
+    require_output(summary_out, "multi-omics overview", "pipeline completion")
+    require_output(snp_evidence_out, "multi-omics SNP evidence", "pipeline completion")
+    print(f"[TRACKING] Multi-omics overview found: {summary_out}")
+    print(f"[TRACKING] SNP evidence table found: {snp_evidence_out}")
+    
+    # ------ --------- ------
+    # GCTA-COJO
+    # Identify conditionally independent cis-pQTL signals
+    # ------ --------- ------
+
+    cmd_cojo = f"""
+set -euo pipefail
+docker run --rm \\
+  --platform linux/amd64 \\
+  -v "{project_root}:/work" \\
+  -w /work \\
+  -e PYTHONPATH=/work \\
+  "{image_name}" \\
+  python bin/cojo_on_pqtls.py \\
+    --pheno_id {pheno_id} \\
+    --pqtl_dataset {pqtl_dataset} \\
+    --eqtl_dataset {eqtl_dataset} \\
+    --ref_bfile {ref_bfile}
+"""
+
+    require_output(snp_evidence_out, "multi-omics SNP evidence", "GCTA-COJO")
+
+    cojo_outputs = list(cojo_dir.glob("*/*.jma.cojo"))
+
+    if overwrite or len(cojo_outputs) == 0:
+        print("[TRACKING] Running GCTA-COJO locally via Docker...")
+        cmd_base(cmd_cojo)
+    else:
+        print(
+            f"[TRACKING] COJO already completed for "
+            f"{len(cojo_outputs)} loci."
+        )
+        print("[TRACKING] Skipping GCTA-COJO...")
+
+    cojo_outputs = list(cojo_dir.glob("*/*.jma.cojo"))
+
+    if len(cojo_outputs) == 0:
+        raise RuntimeError(
+            f"No COJO .jma.cojo outputs were produced in: {cojo_dir}"
+        )
+
+    print(
+        f"[TRACKING] COJO independent-signal outputs found for "
+        f"{len(cojo_outputs)} loci"
+    )
+
+
+    # PheWAS stuff
     cmd_phewas = f"""
 set -euo pipefail 
 docker run --rm \\
