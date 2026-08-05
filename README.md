@@ -6,9 +6,9 @@
 [![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-blue)](pyproject.toml)
 [![Docker](https://img.shields.io/badge/docker-ghcr.io-blue?logo=docker)](https://github.com/guillermocomesanacimadevila/drugMR/pkgs/container/drugmr)
 
-drugMR takes an outcome GWAS and a panel of protein QTLs, and returns a ranked, safety-screened list of druggable targets — with every step in between (Mendelian randomisation, colocalisation, SMR, PheWAS) run automatically and gated on the previous step's evidence.
+drugMR takes an outcome GWAS and a panel of protein QTLs and returns a ranked, safety-screened list of druggable targets. Every step in between (Mendelian randomisation, colocalisation, SMR, PheWAS) runs automatically and is gated on the evidence produced by the step before it.
 
-It integrates plasma, CSF and brain pQTLs (>10,000 proteins; Olink + SomaScan + mass-spec) from **UKB-PPP**, **deCODE**, **Wu et al. (CSF)** and **Wingo et al. (brain)**, against any outcome phenotype — demonstrated here on Alzheimer's disease — with optional mediation through intermediate biomarkers (e.g. CSF pTau181, Aβ42). Results converge in a Streamlit dashboard backed by PostgreSQL.
+It integrates plasma, CSF and brain pQTLs (>10,000 proteins; Olink, SomaScan and mass-spec) from **UKB-PPP**, **deCODE**, **Wu et al. (CSF)** and **Wingo et al. (brain)**, tested against any outcome phenotype (demonstrated here on Alzheimer's disease), with optional mediation through intermediate biomarkers such as CSF pTau181 and Aβ42. Results converge in a Streamlit dashboard backed by PostgreSQL.
 
 ---
 
@@ -33,37 +33,44 @@ It integrates plasma, CSF and brain pQTLs (>10,000 proteins; Olink + SomaScan + 
 
 ## Pipeline overview
 
-Every stage's output gates the next: a target has to clear one line of evidence before it is even considered by the next. Completed stages are cached and reused unless `overwrite: true`.
+Each stage reads the previous stage's output, applies a hard statistical gate, and writes only the survivors forward. Nothing advances on vibes: the thresholds below are the literal filter conditions in `bin/coloc_targets.py` and `bin/sort_smr.py`. Completed stages are cached under `results/` and reused unless `overwrite: true`.
 
 ```mermaid
 flowchart TD
-    A[Outcome GWAS] --> B["1. GWAS QC"]
-    B --> C{mediators enabled?}
-    C -->|yes| D["2. Mediator QC"]
-    C -->|no| E["3. cis-region preparation"]
-    D --> E
-    E --> F["4. cis-MR (Wald ratio / IVW)"]
-    F --> G{mediators enabled?}
-    G -->|yes| H["5. NetworkMR mediation"]
-    G -->|no| I["6. Pairwise COLOC (PP.H4)"]
-    H --> I
-    I --> J["7. Top cis-hit compilation"]
-    J --> K["8. SMR + HEIDI (bulk + single-cell eQTL)"]
-    K --> L["9. PheWAS safety screening"]
-    L --> M["10. Results: PostgreSQL + dashboard"]
+    CFG[["assets/config.yaml"]] --> QC["bin/qc_gwas.py\nharmonise + QC outcome GWAS"]
+    QC --> CIS["bin/prep_cis_regions.py\nmatch pQTL cis-regions to GWAS"]
+    CFG -. mediators: true .-> MQC["bin/arrange_mediators.py\nQC mediator GWAS"] --> CIS
+
+    CIS --> MR["bin/cis_mr.R\nWald ratio / IVW per protein"]
+    MR --> MRGATE{"Wald_FDR_q < 0.05\n(1 instrument) OR\nIVW_FDR_q < 0.05 AND\nCochran_Q_p > 0.05"}
+    MRGATE -- fail --> DROP1(["dropped"])
+    MRGATE -- pass --> NMR["bin/assort_network_mr.py\nNetworkMR mediation"]
+
+    NMR --> COLOC["bin/coloc_targets.py\npQTL-GWAS colocalisation"]
+    COLOC --> COLOCGATE{"PP.H4.abf > 0.7"}
+    COLOCGATE -- fail --> DROP2(["dropped"])
+    COLOCGATE -- pass --> COMPILE["bin/compile_cis_hit_info.py\nalign top cis-SNP to risk allele"]
+
+    COMPILE --> SMR["bin/sort_smr.py\nSMR + HEIDI, bulk + single-cell eQTL"]
+    SMR --> SMRGATE{"q_SMR < 0.05 AND\np_HEIDI > 0.01"}
+    SMRGATE -- fail --> DROP3(["dropped"])
+    SMRGATE -- pass --> PHEWAS["bin/phewas_cis_pqtls.py\nbin/ukb_phewas.py\nFinnGen + UKB PheWAS"]
+
+    PHEWAS --> DB[("PostgreSQL")]
+    DB --> DASH["Streamlit dashboard\ndm.results()"]
 ```
 
-| # | Stage | Script | What it does |
+| # | Stage | Script | Gate to next stage |
 | --- | --- | --- | --- |
 | 1 | GWAS QC | `bin/qc_gwas.py` | Harmonises and QCs the outcome GWAS |
-| 2 | Mediator QC | `bin/arrange_mediators.py` | *(optional)* QCs mediating biomarker GWAS |
+| 2 | Mediator QC (optional) | `bin/arrange_mediators.py` | QCs mediating biomarker GWAS when `mediators: true` |
 | 3 | cis-region prep | `bin/prep_cis_regions.py` | Matches pQTL cis-regions to the outcome GWAS |
-| 4 | cis-MR | `bin/cis_mr.R` | Wald ratio (1 instrument) / IVW (>1 instrument) MR per protein |
-| 5 | NetworkMR | `bin/assort_network_mr.py` | *(optional)* Mediation analysis through specified biomarkers |
-| 6 | Pairwise COLOC | `bin/coloc_targets.py` | pQTL–GWAS colocalisation (PP.H4) per protein |
-| 7 | Top cis-hit compilation | `bin/compile_cis_hit_info.py` | Harmonises the top cis-SNP per protein, aligned to the outcome risk allele |
-| 8 | SMR | `bin/sort_smr.py` | eQTL–GWAS colocalisation via SMR + HEIDI, for targets surviving cis-MR + COLOC — both **bulk** (eQTLGen / MetaBrain / GTEx v10, ingested as-is) and **single-cell** (SingleBrain, computed fresh per cell type). FDR-corrected per dataset, alleles aligned to the outcome risk allele |
-| 9 | PheWAS | `bin/phewas_cis_pqtls.py`, `bin/ukb_phewas.py` | FinnGen and UK Biobank phenome-wide MR safety screening of surviving targets |
+| 4 | cis-MR | `bin/cis_mr.R` | Wald ratio (1 instrument) or IVW (>1 instrument) per protein; passes if `Wald_FDR_q < 0.05`, or `IVW_FDR_q < 0.05` with `Cochran_Q_p > 0.05` |
+| 5 | NetworkMR (optional) | `bin/assort_network_mr.py` | Mediation analysis through the biomarkers in `mediator_manifest` |
+| 6 | Pairwise COLOC | `bin/coloc_targets.py` | pQTL-GWAS colocalisation; passes if `PP.H4.abf > 0.7` |
+| 7 | Top cis-hit compilation | `bin/compile_cis_hit_info.py` | Aligns the top cis-SNP per protein to the outcome risk allele |
+| 8 | SMR | `bin/sort_smr.py` | eQTL-GWAS colocalisation via SMR + HEIDI, bulk (eQTLGen / MetaBrain / GTEx v10) and single-cell (SingleBrain); passes if `q_SMR < 0.05` and `p_HEIDI > 0.01` |
+| 9 | PheWAS | `bin/phewas_cis_pqtls.py`, `bin/ukb_phewas.py` | FinnGen and UK Biobank phenome-wide MR safety screen of surviving targets |
 | 10 | Results | `dm.results()` | Loads cis-MR/COLOC results into PostgreSQL and launches the Streamlit dashboard |
 
 ---
@@ -78,7 +85,7 @@ flowchart TD
 | pQTL | Wingo et al. | Brain | `pqtl_dataset: wingo_brain` |
 | Bulk eQTL | eQTLGen, MetaBrain, GTEx v10 | Blood / brain (tissue-resolved) | `bulk_eqtl_datasets` |
 | Single-cell eQTL | SingleBrain | Brain (cell-type-resolved: Ast, Ext, IN, MG, OD, OPC, End) | `sc_eqtl_dataset` |
-| Reference panel | 1000 Genomes (EUR, Phase 3) | — | `ref_bfile` |
+| Reference panel | 1000 Genomes (EUR, Phase 3) | N/A | `ref_bfile` |
 
 ---
 
@@ -86,7 +93,7 @@ flowchart TD
 
 ```
 drugMR/
-├── drugmr/          # Installable package — Config, SMR, PheWAS, NetworkMR, PyTwoSampleMR, utils
+├── drugmr/          # Installable package: Config, SMR, PheWAS, NetworkMR, PyTwoSampleMR, utils
 ├── bin/             # Pipeline stage scripts (Python + R), invoked by drugmr
 ├── scripts/         # Per-cohort data ingestion/preprocessing (deCODE, UKB-PPP, Wu CSF, Wingo, SingleBrain)
 ├── dat/             # Input data: GWAS, pQTL, sc-eQTL, cis regions, reference panel
@@ -161,7 +168,7 @@ See [`notebooks/00_drugmr.ipynb`](notebooks/00_drugmr.ipynb) for a worked exampl
 | --- | --- |
 | **Overview** | Target prioritisation funnel (cis-MR → cis-MR + COLOC) and the prioritised target table |
 | **1. cis-MR** | Full cis-MR association table and a volcano plot |
-| **2. pQTL–GWAS COLOC** | Targets passing both cis-MR and pairwise COLOC thresholds |
+| **2. pQTL-GWAS COLOC** | Targets passing both cis-MR and pairwise COLOC thresholds |
 | **3. FinnGen PheWAS** / **4. UKB PheWAS** | Per-target phenome-wide MR safety profile, Manhattan-style scatter, Bonferroni-significant associations |
 | **5. SMR (bulk/sc eQTL)** | Filterable SMR + HEIDI results (by data type / cell type), plus a target × cell-type/tissue support heatmap |
 | **6. Final Targets** | Curated, filter-free deliverable: targets passing cis-MR + COLOC + SMR + HEIDI, one row per target × cell-type/tissue, GWAS/pQTL/eQTL/SMR betas aligned to the outcome risk allele, top SMR SNP (chromosome/position), SMR/HEIDI p-values |
@@ -226,13 +233,13 @@ The pipeline image is published to GHCR:
 docker pull ghcr.io/guillermocomesanacimadevila/drugmr:latest
 ```
 
-`dm.local()` pulls and runs this image automatically — manual pulls are only needed for debugging the container itself.
+`dm.local()` pulls and runs this image automatically. A manual pull is only needed if you're debugging the container itself.
 
 ---
 
 ## Citation
 
-If you use drugMR in your work, please cite it — see [`CITATION.cff`](CITATION.cff):
+If you use drugMR in your work, please cite it. See [`CITATION.cff`](CITATION.cff):
 
 ```bibtex
 @software{drugmr2026,
