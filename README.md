@@ -6,9 +6,7 @@
 [![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-blue)](pyproject.toml)
 [![Docker](https://img.shields.io/badge/docker-ghcr.io-blue?logo=docker)](https://github.com/guillermocomesanacimadevila/drugMR/pkgs/container/drugmr)
 
-drugMR takes an outcome GWAS and a panel of protein QTLs and returns a ranked, safety-screened list of druggable targets. Every step in between (Mendelian randomisation, colocalisation, SMR, PheWAS) runs automatically and is gated on the evidence produced by the step before it.
-
-It integrates plasma, CSF and brain pQTLs (>10,000 proteins; Olink, SomaScan and mass-spec) from **UKB-PPP**, **deCODE**, **Wu et al. (CSF)** and **Wingo et al. (brain)**, tested against any outcome phenotype (demonstrated here on Alzheimer's disease), with optional mediation through intermediate biomarkers such as CSF pTau181 and Aβ42. Results converge in a Streamlit dashboard backed by PostgreSQL.
+drugMR takes an outcome GWAS and a panel of protein QTLs and returns a ranked, safety-screened list of druggable targets. Every step in between (Mendelian randomisation, colocalisation, SMR, PheWAS) runs automatically and is gated on the evidence produced by the step before it. It integrates plasma, CSF and brain pQTLs (>10,000 proteins; Olink, SomaScan and mass-spec) from **UKB-PPP**, **deCODE**, **Wu et al. (CSF)** and **Wingo et al. (brain)**, tested against any outcome phenotype (demonstrated here on Alzheimer's disease), with optional mediation through intermediate biomarkers such as CSF pTau181 and Aβ42. Results converge in a Streamlit dashboard backed by PostgreSQL.
 
 ---
 
