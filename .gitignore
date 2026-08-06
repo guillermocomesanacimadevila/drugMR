@@ -1,7 +1,9 @@
 .DS_Store
+.idea/
 .nextflow*
 .nextflow/
 __pycache__/
+*.py[cod]
 .ipynb_checkpoints/
 .streamlit/
 dashboard/drugmr.hyper
