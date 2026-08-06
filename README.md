@@ -35,8 +35,7 @@ drugMR takes an outcome GWAS and a panel of protein QTLs and returns a ranked, s
 Each stage reads the previous stage's output, applies a hard statistical gate, and writes only the survivors forward. Nothing advances on vibes: the thresholds below are the literal filter conditions in `bin/coloc_targets.py` and `bin/sort_smr.py`. Completed stages are cached under `results/` and reused unless `overwrite: true`.
 
 ![drugMR pipeline DAG](docs/pipeline_dag.png)
-
-*Diagram source: [`analysis/pipeline_dag.py`](analysis/pipeline_dag.py) — generates `analysis/pipeline_dag.svg`; the exact statistical thresholds for each evidence gate are in the table below, not on the diagram.*
+---
 
 | # | Stage | Script | Gate to next stage |
 | --- | --- | --- | --- |
