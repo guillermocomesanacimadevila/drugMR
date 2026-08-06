@@ -13,6 +13,7 @@ drugMR takes an outcome GWAS and a panel of protein QTLs and returns a ranked, s
 ## Contents
 
 - [Pipeline overview](#pipeline-overview)
+- [Results schema](docs/RESULTS_SCHEMA.md)
 - [Data sources](#data-sources)
 - [Repository layout](#repository-layout)
 - [Installation](#installation)
@@ -33,30 +34,9 @@ drugMR takes an outcome GWAS and a panel of protein QTLs and returns a ranked, s
 
 Each stage reads the previous stage's output, applies a hard statistical gate, and writes only the survivors forward. Nothing advances on vibes: the thresholds below are the literal filter conditions in `bin/coloc_targets.py` and `bin/sort_smr.py`. Completed stages are cached under `results/` and reused unless `overwrite: true`.
 
-```mermaid
-flowchart TD
-    CFG[["assets/config.yaml"]] --> QC["bin/qc_gwas.py\nharmonise + QC outcome GWAS"]
-    QC --> CIS["bin/prep_cis_regions.py\nmatch pQTL cis-regions to GWAS"]
-    CFG -. mediators: true .-> MQC["bin/arrange_mediators.py\nQC mediator GWAS"] --> CIS
+![drugMR pipeline DAG](docs/pipeline_dag.png)
 
-    CIS --> MR["bin/cis_mr.R\nWald ratio / IVW per protein"]
-    MR --> MRGATE{"Wald_FDR_q < 0.05\n(1 instrument) OR\nIVW_FDR_q < 0.05 AND\nCochran_Q_p > 0.05"}
-    MRGATE -- fail --> DROP1(["dropped"])
-    MRGATE -- pass --> NMR["bin/assort_network_mr.py\nNetworkMR mediation"]
-
-    NMR --> COLOC["bin/coloc_targets.py\npQTL-GWAS colocalisation"]
-    COLOC --> COLOCGATE{"PP.H4.abf > 0.7"}
-    COLOCGATE -- fail --> DROP2(["dropped"])
-    COLOCGATE -- pass --> COMPILE["bin/compile_cis_hit_info.py\nalign top cis-SNP to risk allele"]
-
-    COMPILE --> SMR["bin/sort_smr.py\nSMR + HEIDI, bulk + single-cell eQTL"]
-    SMR --> SMRGATE{"q_SMR < 0.05 AND\np_HEIDI > 0.01"}
-    SMRGATE -- fail --> DROP3(["dropped"])
-    SMRGATE -- pass --> PHEWAS["bin/phewas_cis_pqtls.py\nbin/ukb_phewas.py\nFinnGen + UKB PheWAS"]
-
-    PHEWAS --> DB[("PostgreSQL")]
-    DB --> DASH["Streamlit dashboard\ndm.results()"]
-```
+*Diagram source: [`analysis/pipeline_dag.py`](analysis/pipeline_dag.py) — generates `analysis/pipeline_dag.svg`; the exact statistical thresholds for each evidence gate are in the table below, not on the diagram.*
 
 | # | Stage | Script | Gate to next stage |
 | --- | --- | --- | --- |
@@ -101,6 +81,8 @@ drugMR/
 ├── assets/          # config.yaml, mediator manifests
 ├── env/             # Dockerfile, requirements.txt
 ├── modules/         # Git submodules (ukbppp_dl)
+├── docs/            # Pipeline DAG (docs/pipeline_dag.png), results schema (docs/RESULTS_SCHEMA.md)
+├── analysis/        # Diagram sources (analysis/pipeline_dag.py) and ad-hoc analyses
 ```
 
 ---
