@@ -10,16 +10,20 @@ readme = "README.md"
 requires-python = ">=3.12"
 
 dependencies = [
-    "numpy",
-    "pandas",
-    "polars",
-    "pyarrow",
-    "scipy",
-    "pyyaml",
-    "requests",
-    "tqdm",
-    "matplotlib",
-    "plotly",
+    "numpy==2.5.1",
+    "pandas==3.0.5",
+    "polars[rtcompat]==1.43.2",
+    "pyarrow==24.0.0",
+    "scipy==1.18.0",
+    "pyyaml==6.0.3",
+    "requests==2.34.2",
+    "statsmodels==0.14.6",
+    "streamlit==1.61.1",
+    "plotly==6.9.0",
+    "sqlalchemy==2.0.51",
+    "psycopg2-binary==2.9.12",
+    "liftover==1.4.1",
+    "synapseclient==4.13.0",
 ]
 
 [tool.setuptools.packages.find]
