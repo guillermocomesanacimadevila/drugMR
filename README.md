@@ -96,13 +96,11 @@ drugMR/
 ├── scripts/         # Per-cohort data ingestion/preprocessing (deCODE, UKB-PPP, Wu CSF, Wingo, SingleBrain)
 ├── dat/             # Input data: GWAS, pQTL, sc-eQTL, cis regions, reference panel
 ├── results/         # Pipeline outputs: cis-MR, COLOC, SMR, PheWAS, target stats
-├── analysis/        # Ad hoc / exploratory analyses (coloc sensitivity, overlap checks)
-├── dashboard/        # Streamlit app (mr_app.py)
+├── dashboard/       # Streamlit app (mr_app.py)
 ├── notebooks/       # Worked examples (00_drugmr.ipynb)
 ├── assets/          # config.yaml, mediator manifests
 ├── env/             # Dockerfile, requirements.txt
 ├── modules/         # Git submodules (ukbppp_dl)
-└── tests/           # Test scripts and fixtures
 ```
 
 ---
