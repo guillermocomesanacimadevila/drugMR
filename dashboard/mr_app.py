@@ -4,12 +4,98 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import plotly.express as px
+import plotly.graph_objects as go
 import streamlit as st
 
 # shared plotting conventions so charts look consistent across tabs rather than each
 # px.* call picking its own default palette
 SIGNIFICANCE_COLOR_MAP = {True: "#d62728", False: "#7f7f7f"}  # red = significant, grey = not
 SEQUENTIAL_SCALE = "Viridis"  # continuous significance / intensity scale
+
+# status colors reused across the prioritisation Sankey - fixed, never themed
+STATUS_GOOD = "#0ca30c"
+STATUS_CRITICAL = "#d03b3b"
+STATUS_MUTED = "#898781"
+SANKEY_BULK_COLOR = "#2a78d6"
+SANKEY_SC_COLOR = "#eb6834"
+SANKEY_BOTH_COLOR = "#1baf7a"
+
+
+def hex_to_rgba(hex_color: str, alpha: float):
+    hex_color = hex_color.lstrip("#")
+    r, g, b = (int(hex_color[i:i + 2], 16) for i in (0, 2, 4))
+    return f"rgba({r},{g},{b},{alpha})"
+
+
+def format_protein_list_html(proteins, per_line: int = 6, limit: int = 48):
+    proteins = sorted(proteins)
+
+    if not proteins:
+        return "(no targets)"
+
+    truncated = len(proteins) > limit
+    shown = proteins[:limit]
+    lines = [", ".join(shown[i:i + per_line]) for i in range(0, len(shown), per_line)]
+    text = "<br>".join(lines)
+
+    if truncated:
+        text += f"<br>+{len(proteins) - limit} more"
+
+    return text
+
+
+def layout_sankey_columns(column_indices: list, node_values: list, n_nodes: int, margin: float = 0.06, min_gap: float = 0.08):
+    """Vertical layout for a multi-column Sankey, solved one column at a time.
+
+    Laying the flow out as a strict tree (each node nested inside its parent's
+    vertical band) collapses once the pass lane narrows: with ~130 proteins in
+    at cis-MR and ~12 surviving to SMR, that lane's four SMR children have a
+    twelfth of the height to share and their labels overlap. Positioning each
+    column independently instead keeps nodes in pass-lane-first order (so no
+    ribbon crosses another) while guaranteeing every node a `min_gap` slot of
+    its own. Node *heights* stay value-proportional - that's Plotly's shared
+    scale and it's what makes the drop-off readable - only the centres move.
+    """
+    node_y = [0.5] * n_nodes
+    low, high = margin, 1 - margin
+
+    # Plotly sizes node heights on one scale shared by the whole diagram (the
+    # fullest column fills the plot), so spans have to be measured against that
+    # same scale rather than each column's own total. Measuring per column would
+    # stretch a stage's nodes to fill the height even after most targets have
+    # dropped out, pushing small nodes to the bottom edge on long swooping
+    # ribbons that no longer line up with the blocks they connect.
+    scale = max((sum(node_values[index] for index in indices) for indices in column_indices if indices), default=1) or 1
+
+    for indices in column_indices:
+        if not indices:
+            continue
+
+        # stack from the top so the surviving lane stays a near-horizontal band
+        # and drop-outs peel off underneath it
+        centers = []
+        cursor = low
+
+        for index in indices:
+            span = (high - low) * node_values[index] / scale
+            centers.append(cursor + span / 2)
+            cursor += span
+
+        for position in range(1, len(centers)):
+            centers[position] = max(centers[position], centers[position - 1] + min_gap)
+
+        overflow = centers[-1] - high
+
+        if overflow > 0:
+            centers = [center - overflow for center in centers]
+
+            for position in range(len(centers) - 1, 0, -1):
+                centers[position - 1] = min(centers[position - 1], centers[position] - min_gap)
+
+        for index, center in zip(indices, centers):
+            node_y[index] = min(max(center, 0.02), 0.98)
+
+    return node_y
 
 
 # KEY CHANGES DOWN THE LINE WITH MORE PQTL DATASETS
@@ -205,6 +291,36 @@ def prepare_phewas(df: pd.DataFrame):
         df["bonferroni_significant"] = df["p_bonferroni"].fillna(np.inf) <= 0.05
 
     return df
+
+
+def compute_phewas_safety_status(phewas_df: pd.DataFrame, proteins):
+    """Per-protein FinnGen/UKB PheWAS safety flag for the prioritisation Sankey.
+
+    A protein FAILS only if it has a Bonferroni-significant PheWAS association
+    with beta_mr >= 0 (the same allele that raises AD risk also raises the
+    safety-relevant phenotype). No significant association, a significant but
+    protective (negative) beta, or no PheWAS coverage at all all count as PASS.
+    """
+    proteins = list(proteins)
+    status = {protein: "pass" for protein in proteins}
+
+    if phewas_df.empty or "protein" not in phewas_df.columns or "beta_mr" not in phewas_df.columns:
+        return status
+
+    if "bonferroni_significant" not in phewas_df.columns:
+        return status
+
+    df = phewas_df.copy()
+    df["protein"] = df["protein"].astype(str)
+
+    adverse = df["bonferroni_significant"].fillna(False) & (df["beta_mr"].fillna(0) >= 0)
+    failing_proteins = set(df.loc[adverse, "protein"].unique())
+
+    for protein in proteins:
+        if protein in failing_proteins:
+            status[protein] = "fail"
+
+    return status
 
 
 def subset_phewas_outcome(df: pd.DataFrame, outcome: str):
@@ -856,6 +972,8 @@ def dashboard(db_name: str, port_number: str, phenotype: str, pqtl_dataset: str)
         fdr = st.slider("MR FDR threshold", 0.0, 1.0, 0.05, 0.01)
         q_pval = st.slider("Minimum Cochran Q p-value", 0.0, 1.0, 0.05, 0.01)
         pp4 = st.slider("pQTL–GWAS COLOC PP.H4 threshold", 0.0, 1.0, 0.70, 0.01)
+        smr_fdr_threshold = st.slider("SMR FDR (q_SMR) threshold", 0.0, 1.0, 0.05, 0.01)
+        heidi_p_threshold = st.slider("Minimum HEIDI p-value", 0.0, 1.0, 0.01, 0.01)
 
     with st.sidebar.expander("Protein filter", expanded=True):
         protein = st.text_input(
@@ -1486,6 +1604,191 @@ def dashboard(db_name: str, port_number: str, phenotype: str, pqtl_dataset: str)
             "file rather than the raw SMR output (SMR's own allele coding doesn't always match "
             "the original file's effect allele)."
         )
+
+        st.divider()
+        st.subheader("Target prioritisation flow")
+        st.caption(
+            "How the proteins that passed cis-MR for this pQTL dataset narrow down to the "
+            "final targets below. A target only reaches a downstream check once it has "
+            "already passed everything upstream, so each stage is drawn from the survivors "
+            "of the one before it. Hover any stage or ribbon to see exactly which genes it holds."
+        )
+
+        with st.expander("How each stage is decided"):
+            st.markdown(
+                "- **cis-MR** — this flow starts from the proteins that already passed; the "
+                "much larger screening drop-off across every tested protein is the funnel in "
+                "the Overview tab.\n"
+                "- **pQTL–GWAS COLOC** — passes on the posterior-probability threshold set in "
+                "the sidebar.\n"
+                "- **FinnGen / UKB PheWAS safety** — fails *only* when a target has a "
+                "Bonferroni-significant association with `beta_mr >= 0`, i.e. the same allele "
+                "that raises AD risk also raises the safety-relevant phenotype. No significant "
+                "hit, a protective (negative) significant hit, or no PheWAS coverage at all "
+                "each count as passing.\n"
+                f"- **SMR support** — requires SMR FDR (`q_SMR`) < {smr_fdr_threshold:.2f} and "
+                f"HEIDI p-value > {heidi_p_threshold:.2f}, split by whether that support came "
+                "from bulk/tissue eQTL data, single-cell eQTL data, or both."
+            )
+
+        n_sankey_mr_pass = safe_nunique(mr_pass, "protein")
+
+        if n_sankey_mr_pass == 0:
+            st.info("No proteins currently pass the cis-MR threshold, so no flow can be drawn.")
+        else:
+            mr_pass_proteins = set(mr_pass["protein"].dropna().astype(str)) if "protein" in mr_pass.columns else set()
+            coloc_pass_set = set(mr_coloc_pass["protein"].dropna().astype(str)) if "protein" in mr_coloc_pass.columns else set()
+
+            finngen_status = compute_phewas_safety_status(finngen_phewas_outcome, coloc_pass_set)
+            finngen_pass_set = {protein for protein in coloc_pass_set if finngen_status.get(protein) != "fail"}
+
+            ukb_status = compute_phewas_safety_status(ukb_phewas_outcome, finngen_pass_set)
+            ukb_pass_set = {protein for protein in finngen_pass_set if ukb_status.get(protein) != "fail"}
+
+            smr_pass_rows = smr_display.copy()
+
+            if not smr_pass_rows.empty and {"q_smr", "p_heidi"}.issubset(smr_pass_rows.columns):
+                smr_pass_rows = smr_pass_rows[
+                    smr_pass_rows["q_smr"].notna() & (smr_pass_rows["q_smr"] < smr_fdr_threshold) &
+                    smr_pass_rows["p_heidi"].notna() & (smr_pass_rows["p_heidi"] > heidi_p_threshold)
+                ]
+            else:
+                smr_pass_rows = smr_pass_rows.iloc[0:0]
+
+            if "data_type" in smr_pass_rows.columns and "protein" in smr_pass_rows.columns:
+                bulk_pass_set = set(smr_pass_rows.loc[smr_pass_rows["data_type"] == "bulk", "protein"].dropna().astype(str))
+                sc_pass_set = set(smr_pass_rows.loc[smr_pass_rows["data_type"] != "bulk", "protein"].dropna().astype(str))
+            else:
+                bulk_pass_set = set()
+                sc_pass_set = set()
+
+            coloc_fail_set = mr_pass_proteins - coloc_pass_set
+            finngen_fail_set = coloc_pass_set - finngen_pass_set
+            ukb_fail_set = finngen_pass_set - ukb_pass_set
+            both_set = ukb_pass_set & bulk_pass_set & sc_pass_set
+            bulk_only_set = (ukb_pass_set & bulk_pass_set) - sc_pass_set
+            sc_only_set = (ukb_pass_set & sc_pass_set) - bulk_pass_set
+            neither_set = ukb_pass_set - bulk_pass_set - sc_pass_set
+
+            # single source of truth for the diagram, its hover text and the
+            # drill-down selector below - every count is derived from these sets.
+            # `label` is what the chart prints (kept short so five columns fit
+            # without wrapping), `name` is the formal stage name used on hover
+            # and in the selector.
+            sankey_groups = [
+                dict(key="mr", column=0, name="cis-MR passed", label="cis-MR passed",
+                     proteins=mr_pass_proteins, color=STATUS_MUTED, dropout=False),
+                dict(key="coloc_pass", column=1, name="COLOC passed", label="COLOC passed",
+                     proteins=coloc_pass_set, color=STATUS_GOOD, dropout=False),
+                dict(key="coloc_fail", column=1, name="COLOC failed", label="COLOC failed",
+                     proteins=coloc_fail_set, color=STATUS_CRITICAL, dropout=True),
+                dict(key="finngen_pass", column=2, name="FinnGen safety passed", label="FinnGen passed",
+                     proteins=finngen_pass_set, color=STATUS_GOOD, dropout=False),
+                dict(key="finngen_fail", column=2, name="FinnGen safety failed", label="FinnGen failed",
+                     proteins=finngen_fail_set, color=STATUS_CRITICAL, dropout=True),
+                dict(key="ukb_pass", column=3, name="UKB safety passed", label="UKB passed",
+                     proteins=ukb_pass_set, color=STATUS_GOOD, dropout=False),
+                dict(key="ukb_fail", column=3, name="UKB safety failed", label="UKB failed",
+                     proteins=ukb_fail_set, color=STATUS_CRITICAL, dropout=True),
+                dict(key="smr_both", column=4, name="SMR bulk + single-cell", label="Bulk + single-cell",
+                     proteins=both_set, color=SANKEY_BOTH_COLOR, dropout=False),
+                dict(key="smr_bulk", column=4, name="SMR bulk only", label="Bulk only",
+                     proteins=bulk_only_set, color=SANKEY_BULK_COLOR, dropout=False),
+                dict(key="smr_sc", column=4, name="SMR single-cell only", label="Single-cell only",
+                     proteins=sc_only_set, color=SANKEY_SC_COLOR, dropout=False),
+                dict(key="smr_none", column=4, name="SMR: no support", label="No SMR support",
+                     proteins=neither_set, color=STATUS_MUTED, dropout=True),
+            ]
+
+            sankey_edges = [
+                ("mr", "coloc_pass"), ("mr", "coloc_fail"),
+                ("coloc_pass", "finngen_pass"), ("coloc_pass", "finngen_fail"),
+                ("finngen_pass", "ukb_pass"), ("finngen_pass", "ukb_fail"),
+                ("ukb_pass", "smr_both"), ("ukb_pass", "smr_bulk"),
+                ("ukb_pass", "smr_sc"), ("ukb_pass", "smr_none"),
+            ]
+
+            # an empty stage costs a label and a slot but carries no information,
+            # so it is left out of the diagram (it stays in the selector below)
+            drawn = [group for group in sankey_groups if group["proteins"]]
+            node_index = {group["key"]: position for position, group in enumerate(drawn)}
+
+            # Plotly keeps node labels inside the plot area, flipping the last
+            # column's to the left of its nodes rather than letting them run into
+            # the margin - so the right margin stays thin and the columns are
+            # spaced apart instead. The gap before the last column is the widest
+            # because that is the one place a right-hand label (the UKB stage's)
+            # meets a left-flipped one (the SMR stages').
+            column_x = [0.02, 0.24, 0.44, 0.64, 0.99]
+
+            node_values = [len(group["proteins"]) for group in drawn]
+            node_labels = [f"{group['label']} ({value})" for group, value in zip(drawn, node_values)]
+            node_colors = [group["color"] for group in drawn]
+            node_x = [column_x[group["column"]] for group in drawn]
+            node_hover = [
+                f"<b>{group['name']} — {value} target(s)</b><br><br>"
+                f"{format_protein_list_html(group['proteins'])}"
+                for group, value in zip(drawn, node_values)
+            ]
+
+            # `drawn` is already pass-lane-first within each column, so taking
+            # each column in that order keeps the ribbons from crossing
+            column_indices = [
+                [node_index[group["key"]] for group in drawn if group["column"] == column]
+                for column in range(len(column_x))
+            ]
+            node_y = layout_sankey_columns(column_indices, node_values, len(drawn))
+
+            edges = [
+                (node_index[source], node_index[target])
+                for source, target in sankey_edges
+                if source in node_index and target in node_index
+            ]
+
+            sankey_fig = go.Figure(go.Sankey(
+                arrangement="fixed",
+                textfont=dict(size=13, color="#2b2b33"),
+                node=dict(
+                    label=node_labels,
+                    color=node_colors,
+                    customdata=node_hover,
+                    hovertemplate="%{customdata}<extra></extra>",
+                    x=node_x,
+                    y=node_y,
+                    pad=18,
+                    thickness=15,
+                    line=dict(color="rgba(255,255,255,0.9)", width=0.8)
+                ),
+                link=dict(
+                    source=[source for source, _ in edges],
+                    target=[target for _, target in edges],
+                    value=[node_values[target] for _, target in edges],
+                    # ribbons take the colour of where they land, and drop-out
+                    # ribbons sit fainter so the eye follows the surviving lane
+                    color=[
+                        hex_to_rgba(node_colors[target], 0.25 if drawn[target]["dropout"] else 0.4)
+                        for _, target in edges
+                    ],
+                    customdata=[
+                        f"<b>{drawn[source]['name']} → {drawn[target]['name']}</b><br>"
+                        f"{node_values[target]} target(s)<br><br>"
+                        f"{format_protein_list_html(drawn[target]['proteins'])}"
+                        for source, target in edges
+                    ],
+                    hovertemplate="%{customdata}<extra></extra>"
+                )
+            ))
+
+            sankey_fig.update_layout(
+                template="plotly_white",
+                height=420,
+                margin=dict(l=14, r=20, t=18, b=18),
+                hoverlabel=dict(align="left", bgcolor="white", bordercolor="rgba(0,0,0,0.15)", font=dict(size=12))
+            )
+
+            st.plotly_chart(sankey_fig, width="stretch")
+
+        st.divider()
 
         if smr_display.empty:
             st.info("No SMR results are available for this pQTL dataset yet.")
