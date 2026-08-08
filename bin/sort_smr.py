@@ -3,6 +3,7 @@ import argparse
 import polars as pl
 from pathlib import Path
 import subprocess
+import shutil
 from drugmr import SMR
 import pandas as pd
 import os
@@ -414,12 +415,131 @@ def run_single_cell_smr(pqtl_dataset: str, eqtl_dataset: str, pheno_id: str, sum
             print(f"[CONCERN] No SMR results found for the promising {pqtl_dataset} targets")
 
 
-# bulk eQTL SMR (eQTLGen / MetaBrain / GTEx_v10) is pre-computed elsewhere and already
-# FDR-corrected (p_SMR_FDR) - so unlike single-cell, this does NOT call the smr binary.
-# It just reads whatever .smr-shaped files already sit under results/SMR/bulk/{eqtl_dataset}/,
-# harmonises the column names onto the same shape single-cell uses, and extracts the
-# promising targets. GTEx_v10 is tissue-resolved (1 file per tissue via rglob, same idea
-# as single-cell's per-cell loop); eQTLGen / MetaBrain are flat (1 file for the dataset).
+# raw bulk eQTL besd/esi/epi under dat/bulk-eQTL/{eqtl_dataset}/ are split per chromosome
+# (unlike single-cell's genome-wide SMR_ready sets), so 1 tissue == 1 smr call per
+# chromosome rather than 1 call overall. Returns {tissue_label: {chr_num: besd_prefix}},
+# or None if eqtl_dataset has no raw dat/bulk-eQTL directory (e.g. it's only available as
+# a pre-computed .smr, like eQTLGen) - in which case there's nothing to freshly run.
+def bulk_tissue_prefixes(eqtl_dataset: str):
+    base_dir = Path(f"./dat/bulk-eQTL/{eqtl_dataset}")
+    if not base_dir.exists():
+        return None
+
+    tissues = {}
+
+    if eqtl_dataset == "GTEx_v10":
+        for tissue_dir in sorted(base_dir.iterdir()):
+            if not tissue_dir.is_dir():
+                continue
+            tissue = tissue_dir.name
+            label = f"GTEx_{tissue}_v10"
+            chr_prefixes = {}
+            for chr_num in range(1, 23):
+                prefix = tissue_dir / f"{tissue}.v10.eQTL.cis_qtl_pairs.{chr_num}"
+                if Path(f"{prefix}.besd").exists():
+                    chr_prefixes[chr_num] = prefix
+            if chr_prefixes:
+                tissues[label] = chr_prefixes
+    elif eqtl_dataset == "MetaBrain":
+        label = "BrainMeta"
+        chr_prefixes = {}
+        for chr_num in range(1, 23):
+            prefix = base_dir / f"BrainMeta_cis_eQTL_chr{chr_num}"
+            if Path(f"{prefix}.besd").exists():
+                chr_prefixes[chr_num] = prefix
+        if chr_prefixes:
+            tissues[label] = chr_prefixes
+    else:
+        print(f"[CONCERN] No raw bulk eQTL layout known for {eqtl_dataset} - cannot run SMR from scratch")
+        return None
+
+    return tissues
+
+
+# run the smr binary against the raw dat/bulk-eQTL besd/esi/epi files, 1 chromosome at a
+# time per tissue (each chromosome's besd/esi/epi only covers that chromosome's SNPs/probes,
+# so per-chromosome .smr outputs concatenate cleanly into 1 genome-wide file - no besd
+# merging needed). Skips a tissue entirely if its final .smr already exists (same
+# idempotency convention as run_single_cell_smr). A literal qtl_name column is stamped onto
+# the concatenated output and it's FDR-corrected via the same helper single-cell SMR uses,
+# so the result is indistinguishable from a "pre-computed" bulk file to ingest_bulk_smr.
+def run_bulk_smr(pqtl_dataset: str, eqtl_dataset: str, pheno_id: str, sumstats: str, ref_bfile: str, maf: float):
+    tissues = bulk_tissue_prefixes(eqtl_dataset)
+
+    if not tissues:
+        print(f"[TRACKING] No raw bulk eQTL besd/esi/epi files found under ./dat/bulk-eQTL/{eqtl_dataset} - nothing to run SMR on")
+        return
+
+    ref_bfile = Path(ref_bfile)
+    temp_sumstats = prepare_smr_gwas(sumstats, pheno_id)
+
+    for label, chr_prefixes in tissues.items():
+        bulk_dir = Path(f"./results/SMR/bulk/{eqtl_dataset}")
+        final_dir = bulk_dir / f"eQTL_{label}"
+        final_file = final_dir / f"{pheno_id}_{label}.smr"
+
+        # pre-existing bulk results don't all follow the same directory convention (GTEx's
+        # are nested under an eQTL_<tissue>/ subdirectory, MetaBrain's legacy file sits flat
+        # at the top level) - search for either rather than assuming one, so a legacy file
+        # is recognised as "already done" instead of silently duplicated alongside a fresh one
+        existing = [
+            f for f in bulk_dir.rglob(f"*{pheno_id}*{label}*.smr")
+            if f.stat().st_size > 0
+        ] if bulk_dir.exists() else []
+
+        if existing:
+            print(f"[TRACKING] Bulk SMR already completed for {pheno_id} in {label} - skipping SMR ({existing[0]})")
+            continue
+
+        print(f"[TRACKING] Running SMR for {label} ({len(chr_prefixes)} chromosome(s))")
+        chr_smr_files = []
+        for chr_num, prefix in sorted(chr_prefixes.items()):
+            SMR(
+                pheno_id=pheno_id,
+                sumstats=temp_sumstats,
+                ref_bfile=ref_bfile,
+                beqtl_summary=prefix,
+                eqtl_dataset=f"bulk_raw/{eqtl_dataset}/{label}/chr{chr_num}",
+                peqtl_smr=5.0e-8, #### change to default one
+                peqtl_heidi=1.57e-3, ###### change to real default
+                thread_num=8,
+                maf=maf
+            )
+            chr_out = Path(f"./results/SMR/bulk_raw/{eqtl_dataset}/{label}/chr{chr_num}/{pheno_id}/{pheno_id}_chr{chr_num}.smr")
+            if chr_out.exists() and chr_out.stat().st_size > 0:
+                chr_smr_files.append(chr_out)
+            else:
+                print(f"[CONCERN] SMR produced no output for {label} chr{chr_num}")
+
+        if not chr_smr_files:
+            print(f"[CONCERN] No per-chromosome SMR output generated for {label} - skipping")
+            continue
+
+        combined = pl.concat(
+            [read_smr_tsv(f) for f in chr_smr_files],
+            how="diagonal_relaxed"
+        ).with_columns(pl.lit(f"eQTL_{label}").alias("qtl_name"))
+
+        final_dir.mkdir(parents=True, exist_ok=True)
+        combined.write_csv(final_file, separator="\t")
+        fdr_correct_smr_file(final_file, pheno_id, label)
+        print(f"[DONE] Saved genome-wide bulk SMR results for {label}: {final_file}")
+
+        scratch_dir = Path(f"./results/SMR/bulk_raw/{eqtl_dataset}/{label}")
+        if scratch_dir.exists():
+            shutil.rmtree(scratch_dir)
+
+    if temp_sumstats.exists():
+        temp_sumstats.unlink()
+
+
+# bulk eQTL SMR (eQTLGen / MetaBrain / GTEx_v10) - loads whatever .smr-shaped files sit
+# under results/SMR/bulk/{eqtl_dataset}/, harmonises the column names onto the same shape
+# single-cell uses, and extracts the promising targets. Those files are either produced
+# just above by run_bulk_smr() (from the raw dat/bulk-eQTL besd/esi/epi, when available) or
+# pre-computed elsewhere (e.g. eQTLGen, which has no raw dat/bulk-eQTL directory). GTEx_v10
+# is tissue-resolved (1 file per tissue via rglob, same idea as single-cell's per-cell
+# loop); eQTLGen / MetaBrain are flat (1 file for the dataset).
 def ingest_bulk_smr(pqtl_dataset: str, eqtl_dataset: str, pheno_id: str):
     bulk_dir = Path(f"./results/SMR/bulk/{eqtl_dataset}")
     smr_files = sorted(bulk_dir.rglob(f"*{pheno_id}*.smr"))
@@ -576,9 +696,18 @@ def main():
     args = p.parse_args()
 
     # running SMR (bulk or single-cell, depending on --eqtl_mode)
-    # bulk is pre-computed elsewhere (eQTLGen / MetaBrain / GTEx_v10) so it's ingested
-    # rather than re-run through the smr binary
+    # bulk: run fresh SMR from raw dat/bulk-eQTL besd/esi/epi where available (no-op if
+    # already done, or if this eqtl_dataset only exists as a pre-computed .smr, e.g.
+    # eQTLGen), then ingest whatever ends up under results/SMR/bulk/{eqtl_dataset}/
     if args.eqtl_mode == "bulk":
+        run_bulk_smr(
+            pqtl_dataset=args.pqtl_dataset,
+            eqtl_dataset=args.eqtl_dataset,
+            pheno_id=args.pheno_id,
+            sumstats=args.sumstats,
+            ref_bfile=args.ref_bfile,
+            maf=args.maf
+        )
         ingest_bulk_smr(
             pqtl_dataset=args.pqtl_dataset,
             eqtl_dataset=args.eqtl_dataset,

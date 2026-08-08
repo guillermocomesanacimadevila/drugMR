@@ -603,6 +603,51 @@ docker run --rm \\
     else:
         print("[TRACKING] run_smr is False, skipping SMR entirely.")
 
+    # HyPrColoc module (bulk and/or single-cell eQTL) - run right after SMR so
+    # the combined final multi-omics target table (bulk + single-cell) is complete.
+    # For every target x cell-type/tissue hit supported by a configured eQTL dataset,
+    # runs a 3-trait (pQTL / GWAS / eQTL) HyPrColoc restricted to that target's
+    # cis-region, matched on shared SNPs (see drugmr.extract_common_snps). Each
+    # dataset is run (and gated) independently so bulk and single-cell compose.
+    hyprcoloc_out = (
+        project_root
+        / "results"
+        / "hyprcoloc"
+        / f"{pqtl_dataset}_{pheno_id}_all_hyprcoloc.tsv"
+    )
+
+    hyprcoloc_eqtl_datasets = list(bulk_eqtl_datasets) + ([sc_eqtl_dataset] if sc_eqtl_dataset else [])
+
+    if run_smr and hyprcoloc_eqtl_datasets:
+        for hc_dataset in hyprcoloc_eqtl_datasets:
+            hc_dataset_out = (
+                project_root
+                / "results"
+                / "hyprcoloc"
+                / pqtl_dataset
+                / hc_dataset
+                / f"{pheno_id}_hyprcoloc.tsv"
+            )
+
+            cmd_hyprcoloc = f"""
+set -euo pipefail
+docker run --rm \\
+  -v "{project_root}:/work" \\
+  -w /work \\
+  -e PYTHONPATH=. \\
+  "{image_name}" \\
+  python bin/hyprcoloc_targets.py \\
+    --pqtl_dataset {pqtl_dataset} \\
+    --pheno_id {pheno_id} \\
+    --eqtl_dataset {hc_dataset}
+"""
+
+            if not check_output(hc_dataset_out, f"HyPrColoc ({hc_dataset})", overwrite):
+                print(f"[TRACKING] Running HyPrColoc for {hc_dataset} locally via Docker...")
+                cmd_base(cmd_hyprcoloc)
+    else:
+        print("[TRACKING] No bulk_eqtl_datasets or sc_eqtl_dataset specified (or run_smr is False), skipping HyPrColoc.")
+
     # PheWAS stuff (for FinnGen)
     cmd_phewas = f"""
 set -euo pipefail 

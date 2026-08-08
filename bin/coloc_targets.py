@@ -79,6 +79,13 @@ def pairwise_coloc(pqtl_dataset: str, local_results_dir: str, pqtl_dir: str, phe
     print(f"[DONE] Saved master COLOC table: {out_file}")
 
 
+
+
+# include -> HyPrColoc here and also include filter
+# -> * passes cochran Q and IVW
+
+
+
 def coloc_with_mediators(pqtl_dataset: str, local_results_dir: str, pqtl_dir: str, pheno_id: str, n_cases: int, n_controls: int, mediator_manifest: str):
     standard_coloc = "./bin/coloc.R"
     moloc = "./bin/moloc.R"
@@ -118,6 +125,7 @@ def coloc_with_mediators(pqtl_dataset: str, local_results_dir: str, pqtl_dir: st
         # MAYBE AT A LATER STAGE -> SAVE Cochran_Q pval and Egger Intercept pval onto mediator output CSV
         X_M_IVW_FDR_q = row["X_M_IVW_FDR_q"]
         X_Y_IVW_FDR_q = row["X_Y_IVW_FDR_q"]
+        # X_Y_cochran_q = row["X_Y_IVW_FDR_q"]
         M_Y_IVW_pval = row["M_Y_IVW_pval"]
 
         if X_Y_IVW_FDR_q < 1: ####### CHANGE THESE PARAMS BACK TO 0.05 AFETR CI/CD TESTING

@@ -430,6 +430,31 @@ apptainer exec --bind "{remote}:/work" \\
 """, falcon_user)
 
 
+# RUN HyPrColoc (bulk and/or single-cell eQTL) - for every target x cell-type/tissue
+# hit in the combined final multi-omics target table for the given eqtl_dataset, runs
+# a 3-trait (pQTL / GWAS / eQTL) HyPrColoc restricted to that target's cis-region
+def run_hyprcoloc_step(
+    falcon_user: str,
+    pqtl_dataset: str,
+    pheno_id: str,
+    eqtl_dataset: str
+):
+    remote, sif = get_remote_paths(falcon_user)
+
+    ssh(f"""
+set -euo pipefail
+cd "{remote}"
+
+apptainer exec --bind "{remote}:/work" \\
+  --env PYTHONPATH=. \\
+  "{sif}" \\
+  bash -c "cd /work && python bin/hyprcoloc_targets.py \\
+    --pqtl_dataset {pqtl_dataset} \\
+    --pheno_id {pheno_id} \\
+    --eqtl_dataset {eqtl_dataset}"
+""", falcon_user)
+
+
 # get final snp-wide hits
 def compile_top_hits(
     falcon_user: str,
@@ -638,19 +663,23 @@ def pull_results_local(
     remote_coloc = f"{remote}/results/coloc/{pqtl_dataset}/{pqtl_dataset}_{pheno_id}_all_coloc.tsv"
     remote_target_stats = f"{remote}/results/target_stats/{pqtl_dataset}/{pheno_id}/{pqtl_dataset}_{pheno_id}_top_cis_hits.tsv"
     remote_smr = f"{remote}/results/SMR/{pqtl_dataset}_{pheno_id}_final_multi_omics_targets.tsv"
+    remote_hyprcoloc = f"{remote}/results/hyprcoloc/{pqtl_dataset}_{pheno_id}_all_hyprcoloc.tsv"
     local_results_dir = Path(local_results_dir)
     local_mr_dir = local_results_dir / "cis-MR"
     local_coloc_dir = local_results_dir / "coloc" / pqtl_dataset
     local_target_stats_dir = local_results_dir / "target_stats" / pqtl_dataset / pheno_id
     local_smr_dir = local_results_dir / "SMR"
+    local_hyprcoloc_dir = local_results_dir / "hyprcoloc"
     local_mr_dir.mkdir(parents=True, exist_ok=True)
     local_coloc_dir.mkdir(parents=True, exist_ok=True)
     local_target_stats_dir.mkdir(parents=True, exist_ok=True)
     local_smr_dir.mkdir(parents=True, exist_ok=True)
+    local_hyprcoloc_dir.mkdir(parents=True, exist_ok=True)
     local_mr = local_mr_dir / f"{pqtl_dataset}_{pheno_id}_all_MR.tsv"
     local_coloc = local_coloc_dir / f"{pqtl_dataset}_{pheno_id}_all_coloc.tsv"
     local_target_stats = local_target_stats_dir / f"{pqtl_dataset}_{pheno_id}_top_cis_hits.tsv"
     local_smr = local_smr_dir / f"{pqtl_dataset}_{pheno_id}_final_multi_omics_targets.tsv"
+    local_hyprcoloc = local_hyprcoloc_dir / f"{pqtl_dataset}_{pheno_id}_all_hyprcoloc.tsv"
     for remote_file, local_file in [
         (remote_mr, local_mr),
         (remote_coloc, local_coloc),
@@ -688,6 +717,26 @@ def pull_results_local(
         else:
             print("[TRACKING] No remote SMR output found - skipping SMR pull.")
 
+    # HyPrColoc is also optional (gated by bulk_eqtl_datasets / sc_eqtl_dataset)
+    # so only pull it down if it was actually produced remotely
+    if local_hyprcoloc.exists() and not overwrite:
+        print(f"[TRACKING] {local_hyprcoloc} already exists locally. Skipping pull.")
+    else:
+        remote_hyprcoloc_check = check_remote_output(
+            falcon_user=falcon_user,
+            path=f"results/hyprcoloc/{pqtl_dataset}_{pheno_id}_all_hyprcoloc.tsv",
+            step="HyPrColoc",
+            overwrite=False
+        )
+
+        if remote_hyprcoloc_check:
+            cmd = f"scp {falcon_user}@falconlogin.cf.ac.uk:{remote_hyprcoloc} {local_hyprcoloc}"
+            print(cmd)
+            subprocess.run(cmd, shell=True, check=True)
+            print(f"[DONE] Pulled results into {local_hyprcoloc}")
+        else:
+            print("[TRACKING] No remote HyPrColoc output found - skipping HyPrColoc pull.")
+
 
 # STREAMLIT DASHBOARD
 def run_dashboard_local(
@@ -718,6 +767,7 @@ def check_outputs(
     coloc_res = f"results/coloc/{pqtl_dataset}/{pqtl_dataset}_{pheno_id}_all_coloc.tsv"
     target_stats_res = f"results/target_stats/{pqtl_dataset}/{pheno_id}/{pqtl_dataset}_{pheno_id}_top_cis_hits.tsv"
     smr_res = f"results/SMR/{pqtl_dataset}_{pheno_id}_final_multi_omics_targets.tsv"
+    hyprcoloc_res = f"results/hyprcoloc/{pqtl_dataset}_{pheno_id}_all_hyprcoloc.tsv"
 
     ssh(f"""
 set -euo pipefail
@@ -753,6 +803,14 @@ if [ -s "{smr_res}" ]; then
     head -5 "{smr_res}"
 else
     echo "[CONCERN] SMR output not found or empty (SMR may not be configured for this run)"
+fi
+
+echo "[TRACKING] Checking HyPrColoc output..."
+if [ -s "{hyprcoloc_res}" ]; then
+    ls -lh "{hyprcoloc_res}"
+    head -5 "{hyprcoloc_res}"
+else
+    echo "[CONCERN] HyPrColoc output not found or empty (HyPrColoc may not be configured for this run)"
 fi
 """, falcon_user)
 
@@ -1035,6 +1093,31 @@ def hpc(config: str = "assets/config.yaml"):
             print("[TRACKING] No sc_eqtl_dataset specified, skipping single-cell SMR.")
     else:
         print("[TRACKING] run_smr is False, skipping SMR entirely.")
+
+    # HyPrColoc (bulk and/or single-cell eQTL) - run right after SMR so the
+    # combined final multi-omics target table (bulk + single-cell) is complete.
+    # Each dataset is run (and gated) independently so bulk and single-cell compose.
+    hyprcoloc_eqtl_datasets = list(bulk_eqtl_datasets) + ([sc_eqtl_dataset] if sc_eqtl_dataset else [])
+
+    if run_smr and hyprcoloc_eqtl_datasets:
+        for hc_dataset in hyprcoloc_eqtl_datasets:
+            hc_dataset_out = f"results/hyprcoloc/{pqtl_dataset}/{hc_dataset}/{pheno_id}_hyprcoloc.tsv"
+
+            if not check_remote_output(
+                falcon_user=falcon_user,
+                path=hc_dataset_out,
+                step=f"HyPrColoc ({hc_dataset})",
+                overwrite=overwrite
+            ):
+                print(f"[TRACKING] Running HyPrColoc for {hc_dataset}...")
+                run_hyprcoloc_step(
+                    falcon_user=falcon_user,
+                    pqtl_dataset=pqtl_dataset,
+                    pheno_id=pheno_id,
+                    eqtl_dataset=hc_dataset,
+                )
+    else:
+        print("[TRACKING] No bulk_eqtl_datasets or sc_eqtl_dataset specified (or run_smr is False), skipping HyPrColoc.")
 
     print("[TRACKING] Checking outputs...")
     check_outputs(

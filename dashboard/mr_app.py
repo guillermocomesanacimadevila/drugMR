@@ -323,6 +323,40 @@ def compute_phewas_safety_status(phewas_df: pd.DataFrame, proteins):
     return status
 
 
+def compute_hyprcoloc_pass_status(hyprcoloc_df: pd.DataFrame, proteins, threshold: float):
+    """Per-protein HyPrColoc pass flag for the prioritisation Sankey.
+
+    A protein PASSES only if it has a HyPrColoc cluster whose traits include the
+    pQTL, GWAS and eQTL trait together (i.e. all 3 traits share a single causal
+    variant, not just 2 of the 3) with posterior_prob >= threshold. Proteins with
+    no HyPrColoc row, or only 2-trait / low-probability clusters, count as FAIL.
+    """
+    proteins = list(proteins)
+    status = {protein: False for protein in proteins}
+
+    if hyprcoloc_df.empty or not {"protein", "traits", "posterior_prob"}.issubset(hyprcoloc_df.columns):
+        return status
+
+    df = hyprcoloc_df.copy()
+    df["protein"] = df["protein"].astype(str)
+    traits_lower = df["traits"].astype(str).str.lower()
+
+    all_three_traits = (
+        traits_lower.str.contains("pqtl_") &
+        traits_lower.str.contains("gwas_") &
+        traits_lower.str.contains("eqtl_")
+    )
+
+    passing = all_three_traits & (df["posterior_prob"].fillna(0) >= threshold)
+    passing_proteins = set(df.loc[passing, "protein"].unique())
+
+    for protein in proteins:
+        if protein in passing_proteins:
+            status[protein] = True
+
+    return status
+
+
 def subset_phewas_outcome(df: pd.DataFrame, outcome: str):
     if df.empty:
         return df
@@ -660,6 +694,7 @@ def dashboard(db_name: str, port_number: str, phenotype: str, pqtl_dataset: str)
         ukb_phewas_file = project_dir / "results" / "PheWAS_UKBB" / dataset_id / phenotype / f"{dataset_id}_{phenotype}_PheWAS.tsv"
         target_info_file = project_dir / "results" / "target_stats" / dataset_id / phenotype / f"{dataset_id}_{phenotype}_top_cis_hits.tsv"
         smr_file = project_dir / "results" / "SMR" / f"{dataset_id}_{phenotype}_final_multi_omics_targets.tsv"
+        hyprcoloc_file = project_dir / "results" / "hyprcoloc" / f"{dataset_id}_{phenotype}_all_hyprcoloc.tsv"
 
         required_files = [
             mr_file,
@@ -674,7 +709,8 @@ def dashboard(db_name: str, port_number: str, phenotype: str, pqtl_dataset: str)
                 "finngen_phewas": finngen_phewas_file,
                 "ukb_phewas": ukb_phewas_file,
                 "target_info": target_info_file,
-                "smr": smr_file
+                "smr": smr_file,
+                "hyprcoloc": hyprcoloc_file
             }
 
     if len(available_datasets) == 0:
@@ -724,6 +760,7 @@ def dashboard(db_name: str, port_number: str, phenotype: str, pqtl_dataset: str)
     ukb_phewas_file = dataset_result_files[pqtl_dataset]["ukb_phewas"]
     target_info_file = dataset_result_files[pqtl_dataset]["target_info"]
     smr_file = dataset_result_files[pqtl_dataset]["smr"]
+    hyprcoloc_file = dataset_result_files[pqtl_dataset]["hyprcoloc"]
 
     # load local result files into PostgreSQL for the dashboard
     mr = load_required_tsv(mr_file, "cis-MR")
@@ -732,6 +769,7 @@ def dashboard(db_name: str, port_number: str, phenotype: str, pqtl_dataset: str)
     ukb_phewas = load_optional_tsv(ukb_phewas_file, "UKB PheWAS safety")
     target_info = load_optional_tsv(target_info_file, "Harmonised target information")
     smr = load_optional_tsv(smr_file, "SMR (bulk/sc eQTL)")
+    hyprcoloc = load_optional_tsv(hyprcoloc_file, "HyPrColoc (bulk/sc eQTL)")
 
     # standardise MR + pQTL COLOC columns before loading into PostgreSQL
     # avoids dataset-specific differences such as Wald_beta vs wald_beta
@@ -743,6 +781,9 @@ def dashboard(db_name: str, port_number: str, phenotype: str, pqtl_dataset: str)
 
     if not smr.empty:
         smr = standardise_columns(smr)
+
+    if not hyprcoloc.empty:
+        hyprcoloc = standardise_columns(hyprcoloc)
 
     # make protein column consistent before loading into PostgreSQL
     if "protein_id" in mr.columns:
@@ -756,6 +797,9 @@ def dashboard(db_name: str, port_number: str, phenotype: str, pqtl_dataset: str)
 
     if not smr.empty and "protein_id" in smr.columns:
         smr = smr.rename(columns={"protein_id": "protein"})
+
+    if not hyprcoloc.empty and "protein_id" in hyprcoloc.columns:
+        hyprcoloc = hyprcoloc.rename(columns={"protein_id": "protein"})
 
     # make sure the selected dataset is always recorded
     if "pqtl_dataset" not in mr.columns:
@@ -808,6 +852,9 @@ def dashboard(db_name: str, port_number: str, phenotype: str, pqtl_dataset: str)
 
         if not smr.empty:
             st.write(f"Loaded {len(smr)} SMR (bulk/sc eQTL) rows")
+
+        if not hyprcoloc.empty:
+            st.write(f"Loaded {len(hyprcoloc)} HyPrColoc (bulk/sc eQTL) rows")
 
     # load MR + COLOC results
     mr = conn.query(f"SELECT * FROM {mr_table};", ttl=0)
@@ -974,6 +1021,7 @@ def dashboard(db_name: str, port_number: str, phenotype: str, pqtl_dataset: str)
         pp4 = st.slider("pQTL–GWAS COLOC PP.H4 threshold", 0.0, 1.0, 0.70, 0.01)
         smr_fdr_threshold = st.slider("SMR FDR (q_SMR) threshold", 0.0, 1.0, 0.05, 0.01)
         heidi_p_threshold = st.slider("Minimum HEIDI p-value", 0.0, 1.0, 0.01, 0.01)
+        hyprcoloc_pp_threshold = st.slider("HyPrColoc posterior probability threshold", 0.0, 1.0, 0.50, 0.01)
 
     with st.sidebar.expander("Protein filter", expanded=True):
         protein = st.text_input(
@@ -1068,9 +1116,14 @@ def dashboard(db_name: str, port_number: str, phenotype: str, pqtl_dataset: str)
         )
 
 
-    # SMR (bulk/sc eQTL) hits are not split by outcome_trait like mr/coloc are,
-    # so they're carried through as their own table rather than an "_outcome" subset
+    # SMR (bulk/sc eQTL) and HyPrColoc (bulk/sc eQTL) hits are not split by
+    # outcome_trait like mr/coloc are, so they're carried through as their own
+    # tables rather than an "_outcome" subset
     smr_display = smr.copy()
+    hyprcoloc_display = hyprcoloc.copy()
+
+    if "posterior_prob" in hyprcoloc_display.columns:
+        hyprcoloc_display["posterior_prob"] = pd.to_numeric(hyprcoloc_display["posterior_prob"], errors="coerce")
 
     # protein search
     if protein:
@@ -1081,6 +1134,7 @@ def dashboard(db_name: str, port_number: str, phenotype: str, pqtl_dataset: str)
         finngen_phewas_outcome = filter_protein(finngen_phewas_outcome, protein)
         ukb_phewas_outcome = filter_protein(ukb_phewas_outcome, protein)
         smr_display = filter_protein(smr_display, protein)
+        hyprcoloc_display = filter_protein(hyprcoloc_display, protein)
 
     # round coloc posterior probs
     for col in coloc_numeric_cols:
@@ -1097,14 +1151,15 @@ def dashboard(db_name: str, port_number: str, phenotype: str, pqtl_dataset: str)
     n_finngen_phewas = safe_nunique(finngen_phewas_outcome, "protein")
     n_ukb_phewas = safe_nunique(ukb_phewas_outcome, "protein")
 
-    tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
+    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
         "Overview",
         "1. cis-MR",
         "2. pQTL–GWAS COLOC",
         "3. FinnGen PheWAS",
         "4. UKB PheWAS",
         "5. SMR (bulk/sc eQTL)",
-        "6. Final Targets"
+        "6. HyPrColoc (bulk/sc eQTL)",
+        "7. Final Targets"
     ])
 
     with tab1:
@@ -1596,6 +1651,141 @@ def dashboard(db_name: str, port_number: str, phenotype: str, pqtl_dataset: str)
             )
 
     with tab7:
+        st.subheader("HyPrColoc (bulk/sc eQTL)")
+        st.caption(
+            "For every target x cell-type/tissue hit that already passed cis-MR + pQTL–GWAS "
+            "COLOC + SMR + HEIDI in a bulk or single-cell eQTL dataset, HyPrColoc jointly tests "
+            "the pQTL, GWAS and eQTL association signals in that target's cis-region for a "
+            "single shared causal variant, restricted to the SNPs shared across all three and "
+            "aligned onto a common effect allele."
+        )
+
+        if hyprcoloc_display.empty:
+            st.info("No HyPrColoc results are available for this pQTL dataset yet.")
+        else:
+            hyprcoloc_filtered = hyprcoloc_display.copy()
+
+            if "data_type" in hyprcoloc_filtered.columns:
+                available_hyprcoloc_data_types = ["All"] + sorted(hyprcoloc_filtered["data_type"].dropna().unique().tolist())
+
+                hyprcoloc_data_type_choice = st.segmented_control(
+                    "eQTL data type",
+                    available_hyprcoloc_data_types,
+                    default="All",
+                    selection_mode="single",
+                    key="hyprcoloc_data_type_selector"
+                )
+
+                if hyprcoloc_data_type_choice and hyprcoloc_data_type_choice != "All":
+                    hyprcoloc_filtered = hyprcoloc_filtered[hyprcoloc_filtered["data_type"] == hyprcoloc_data_type_choice]
+
+            if "cell_type" in hyprcoloc_filtered.columns:
+                available_hyprcoloc_cell_types = sorted(hyprcoloc_filtered["cell_type"].dropna().unique().tolist())
+                selected_hyprcoloc_cell_types = st.multiselect(
+                    "Cell type / tissue",
+                    available_hyprcoloc_cell_types,
+                    default=available_hyprcoloc_cell_types,
+                    key="hyprcoloc_cell_type_selector"
+                )
+
+                if selected_hyprcoloc_cell_types:
+                    hyprcoloc_filtered = hyprcoloc_filtered[hyprcoloc_filtered["cell_type"].isin(selected_hyprcoloc_cell_types)]
+
+            if "traits" in hyprcoloc_filtered.columns:
+                traits_lower = hyprcoloc_filtered["traits"].astype(str).str.lower()
+                hyprcoloc_filtered["all_3_traits_colocalise"] = (
+                    traits_lower.str.contains("pqtl_") &
+                    traits_lower.str.contains("gwas_") &
+                    traits_lower.str.contains("eqtl_")
+                )
+            else:
+                hyprcoloc_filtered["all_3_traits_colocalise"] = False
+
+            if "posterior_prob" in hyprcoloc_filtered.columns:
+                hyprcoloc_pass_rows = hyprcoloc_filtered[
+                    hyprcoloc_filtered["all_3_traits_colocalise"] &
+                    (pd.to_numeric(hyprcoloc_filtered["posterior_prob"], errors="coerce").fillna(0) >= hyprcoloc_pp_threshold)
+                ]
+            else:
+                hyprcoloc_pass_rows = hyprcoloc_filtered.iloc[0:0]
+
+            with st.container(border=True):
+                metric1, metric2, metric3, metric4 = st.columns(4)
+                metric1.metric("Unique targets tested", safe_nunique(hyprcoloc_filtered, "protein"))
+                metric2.metric("Target x cell-type rows", len(hyprcoloc_filtered))
+                metric3.metric("Passing HyPrColoc threshold", len(hyprcoloc_pass_rows))
+                metric4.metric("Median posterior probability", safe_median(hyprcoloc_filtered, "posterior_prob"))
+
+            st.divider()
+            st.subheader("HyPrColoc results")
+            st.caption(
+                f"A row **passes** when its cluster contains the pQTL, GWAS and eQTL trait "
+                f"together with posterior probability ≥ {hyprcoloc_pp_threshold:.2f}. Some "
+                "targets have more than 1 row when HyPrColoc could not put every trait into a "
+                "single cluster (e.g. the eQTL signal clusters separately from pQTL + GWAS)."
+            )
+
+            hyprcoloc_cols = [
+                "protein",
+                "cell_type",
+                "traits",
+                "all_3_traits_colocalise",
+                "posterior_prob",
+                "regional_prob",
+                "candidate_snp",
+                "posterior_explained_by_snp",
+                "dropped_trait",
+                "n_snps"
+            ]
+
+            hyprcoloc_cols = available_cols(hyprcoloc_filtered, hyprcoloc_cols)
+            remaining_hyprcoloc_cols = [col for col in hyprcoloc_filtered.columns if col not in hyprcoloc_cols]
+
+            hyprcoloc_table = hyprcoloc_filtered[hyprcoloc_cols + remaining_hyprcoloc_cols].copy()
+
+            if "posterior_prob" in hyprcoloc_table.columns:
+                hyprcoloc_table = hyprcoloc_table.sort_values(
+                    "posterior_prob",
+                    ascending=False,
+                    na_position="last"
+                )
+
+            hyprcoloc_column_names = {
+                "protein": "Target",
+                "cell_type": "Cell type",
+                "traits": "Clustered traits",
+                "all_3_traits_colocalise": "pQTL + GWAS + eQTL cluster",
+                "posterior_prob": "Posterior probability",
+                "regional_prob": "Regional probability",
+                "candidate_snp": "Candidate SNP",
+                "posterior_explained_by_snp": "Posterior explained by SNP",
+                "dropped_trait": "Dropped trait",
+                "n_snps": "N SNPs"
+            }
+
+            hyprcoloc_table = hyprcoloc_table.rename(columns=hyprcoloc_column_names)
+
+            st.dataframe(
+                hyprcoloc_table,
+                width="stretch",
+                hide_index=True,
+                column_config={
+                    "Posterior probability": st.column_config.NumberColumn(format="%.4f"),
+                    "Regional probability": st.column_config.NumberColumn(format="%.4f"),
+                    "Posterior explained by SNP": st.column_config.NumberColumn(format="%.4f")
+                }
+            )
+
+            st.download_button(
+                label="Download HyPrColoc results",
+                data=hyprcoloc_table.to_csv(index=False, sep="\t"),
+                file_name=f"{pqtl_dataset}_{phenotype}_HyPrColoc.tsv",
+                mime="text/tab-separated-values",
+                key="download_hyprcoloc_hits",
+                width="stretch"
+            )
+
+    with tab8:
         st.subheader("Final Targets")
         st.caption(
             "The complete set of targets which passed cis-MR + pQTL–GWAS COLOC + SMR + HEIDI, "
@@ -1628,10 +1818,18 @@ def dashboard(db_name: str, port_number: str, phenotype: str, pqtl_dataset: str)
                 "each count as passing.\n"
                 f"- **SMR support** — requires SMR FDR (`q_SMR`) < {smr_fdr_threshold:.2f} and "
                 f"HEIDI p-value > {heidi_p_threshold:.2f}, split by whether that support came "
-                "from bulk/tissue eQTL data, single-cell eQTL data, or both."
+                "from bulk/tissue eQTL data, single-cell eQTL data, or both.\n"
+                "- **HyPrColoc** — runs against whichever eQTL dataset(s) supported the target's "
+                "SMR stage (bulk, single-cell, or both); no-SMR-support targets end at the SMR "
+                "stage. Passes when a HyPrColoc cluster contains the pQTL, GWAS *and* eQTL trait "
+                f"together (not just 2 of the 3) with posterior probability ≥ {hyprcoloc_pp_threshold:.2f}."
             )
 
         n_sankey_mr_pass = safe_nunique(mr_pass, "protein")
+
+        # populated below when the flow can be drawn - stays empty otherwise so
+        # the "all gates" toggle further down always has something to check
+        all_gates_pass_set = set()
 
         if n_sankey_mr_pass == 0:
             st.info("No proteins currently pass the cis-MR threshold, so no flow can be drawn.")
@@ -1670,6 +1868,17 @@ def dashboard(db_name: str, port_number: str, phenotype: str, pqtl_dataset: str)
             sc_only_set = (ukb_pass_set & sc_pass_set) - bulk_pass_set
             neither_set = ukb_pass_set - bulk_pass_set - sc_pass_set
 
+            # HyPrColoc now runs for any target with SMR support, whether that came
+            # from bulk eQTL, single-cell eQTL, or both - no-SMR-support targets are
+            # terminal at the SMR stage
+            smr_eligible_set = both_set | sc_only_set | bulk_only_set
+            hyprcoloc_status = compute_hyprcoloc_pass_status(hyprcoloc_display, smr_eligible_set, hyprcoloc_pp_threshold)
+            hyprcoloc_pass_set = {protein for protein in smr_eligible_set if hyprcoloc_status.get(protein)}
+            hyprcoloc_fail_set = smr_eligible_set - hyprcoloc_pass_set
+
+            # "all gates" = cis-MR + COLOC + FinnGen + UKB safety + SMR + HyPrColoc
+            all_gates_pass_set = hyprcoloc_pass_set
+
             # single source of truth for the diagram, its hover text and the
             # drill-down selector below - every count is derived from these sets.
             # `label` is what the chart prints (kept short so five columns fit
@@ -1698,6 +1907,10 @@ def dashboard(db_name: str, port_number: str, phenotype: str, pqtl_dataset: str)
                      proteins=sc_only_set, color=SANKEY_SC_COLOR, dropout=False),
                 dict(key="smr_none", column=4, name="SMR: no support", label="No SMR support",
                      proteins=neither_set, color=STATUS_MUTED, dropout=True),
+                dict(key="hyprcoloc_pass", column=5, name="HyPrColoc: pQTL+GWAS+eQTL colocalise", label="HyPrColoc passed",
+                     proteins=hyprcoloc_pass_set, color=STATUS_GOOD, dropout=False),
+                dict(key="hyprcoloc_fail", column=5, name="HyPrColoc: no shared 3-trait signal", label="HyPrColoc failed",
+                     proteins=hyprcoloc_fail_set, color=STATUS_CRITICAL, dropout=True),
             ]
 
             sankey_edges = [
@@ -1706,6 +1919,9 @@ def dashboard(db_name: str, port_number: str, phenotype: str, pqtl_dataset: str)
                 ("finngen_pass", "ukb_pass"), ("finngen_pass", "ukb_fail"),
                 ("ukb_pass", "smr_both"), ("ukb_pass", "smr_bulk"),
                 ("ukb_pass", "smr_sc"), ("ukb_pass", "smr_none"),
+                ("smr_both", "hyprcoloc_pass"), ("smr_both", "hyprcoloc_fail"),
+                ("smr_sc", "hyprcoloc_pass"), ("smr_sc", "hyprcoloc_fail"),
+                ("smr_bulk", "hyprcoloc_pass"), ("smr_bulk", "hyprcoloc_fail"),
             ]
 
             # an empty stage costs a label and a slot but carries no information,
@@ -1717,9 +1933,9 @@ def dashboard(db_name: str, port_number: str, phenotype: str, pqtl_dataset: str)
             # column's to the left of its nodes rather than letting them run into
             # the margin - so the right margin stays thin and the columns are
             # spaced apart instead. The gap before the last column is the widest
-            # because that is the one place a right-hand label (the UKB stage's)
-            # meets a left-flipped one (the SMR stages').
-            column_x = [0.02, 0.24, 0.44, 0.64, 0.99]
+            # because that is the one place a right-hand label (the SMR stages')
+            # meets a left-flipped one (the HyPrColoc stages').
+            column_x = [0.02, 0.19, 0.35, 0.51, 0.67, 0.99]
 
             node_values = [len(group["proteins"]) for group in drawn]
             node_labels = [f"{group['label']} ({value})" for group, value in zip(drawn, node_values)]
@@ -1790,13 +2006,33 @@ def dashboard(db_name: str, port_number: str, phenotype: str, pqtl_dataset: str)
 
         st.divider()
 
-        if smr_display.empty:
-            st.info("No SMR results are available for this pQTL dataset yet.")
+        show_all_gates_only = st.checkbox(
+            "Show targets that passed all gates (cis-MR → COLOC → FinnGen/UKB safety → SMR → HyPrColoc)",
+            value=False,
+            key="final_targets_all_gates_toggle"
+        )
+
+        final_targets_source = smr_display.copy()
+
+        if show_all_gates_only and "protein" in final_targets_source.columns:
+            final_targets_source = final_targets_source[
+                final_targets_source["protein"].astype(str).isin(all_gates_pass_set)
+            ]
+
+        if final_targets_source.empty:
+            if show_all_gates_only:
+                st.info(
+                    "No targets currently pass every gate (cis-MR, COLOC, FinnGen/UKB safety, "
+                    "SMR, and - where single-cell eQTL support applies - HyPrColoc) at the "
+                    "selected thresholds."
+                )
+            else:
+                st.info("No SMR results are available for this pQTL dataset yet.")
         else:
-            final_targets = smr_display.sort_values(
+            final_targets = final_targets_source.sort_values(
                 ["protein", "cell_type"],
                 na_position="last"
-            ) if "cell_type" in smr_display.columns else smr_display.copy()
+            ) if "cell_type" in final_targets_source.columns else final_targets_source.copy()
 
             # pQTL beta is per-protein (not per-cell-type) - bring it in from the
             # harmonised top cis-hit table, already aligned to the same risk allele

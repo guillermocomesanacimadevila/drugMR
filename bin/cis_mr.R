@@ -47,6 +47,10 @@ local_results_dir = "../results/cis-MR"
 
 out_dir <- "./results/cis-MR"
 
+# let's just assume for now that the ldsc ref stuff is inside dat/ref
+# ld <- ".dat/ref/ldsc/eur_w_ld_chr" -> for mediators
+# hm3 <- ".dat/ref/ldsc/weights_hm3_no_hla" -> for mediators
+
 # MR params
 # clump_kb, clump_r2, clump_p1
 # pval thresh, f_stat thresh
