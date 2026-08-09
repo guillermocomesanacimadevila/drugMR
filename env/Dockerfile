@@ -33,6 +33,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libpng-dev \
     libtiff5-dev \
     libjpeg-dev \
+    libgmp-dev \
+    libmpfr-dev \
     && rm -rf /var/lib/apt/lists/*
 
 USER $MAMBA_USER
@@ -61,6 +63,8 @@ RUN micromamba create -y -n drugmr \
     r-plotly \
     r-nortest \
     r-rjson \
+    gmp \
+    mpfr \
     && micromamba clean -a -y
 
 SHELL ["micromamba", "run", "-n", "drugmr", "/bin/bash", "-c"]
@@ -89,11 +93,12 @@ RUN R -q -e "install.packages(c('remotes','BiocManager'), repos='https://cloud.r
     R -q -e "BiocManager::install('GenomicRanges', ask=FALSE, update=FALSE)" && \
     R -q -e "install.packages('genetics.binaRies', repos=c('https://mrcieu.r-universe.dev','https://cloud.r-project.org'))" && \
     R -q -e "install.packages('ieugwasr', repos=c('https://mrcieu.r-universe.dev','https://cloud.r-project.org'))" && \
-    R -q -e "install.packages('RcppEigen', repos='https://cloud.r-project.org')" && \
-    R -q -e "remotes::install_github('clagiamba/moloc', build_vignettes=FALSE)" && \
+    R -q -e "remotes::install_github('clagiamba/moloc', build_vignettes=FALSE, upgrade='never')" && \
     R -q -e "install.packages(c('RadialMR','TwoSampleMR','MRPRESSO'), repos=c('https://mrcieu.r-universe.dev','https://cloud.r-project.org'))" && \
-    R -q -e "remotes::install_github('n-mounier/MRlap', build_vignettes=FALSE)" && \
-    R -q -e "remotes::install_github('jrs95/hyprcoloc', build_vignettes=FALSE, upgrade = 'never')"
+    R -q -e "remotes::install_github('n-mounier/MRlap', build_vignettes=FALSE, upgrade='never')" && \
+    R -q -e "remotes::install_version('RcppEigen', version='0.3.3.9.3', repos='https://cloud.r-project.org')" && \
+    R -q -e "remotes::install_github('jrs95/hyprcoloc', build_vignettes=FALSE, upgrade = 'never')" && \
+    R -q -e "stopifnot(all(sapply(c('susieR','GenomicRanges','genetics.binaRies','ieugwasr','moloc','RadialMR','TwoSampleMR','MRPRESSO','MRlap','hyprcoloc'), requireNamespace, quietly=TRUE)))"
 
 ENV PATH="/opt/conda/envs/drugmr/bin:$PATH"
 

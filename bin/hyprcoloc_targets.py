@@ -17,6 +17,87 @@ from drugmr import extract_common_snps
 # tag already carried on each row of the combined SMR target table
 
 
+# candidate_snp's own alleles/betas, aligned to the AD risk allele (b_GWAS > 0) -
+# same "make A1 the GWAS risk allele" convention as bin/compile_cis_hit_info.py,
+# extended from 2 traits (GWAS/pQTL) to 3 (GWAS/pQTL/eQTL). Looks the SNP up in the
+# pre-alignment gwas/pqtl/eqtl tables (which still carry each trait's own A1/A2/P -
+# extract_common_snps' output drops those) rather than the post-alignment `matched`
+# tables. Returns None if the SNP is missing from any trait or its pQTL/eQTL allele
+# pair doesn't match the GWAS one either way round (shouldn't happen for a SNP that
+# HyPrColoc was run on, but guards against a silent mismatch if it ever does).
+def resolve_candidate_snp_stats(snp: str, gwas: pl.DataFrame, pqtl: pl.DataFrame, eqtl: pl.DataFrame):
+    gwas_row = gwas.filter(pl.col("SNP") == snp)
+    pqtl_row = pqtl.filter(pl.col("SNP") == snp)
+    eqtl_row = eqtl.filter(pl.col("SNP") == snp)
+
+    if gwas_row.height == 0 or pqtl_row.height == 0 or eqtl_row.height == 0:
+        return None
+
+    gwas_row = gwas_row.row(0, named=True)
+    pqtl_row = pqtl_row.row(0, named=True)
+    eqtl_row = eqtl_row.row(0, named=True)
+
+    a1, a2 = str(gwas_row["A1"]).upper(), str(gwas_row["A2"]).upper()
+    gwas_beta, gwas_p = float(gwas_row["BETA"]), float(gwas_row["P"])
+
+    if gwas_beta < 0:
+        a1, a2 = a2, a1
+        gwas_beta = -gwas_beta
+
+    def realign(row):
+        row_a1, row_a2 = str(row["A1"]).upper(), str(row["A2"]).upper()
+        beta, p = float(row["BETA"]), float(row["P"])
+        if row_a1 == a1 and row_a2 == a2:
+            return beta, p
+        if row_a1 == a2 and row_a2 == a1:
+            return -beta, p
+        return None, None
+
+    pqtl_beta, pqtl_p = realign(pqtl_row)
+    eqtl_beta, eqtl_p = realign(eqtl_row)
+
+    if pqtl_beta is None or eqtl_beta is None:
+        print(f"[CONCERN] Allele mismatch at candidate SNP {snp} against GWAS {a1}/{a2} - skipping SNP-level stats")
+        return None
+
+    return {
+        "a1": a1,
+        "a2": a2,
+        "gwas_beta": gwas_beta,
+        "gwas_p": 1e-300 if gwas_p == 0 else gwas_p,
+        "pqtl_beta": pqtl_beta,
+        "pqtl_p": 1e-300 if pqtl_p == 0 else pqtl_p,
+        "eqtl_beta": eqtl_beta,
+        "eqtl_p": 1e-300 if eqtl_p == 0 else eqtl_p,
+    }
+
+
+# attaches, for every result row, the candidate SNP's own aligned alleles/betas (see
+# resolve_candidate_snp_stats) - null-filled where the SNP is missing or a row has no
+# candidate_snp at all (e.g. a cluster HyPrColoc couldn't resolve to a single SNP)
+CANDIDATE_SNP_STAT_COLS = ["a1", "a2", "gwas_beta", "gwas_p", "pqtl_beta", "pqtl_p", "eqtl_beta", "eqtl_p"]
+
+
+def attach_candidate_snp_stats(result_df: pl.DataFrame, gwas: pl.DataFrame, pqtl: pl.DataFrame, eqtl: pl.DataFrame):
+    if result_df.height == 0 or "candidate_snp" not in result_df.columns:
+        return result_df
+
+    stat_rows = [
+        resolve_candidate_snp_stats(snp, gwas, pqtl, eqtl) if snp is not None else None
+        for snp in result_df.get_column("candidate_snp").to_list()
+    ]
+    stats_df = pl.DataFrame(
+        [row if row is not None else {col: None for col in CANDIDATE_SNP_STAT_COLS} for row in stat_rows],
+        schema={
+            "a1": pl.Utf8, "a2": pl.Utf8,
+            "gwas_beta": pl.Float64, "gwas_p": pl.Float64,
+            "pqtl_beta": pl.Float64, "pqtl_p": pl.Float64,
+            "eqtl_beta": pl.Float64, "eqtl_p": pl.Float64
+        }
+    )
+    return pl.concat([result_df, stats_df], how="horizontal")
+
+
 # bulk eQTL parquet files are laid out differently per dataset: GTEx_v10 is
 # tissue-resolved (1 file per tissue, cell_type carries a "GTEx_<Tissue>_v10" label
 # that maps onto the dat/bulk-eQTL/GTEx_v10/<Tissue>/ directory name), MetaBrain is
@@ -166,6 +247,7 @@ def hyprcoloc_targets(pqtl_dataset: str, pheno_id: str, eqtl_dataset: str):
                 pl.lit(eqtl_dataset).alias("eqtl_dataset"),
                 pl.lit(data_type).alias("data_type")
             )
+            result_df = attach_candidate_snp_stats(result_df, gwas, pqtl, eqtl)
             results.append(result_df)
             result_file.unlink()
         else:
