@@ -1,0 +1,44 @@
+falcon_user: ""                                             # Falcon username for SLURM cluster run - only needed to actually run hpc()
+pheno_id: AD                                                # Outcome phenotype prefix (e.g. AD = Alzheimer's disease)
+sumstats: dat/gwas/AD.tsv                                   # Path to GWAS summary statistics pertaining to your outcome trait of interest
+n_cases: 128681                                             # Number of cases for outcome GWAS
+n_controls: 849833                                          # Number of controls for outcome GWAS
+genome_build: GRCh38                                        # Genome build under which your GWAS was built upon
+target_build: GRCh38                                        # Target genome build for liftover package
+snp_col: SNP                                                # SNP column name in outcome GWAS
+a1_col: A1                                                  # Effect allele column name in outcome GWAS
+a2_col: A2                                                  # Other allele column name in outcome GWAS
+beta_col: BETA                                              # Beta column name in outcome GWAS
+se_col: SE                                                  # Standard error column name in outcome GWAS
+p_col: P                                                    # P-value (not -log10 converted) column name in outcome GWAS
+pos_col: BP                                                 # Position column name in outcome GWAS
+chr_col: CHR                                                # Chromosome column name in outcome GWAS
+af_col: FRQ                                                 # Minor allele frequency column name in outcome GWAS
+
+pqtl_dataset: deCODE.                                       # pQTL dataset ID
+pqtl_dir: dat/pqtl/deCODE                                   # Path to this dataset's cis-region-ready pQTLs
+ref_bfile: dat/ref/1000G_EUR_Phase3_plink/1000G.EUR.QC.ALL  # Path to reference panel (1,000 genomes)
+
+run_smr: true                                               # Master on/off switch for the SMR step (after coloc)
+bulk_eqtl_datasets: [MetaBrain, GTEx_v10]                   # Pre-computed bulk eQTL datasets under results/SMR/bulk/; [] = skip bulk SMR
+sc_eqtl_dataset: SingleBrain                                # Single-cell eQTL dataset name under dat/sc-eQTL/; empty = skip sc SMR
+
+mediators: false                                            # True / False flag as to whether you want to include mediator analysis
+mediator_manifest: assets/mediator_manifest.csv             # Path to mediator manifest outlining mediators
+
+maf: 0.01                                                   # Minor allele frequency cut-off in outcome GWAS
+overwrite: false                                            # Overwrite all current output files
+remove_mhc: true                                            # Remove MHC region and targets from GWAS/pQTLs
+remove_apoe: false                                          # Remove APOE region and targets from GWAS/pQTLs
+
+gates:
+  cis_mr:
+    wald_fdr_q: 0.05
+    ivw_fdr_q: 0.05
+    cochran_q_pval: 0.05
+    egger_intercept_pval_min: 0
+    min_instruments_for_ivw: 3
+  coloc:
+    pp4_threshold: 0.7
+  network_mr:
+    m_y_pval_threshold: 0.05
