@@ -20,6 +20,30 @@ SANKEY_BULK_COLOR = "#2a78d6"
 SANKEY_SC_COLOR = "#eb6834"
 SANKEY_BOTH_COLOR = "#1baf7a"
 
+# single source of truth for "where am I in the pipeline" - the Overview tab's step
+# map and every downstream tab's stage caption are both built from this list, so the
+# two can never drift out of sync with each other or with the st.tabs() labels below
+PIPELINE_STAGES = [
+    dict(title="cis-MR", blurb="Mendelian randomisation of cis-instrumented protein abundance on the outcome."),
+    dict(title="pQTL–GWAS COLOC", blurb="Pairwise colocalisation confirming the pQTL and GWAS signals share one causal variant."),
+    dict(title="FinnGen PheWAS", blurb="Phenome-wide safety inference for adverse effects of the same risk allele in FinnGen."),
+    dict(title="UKB PheWAS", blurb="Same phenome-wide safety scan, run in UK Biobank EHR-derived phenotypes."),
+    dict(title="SMR (bulk/sc eQTL)", blurb="SMR + HEIDI test that the pQTL signal also acts through transcription."),
+    dict(title="HyPrColoc (bulk/sc eQTL)", blurb="Joint colocalisation of pQTL + GWAS + eQTL signals onto one shared variant."),
+    dict(title="Final Targets", blurb="Targets surviving every stage above, each reported at its correct SNP."),
+]
+
+
+def stage_caption(stage_number: int):
+    """Small 'you are here' overline shown above a tab's main header.
+
+    Kept as 1 short call site per tab (rather than baking the text into every
+    st.subheader) so the wording can't drift between tabs and PIPELINE_STAGES.
+    """
+    total = len(PIPELINE_STAGES)
+    title = PIPELINE_STAGES[stage_number - 1]["title"]
+    st.caption(f"STAGE {stage_number} OF {total} · {title.upper()}")
+
 
 def hex_to_rgba(hex_color: str, alpha: float):
     hex_color = hex_color.lstrip("#")
@@ -408,6 +432,103 @@ def subset_phewas_outcome(df: pd.DataFrame, outcome: str):
     return df.copy()
 
 
+def probability_strength_color(value):
+    """Tiering for an already-passing probability (COLOC PP.H4, HyPrColoc posterior).
+
+    Every row shown has already cleared the sidebar threshold, so this isn't a
+    pass/fail color - it's how comfortably a row cleared it, so the strongest
+    colocalisation evidence is visually distinguishable from a borderline one.
+    """
+    if pd.isna(value):
+        return "gray"
+
+    if value >= 0.90:
+        return "green"
+
+    if value >= 0.80:
+        return "blue"
+
+    return "orange"
+
+
+def significance_strength_color(value):
+    """Same tiering idea as probability_strength_color, for a p-value/FDR column."""
+    if pd.isna(value):
+        return "gray"
+
+    if value <= 1e-4:
+        return "green"
+
+    if value <= 1e-2:
+        return "blue"
+
+    return "orange"
+
+
+def render_prioritised_target_cards(df: pd.DataFrame, outcome: str, n_columns: int = 3):
+    """1 scientific 'card' per prioritised protein instead of a dense numeric table.
+
+    The Overview tab's raw dataframe of ~20 columns was the single most confusing part
+    of the dashboard for a first-time reader - too dense to scan for "which targets look
+    good" at a glance. The full table (every column) + a TSV download are still available
+    in the expander directly below this grid for anyone who wants to inspect or export it.
+    """
+    columns = st.columns(n_columns)
+
+    for position, (_, row) in enumerate(df.iterrows()):
+        protein_value = row.get("protein")
+        protein = protein_value if isinstance(protein_value, str) and protein_value else "Unknown protein"
+        mr_beta = row.get("mr_beta")
+        pp_h4 = row.get("pp_h4_abf")
+        mr_fdr = row.get("mr_fdr_q")
+        snp = row.get("snp")
+        a1 = row.get("a1")
+        a2 = row.get("a2")
+        mr_method = row.get("mr_method")
+        n_instruments = row.get("n_instruments")
+
+        with columns[position % n_columns]:
+            with st.container(border=True):
+                st.markdown(f"**{protein}**")
+
+                if pd.notna(mr_beta) and mr_beta > 0:
+                    # st.badge(f"Raises {outcome} risk", icon="⬆️", color="red")
+                    st.badge(f"Raises {outcome} risk", color="red")
+                elif pd.notna(mr_beta) and mr_beta < 0:
+                    # st.badge(f"Lowers {outcome} risk", icon="⬇️", color="green")
+                    st.badge(f"Lowers {outcome} risk", color="green")
+                else:
+                    st.badge("Direction unavailable", color="gray")
+
+                badge_col1, badge_col2 = st.columns(2)
+
+                with badge_col1:
+                    pp_label = f"PP.H4 {pp_h4:.2f}" if pd.notna(pp_h4) else "PP.H4 NA"
+                    st.badge(pp_label, color=probability_strength_color(pp_h4))
+
+                with badge_col2:
+                    fdr_label = f"MR FDR {mr_fdr:.1e}" if pd.notna(mr_fdr) else "MR FDR NA"
+                    st.badge(fdr_label, color=significance_strength_color(mr_fdr))
+
+                method_bits = []
+
+                if isinstance(mr_method, str) and mr_method:
+                    method_bits.append(mr_method)
+
+                if pd.notna(n_instruments):
+                    method_bits.append(f"{int(n_instruments)} instrument(s)")
+
+                if pd.notna(mr_beta):
+                    method_bits.append(f"beta = {mr_beta:.3f}")
+
+                if method_bits:
+                    st.caption(" · ".join(method_bits))
+
+                snp_label = snp if isinstance(snp, str) and snp else "NA"
+                allele_label = f"{a1}/{a2}" if isinstance(a1, str) and isinstance(a2, str) else "?/?"
+                st.caption(f"Top SNP: **{snp_label}** ({allele_label})")
+
+
 def render_phewas_section(
     phewas_outcome: pd.DataFrame,
     mr_coloc_pass: pd.DataFrame,
@@ -416,8 +537,10 @@ def render_phewas_section(
     n_endpoints: int,
     pqtl_dataset: str,
     outcome: str,
-    key_prefix: str
+    key_prefix: str,
+    stage_number: int
 ):
+    stage_caption(stage_number)
     st.subheader(f"{source_name} PheWAS safety and repurposing profile")
 
     if phewas_outcome.empty:
@@ -1208,10 +1331,29 @@ def dashboard(db_name: str, port_number: str, phenotype: str, pqtl_dataset: str)
     ])
 
     with tab1:
+        st.caption("OVERVIEW · START HERE")
+        st.subheader("How this dashboard is organised")
+        st.caption(
+            "Every protein below moves through the same 7-stage pipeline, in order. A "
+            "target only reaches a later stage once it has already passed everything "
+            "before it, and each numbered tab shows that stage's own results in full."
+        )
+
+        pipeline_columns = st.columns(len(PIPELINE_STAGES))
+
+        for position, (pipeline_column, stage) in enumerate(zip(pipeline_columns, PIPELINE_STAGES), start=1):
+            with pipeline_column:
+                with st.container(border=True):
+                    st.markdown(f"**{position}. {stage['title']}**")
+                    st.caption(stage["blurb"])
+
+        st.divider()
         st.subheader("Target prioritisation")
         st.caption(
             "Targets move from cis-MR testing to MR support and then to shared pQTL–GWAS "
-            "causal signal support through pairwise COLOC."
+            "causal signal support through pairwise COLOC (stages 1-2 of the pipeline "
+            "above). The complete flow through every stage, including PheWAS safety, SMR "
+            "and HyPrColoc, is drawn as a Sankey diagram on the **7. Final Targets** tab."
         )
 
         with st.container(border=True):
@@ -1257,8 +1399,27 @@ def dashboard(db_name: str, port_number: str, phenotype: str, pqtl_dataset: str)
 
         st.divider()
         st.subheader("Prioritised targets")
+        st.caption(
+            "Every protein that has passed cis-MR and pairwise pQTL–GWAS COLOC at the "
+            "thresholds set in the sidebar, 1 card each. Betas and alleles are harmonised "
+            "to the outcome GWAS risk allele."
+        )
 
         if not mr_coloc_pass.empty:
+            st.success(
+                f"{n_mr_coloc} unique target(s) passed the selected cis-MR and pairwise COLOC thresholds."
+            )
+
+            cards_df = mr_coloc_pass.sort_values(
+                ["pp_h4_abf", "mr_fdr_q"],
+                ascending=[False, True],
+                na_position="last"
+            ) if "pp_h4_abf" in mr_coloc_pass.columns else mr_coloc_pass
+
+            render_prioritised_target_cards(cards_df, outcome)
+
+            st.divider()
+
             prioritised_cols = [
                 "protein",
                 "snp",
@@ -1318,46 +1479,37 @@ def dashboard(db_name: str, port_number: str, phenotype: str, pqtl_dataset: str)
 
             overview_table = overview_table.rename(columns=overview_column_names)
 
-            st.success(
-                f"{n_mr_coloc} unique target(s) passed the selected cis-MR and pairwise COLOC thresholds."
-            )
+            with st.expander("View full data table & download every column"):
+                st.dataframe(
+                    overview_table,
+                    width="stretch",
+                    hide_index=True,
+                    column_config={
+                        "Risk allele frequency": st.column_config.NumberColumn(format="%.3f"),
+                        "GWAS beta": st.column_config.NumberColumn(format="%.4f"),
+                        "GWAS SE": st.column_config.NumberColumn(format="%.4f"),
+                        "GWAS p-value": st.column_config.NumberColumn(format="%.3e"),
+                        "pQTL beta": st.column_config.NumberColumn(format="%.4f"),
+                        "pQTL SE": st.column_config.NumberColumn(format="%.4f"),
+                        "pQTL p-value": st.column_config.NumberColumn(format="%.3e"),
+                        "MR beta": st.column_config.NumberColumn(format="%.4f"),
+                        "MR SE": st.column_config.NumberColumn(format="%.4f"),
+                        "MR p-value": st.column_config.NumberColumn(format="%.3e"),
+                        "MR FDR": st.column_config.NumberColumn(format="%.3e"),
+                        "Cochran Q p-value": st.column_config.NumberColumn(format="%.3e"),
+                        "Egger intercept p-value": st.column_config.NumberColumn(format="%.3e"),
+                        "COLOC PP.H4": st.column_config.NumberColumn(format="%.3f")
+                    }
+                )
 
-            st.caption(
-                "All SNP effects are harmonised to the outcome GWAS risk allele. "
-                "A positive pQTL beta means the risk allele increases protein abundance, "
-                "whereas a negative pQTL beta means the risk allele decreases protein abundance."
-            )
-
-            st.dataframe(
-                overview_table,
-                width="stretch",
-                hide_index=True,
-                column_config={
-                    "Risk allele frequency": st.column_config.NumberColumn(format="%.3f"),
-                    "GWAS beta": st.column_config.NumberColumn(format="%.4f"),
-                    "GWAS SE": st.column_config.NumberColumn(format="%.4f"),
-                    "GWAS p-value": st.column_config.NumberColumn(format="%.3e"),
-                    "pQTL beta": st.column_config.NumberColumn(format="%.4f"),
-                    "pQTL SE": st.column_config.NumberColumn(format="%.4f"),
-                    "pQTL p-value": st.column_config.NumberColumn(format="%.3e"),
-                    "MR beta": st.column_config.NumberColumn(format="%.4f"),
-                    "MR SE": st.column_config.NumberColumn(format="%.4f"),
-                    "MR p-value": st.column_config.NumberColumn(format="%.3e"),
-                    "MR FDR": st.column_config.NumberColumn(format="%.3e"),
-                    "Cochran Q p-value": st.column_config.NumberColumn(format="%.3e"),
-                    "Egger intercept p-value": st.column_config.NumberColumn(format="%.3e"),
-                    "COLOC PP.H4": st.column_config.NumberColumn(format="%.3f")
-                }
-            )
-
-            st.download_button(
-                label="Download prioritised targets",
-                data=overview_table.to_csv(index=False, sep="\t"),
-                file_name=f"{pqtl_dataset}_{outcome}_prioritised_target_overview.tsv",
-                mime="text/tab-separated-values",
-                key="download_prioritised_targets_overview",
-                width="stretch"
-            )
+                st.download_button(
+                    label="Download prioritised targets",
+                    data=overview_table.to_csv(index=False, sep="\t"),
+                    file_name=f"{pqtl_dataset}_{outcome}_prioritised_target_overview.tsv",
+                    mime="text/tab-separated-values",
+                    key="download_prioritised_targets_overview",
+                    width="stretch"
+                )
 
         else:
             st.info("No proteins currently pass both the selected cis-MR and pQTL COLOC thresholds.")
@@ -1369,6 +1521,7 @@ def dashboard(db_name: str, port_number: str, phenotype: str, pqtl_dataset: str)
             )
 
     with tab2:
+        stage_caption(1)
         st.subheader("cis-MR results")
         st.caption(
             "Wald ratio is used for proteins with one instrument. IVW is used for proteins "
@@ -1469,6 +1622,7 @@ def dashboard(db_name: str, port_number: str, phenotype: str, pqtl_dataset: str)
             st.info("No MR results remain after applying the selected filters.")
 
     with tab3:
+        stage_caption(2)
         st.subheader("cis-MR + pQTL–GWAS COLOC targets")
         st.caption("Targets shown here pass both the selected cis-MR and pairwise pQTL–GWAS COLOC thresholds.")
 
@@ -1537,7 +1691,8 @@ def dashboard(db_name: str, port_number: str, phenotype: str, pqtl_dataset: str)
             n_endpoints=2511,
             pqtl_dataset=pqtl_dataset,
             outcome=outcome,
-            key_prefix="finngen"
+            key_prefix="finngen",
+            stage_number=3
         )
 
     with tab5:
@@ -1549,15 +1704,17 @@ def dashboard(db_name: str, port_number: str, phenotype: str, pqtl_dataset: str)
             n_endpoints=1419,
             pqtl_dataset=pqtl_dataset,
             outcome=outcome,
-            key_prefix="ukb"
+            key_prefix="ukb",
+            stage_number=4
         )
 
     with tab6:
+        stage_caption(5)
         st.subheader("SMR (bulk / single-cell eQTL)")
         st.caption(
             "Targets shown here already passed cis-MR + pQTL–GWAS COLOC, and additionally "
             "passed SMR (FDR-corrected) + HEIDI in the configured bulk and/or single-cell eQTL "
-            "dataset(s). Alleles are aligned to the AD risk allele, same convention as the "
+            "dataset(s). Alleles are aligned to the outcome risk allele, same convention as the "
             "cis-MR/COLOC top-hit table."
         )
 
@@ -1696,6 +1853,7 @@ def dashboard(db_name: str, port_number: str, phenotype: str, pqtl_dataset: str)
             )
 
     with tab7:
+        stage_caption(6)
         st.subheader("HyPrColoc (bulk/sc eQTL)")
         st.caption(
             "For every target x cell-type/tissue hit that already passed cis-MR + pQTL–GWAS "
@@ -1831,6 +1989,7 @@ def dashboard(db_name: str, port_number: str, phenotype: str, pqtl_dataset: str)
             )
 
     with tab8:
+        stage_caption(7)
         st.subheader("Final Targets")
         st.caption(
             "The complete set of targets which passed cis-MR + pQTL–GWAS COLOC + SMR + HEIDI, "
@@ -1851,20 +2010,20 @@ def dashboard(db_name: str, port_number: str, phenotype: str, pqtl_dataset: str)
 
         with st.expander("How each stage is decided"):
             st.markdown(
-                "- **cis-MR** — this flow starts from the proteins that already passed; the "
+                "- **cis-MR** —> this flow starts from the proteins that already passed; the "
                 "much larger screening drop-off across every tested protein is the funnel in "
                 "the Overview tab.\n"
-                "- **pQTL–GWAS COLOC** — passes on the posterior-probability threshold set in "
+                "- **pQTL–GWAS COLOC** —> passes on the posterior-probability threshold set in "
                 "the sidebar.\n"
-                "- **FinnGen / UKB PheWAS safety** — fails *only* when a target has a "
+                "- **FinnGen / UKB PheWAS safety** —> fails *only* when a target has a "
                 "Bonferroni-significant association with `beta_mr >= 0`, i.e. the same allele "
                 "that raises AD risk also raises the safety-relevant phenotype. No significant "
                 "hit, a protective (negative) significant hit, or no PheWAS coverage at all "
                 "each count as passing.\n"
-                f"- **SMR support** — requires SMR FDR (`q_SMR`) < {smr_fdr_threshold:.2f} and "
+                f"- **SMR support** —> requires SMR FDR (`q_SMR`) < {smr_fdr_threshold:.2f} and "
                 f"HEIDI p-value > {heidi_p_threshold:.2f}, split by whether that support came "
                 "from bulk/tissue eQTL data, single-cell eQTL data, or both.\n"
-                "- **HyPrColoc** — runs against whichever eQTL dataset(s) supported the target's "
+                "- **HyPrColoc** —> runs against whichever eQTL dataset(s) supported the target's "
                 "SMR stage (bulk, single-cell, or both); no-SMR-support targets end at the SMR "
                 "stage. Passes when a HyPrColoc cluster contains the pQTL, GWAS *and* eQTL trait "
                 f"together (not just 2 of the 3) with posterior probability ≥ {hyprcoloc_pp_threshold:.2f}."
@@ -2021,7 +2180,14 @@ def dashboard(db_name: str, port_number: str, phenotype: str, pqtl_dataset: str)
                 link=dict(
                     source=[source for source, _ in edges],
                     target=[target for _, target in edges],
-                    value=[node_values[target] for _, target in edges],
+                    # a target can have more than 1 source (e.g. the 3 SMR support
+                    # lanes all feed HyPrColoc), so each ribbon's value/hover must be
+                    # the proteins actually shared between its own source and target -
+                    # not the target's total, which would double- or triple-count them
+                    value=[
+                        len(drawn[source]["proteins"] & drawn[target]["proteins"])
+                        for source, target in edges
+                    ],
                     # ribbons take the colour of where they land, and drop-out
                     # ribbons sit fainter so the eye follows the surviving lane
                     color=[
@@ -2030,8 +2196,8 @@ def dashboard(db_name: str, port_number: str, phenotype: str, pqtl_dataset: str)
                     ],
                     customdata=[
                         f"<b>{drawn[source]['name']} → {drawn[target]['name']}</b><br>"
-                        f"{node_values[target]} target(s)<br><br>"
-                        f"{format_protein_list_html(drawn[target]['proteins'])}"
+                        f"{len(drawn[source]['proteins'] & drawn[target]['proteins'])} target(s)<br><br>"
+                        f"{format_protein_list_html(drawn[source]['proteins'] & drawn[target]['proteins'])}"
                         for source, target in edges
                     ],
                     hovertemplate="%{customdata}<extra></extra>"
@@ -2076,6 +2242,14 @@ def dashboard(db_name: str, port_number: str, phenotype: str, pqtl_dataset: str)
         ]
         base_targets = base_targets.drop(columns=identity_cols)
 
+        # smr_display carries every protein ever run through SMR, including ones that
+        # never reached (or failed) cis-MR/COLOC/FinnGen/UKB safety/SMR-HEIDI - restrict
+        # to the same smr_eligible_set the Sankey above already gated on, so both views
+        # here actually match the "passed cis-MR + COLOC + safety + SMR/HEIDI" claim in
+        # their captions instead of silently including ineligible proteins
+        if "protein" in base_targets.columns:
+            base_targets = base_targets[base_targets["protein"].astype(str).isin(smr_eligible_set)]
+
         if show_hyprcoloc_targets:
             st.success(
                 "**Final targets** - on top of cis-MR, COLOC, FinnGen/UKB safety and SMR/HEIDI, "
@@ -2104,7 +2278,7 @@ def dashboard(db_name: str, port_number: str, phenotype: str, pqtl_dataset: str)
             if not snp_info.empty and "a1" not in snp_info.columns:
                 st.warning(
                     "This pQTL dataset's HyPrColoc results don't carry the candidate SNP's "
-                    "aligned alleles/betas yet - rerun the HyPrColoc pipeline step "
+                    "aligned alleles/betas yet, so, rerun the HyPrColoc pipeline step "
                     "(bin/hyprcoloc_targets.py) to populate them. Showing the candidate SNP ID "
                     "only until then."
                 )
@@ -2119,29 +2293,97 @@ def dashboard(db_name: str, port_number: str, phenotype: str, pqtl_dataset: str)
             st.info(
                 "**All targets, before HyPrColoc** - passed cis-MR, COLOC, FinnGen/UKB safety "
                 "and SMR/HEIDI, whether or not HyPrColoc has since confirmed a single shared "
-                "causal variant. **Top SNP** is the target's top cis-pQTL SNP instead, aligned to "
-                "the AD risk allele (its p-value is only ever floored to 1e-300 when it was "
-                "reported as exactly 0)."
+                "causal variant. **Each row picks its own Top SNP**: HyPrColoc's candidate SNP "
+                f"for rows where that target x cell-type/tissue actually passed HyPrColoc (posterior "
+                f"probability ≥ {hyprcoloc_pp_threshold:.2f}), falling back to the target's top "
+                "cis-pQTL SNP otherwise - **SNP source** says which applies to each row. Alleles "
+                "and betas are aligned to the AD risk allele either way (p-values are only ever "
+                "floored to 1e-300 when reported as exactly 0)."
             )
 
-            if "protein" in base_targets.columns:
-                base_targets = base_targets[base_targets["protein"].astype(str).isin(smr_eligible_set)]
+            # same passing rows as the "Final targets" branch above - a row lands here only if
+            # this target x cell-type/tissue actually cleared the HyPrColoc threshold, so its
+            # candidate SNP is trustworthy to use as this row's Top SNP
+            hypr_pass = select_hyprcoloc_candidate_rows(hyprcoloc_display, hyprcoloc_pp_threshold)
+            hypr_cols = available_cols(
+                hypr_pass,
+                ["protein", "cell_type", "data_type", "candidate_snp", "a1", "a2",
+                 "gwas_beta", "gwas_p", "pqtl_beta", "pqtl_p", "eqtl_beta", "eqtl_p", "posterior_prob"]
+            )
+            hypr_pass = hypr_pass[hypr_cols].rename(columns={
+                "candidate_snp": "hypr_topsnp",
+                "a1": "hypr_a1",
+                "a2": "hypr_a2",
+                "gwas_beta": "hypr_b_gwas",
+                "gwas_p": "hypr_gwas_p",
+                "pqtl_beta": "hypr_pqtl_beta",
+                "pqtl_p": "hypr_pqtl_p",
+                "eqtl_beta": "b_eqtl",
+                "eqtl_p": "eqtl_p",
+                "posterior_prob": "hyprcoloc_posterior_prob"
+            })
 
-            snp_info_cols = available_cols(target_info, ["protein", "snp", "a1", "a2", "gwas_beta", "gwas_p", "pqtl_beta", "pqtl_p"])
-            snp_info = (
-                target_info[snp_info_cols].rename(columns={"snp": "topsnp", "gwas_beta": "b_gwas"})
-                if not target_info.empty and "protein" in snp_info_cols
+            if not hypr_pass.empty and "hypr_a1" not in hypr_pass.columns:
+                st.warning(
+                    "This pQTL dataset's HyPrColoc results don't carry the candidate SNP's "
+                    "aligned alleles/betas yet - rerun the HyPrColoc pipeline step "
+                    "(bin/hyprcoloc_targets.py) to populate them. Every row will fall back to "
+                    "the top cis-pQTL SNP until then."
+                )
+                hypr_pass = hypr_pass.iloc[0:0]
+
+            # target-level (not cell-type-specific) fallback for rows that didn't pass HyPrColoc
+            pqtl_cols = available_cols(target_info, ["protein", "snp", "a1", "a2", "gwas_beta", "gwas_p", "pqtl_beta", "pqtl_p"])
+            pqtl_fallback = (
+                target_info[pqtl_cols].rename(columns={
+                    "snp": "pqtl_topsnp",
+                    "a1": "pqtl_a1",
+                    "a2": "pqtl_a2",
+                    "gwas_beta": "pqtl_b_gwas",
+                    "gwas_p": "pqtl_gwas_p",
+                    "pqtl_beta": "pqtl_pqtl_beta",
+                    "pqtl_p": "pqtl_pqtl_p"
+                })
+                if not target_info.empty and "protein" in pqtl_cols
                 else pd.DataFrame()
             )
 
-            if not snp_info.empty:
-                snp_info["snp_source"] = "cis-pQTL top SNP"
+            merge_cols = [col for col in ["protein", "cell_type", "data_type"] if col in base_targets.columns and col in hypr_pass.columns]
+            final_targets = base_targets.merge(hypr_pass, on=merge_cols, how="left") if merge_cols else base_targets.copy()
 
-            final_targets = (
-                base_targets.merge(snp_info, on="protein", how="left")
-                if not snp_info.empty
-                else base_targets.copy()
+            if not pqtl_fallback.empty:
+                final_targets = final_targets.merge(pqtl_fallback, on="protein", how="left")
+
+            hypr_topsnp_col = (
+                final_targets["hypr_topsnp"] if "hypr_topsnp" in final_targets.columns
+                else pd.Series(np.nan, index=final_targets.index)
             )
+            passed_hyprcoloc_row = hypr_topsnp_col.notna()
+
+            final_targets["snp_source"] = np.where(
+                passed_hyprcoloc_row, "HyPrColoc candidate SNP", "cis-pQTL top SNP"
+            )
+
+            # collapse the hypr_*/pqtl_* pairs into the plain column names final_cols expects
+            # below, picking the HyPrColoc value per row where it passed and the target-level
+            # pQTL fallback everywhere else
+            fallback_pairs = [
+                ("topsnp", "hypr_topsnp", "pqtl_topsnp"),
+                ("a1", "hypr_a1", "pqtl_a1"),
+                ("a2", "hypr_a2", "pqtl_a2"),
+                ("b_gwas", "hypr_b_gwas", "pqtl_b_gwas"),
+                ("gwas_p", "hypr_gwas_p", "pqtl_gwas_p"),
+                ("pqtl_beta", "hypr_pqtl_beta", "pqtl_pqtl_beta"),
+                ("pqtl_p", "hypr_pqtl_p", "pqtl_pqtl_p"),
+            ]
+
+            for out_col, hypr_col, pqtl_col in fallback_pairs:
+                hypr_series = final_targets[hypr_col] if hypr_col in final_targets.columns else pd.Series(np.nan, index=final_targets.index)
+                pqtl_series = final_targets[pqtl_col] if pqtl_col in final_targets.columns else pd.Series(np.nan, index=final_targets.index)
+                final_targets[out_col] = hypr_series.where(passed_hyprcoloc_row, pqtl_series)
+
+            drop_cols = [col for _, hypr_col, pqtl_col in fallback_pairs for col in (hypr_col, pqtl_col) if col in final_targets.columns]
+            final_targets = final_targets.drop(columns=drop_cols)
 
         if final_targets.empty:
             if show_hyprcoloc_targets:
