@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 import pytest
@@ -151,6 +152,10 @@ def test_tier2_out_dir_composes_with_run_results_dir():
     )
 
 
+@pytest.mark.skipif(
+    os.environ.get("GITHUB_ACTIONS") == "true",
+    reason="requires results/ output from a real local pipeline run, not present on a fresh CI checkout",
+)
 def test_paths_match_real_files_on_disk():
     """Sanity check against actual files already on disk from real prior runs -
     not just the literals, but that paths.py resolves to files that exist."""
