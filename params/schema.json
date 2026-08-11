@@ -1,0 +1,170 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/guillermocomesanacimadevila/drugMR/params/schema.json",
+  "title": "drugMR run parameters",
+  "description": "Validated by drugmr.config.Config. One file per (pheno_id, pqtl_dataset) under params/ - e.g. params/AD.wingo_brain.yaml. `gates` is optional.",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "pheno_id",
+    "sumstats",
+    "n_cases",
+    "n_controls",
+    "genome_build",
+    "target_build",
+    "snp_col",
+    "a1_col",
+    "a2_col",
+    "beta_col",
+    "se_col",
+    "p_col",
+    "pos_col",
+    "chr_col",
+    "af_col",
+    "pqtl_dataset",
+    "pqtl_dir",
+    "ref_bfile"
+  ],
+  "properties": {
+    "falcon_user": {
+      "type": "string",
+      "description": "Falcon SLURM username. Required to actually run hpc(); not needed for local()."
+    },
+    "pheno_id": {
+      "type": "string",
+      "description": "Outcome phenotype prefix, e.g. AD."
+    },
+    "sumstats": {
+      "type": "string",
+      "description": "Path to the outcome GWAS summary statistics."
+    },
+    "n_cases": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "n_controls": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "genome_build": {
+      "type": "string",
+      "enum": ["GRCh37", "GRCh38"]
+    },
+    "target_build": {
+      "type": "string",
+      "enum": ["GRCh37", "GRCh38"]
+    },
+    "snp_col": { "type": "string" },
+    "a1_col": { "type": "string" },
+    "a2_col": { "type": "string" },
+    "beta_col": { "type": "string" },
+    "se_col": { "type": "string" },
+    "p_col": { "type": "string" },
+    "pos_col": { "type": "string" },
+    "chr_col": { "type": "string" },
+    "af_col": { "type": "string" },
+    "pqtl_dataset": {
+      "type": "string",
+      "enum": ["ukb_ppp", "decode", "wu_csf", "wingo_brain"]
+    },
+    "pqtl_dir": {
+      "type": "string",
+      "description": "Path to this pqtl_dataset's cis-region-ready pQTLs."
+    },
+    "ref_bfile": {
+      "type": "string",
+      "description": "Path to the 1000G reference panel bfile prefix."
+    },
+    "run_smr": {
+      "type": "boolean",
+      "default": true,
+      "description": "Master on/off switch for the SMR step."
+    },
+    "bulk_eqtl_datasets": {
+      "type": "array",
+      "items": { "type": "string" },
+      "default": [],
+      "description": "Pre-computed bulk eQTL datasets under results/SMR/bulk/; [] = skip bulk SMR."
+    },
+    "sc_eqtl_dataset": {
+      "type": "string",
+      "default": "",
+      "description": "Single-cell eQTL dataset name under dat/sc-eQTL/; empty = skip sc SMR."
+    },
+    "mediators": {
+      "type": "boolean",
+      "default": false
+    },
+    "mediator_manifest": {
+      "type": "string",
+      "default": ""
+    },
+    "maf": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 0.5,
+      "default": 0.01
+    },
+    "info_threshold": {
+      "type": ["number", "null"],
+      "default": null
+    },
+    "info_col": {
+      "type": ["string", "null"],
+      "default": null
+    },
+    "overwrite": {
+      "type": "boolean",
+      "default": false,
+      "description": "Overwrite all current output files for this run."
+    },
+    "remove_mhc": {
+      "type": "boolean",
+      "default": true
+    },
+    "remove_apoe": {
+      "type": "boolean",
+      "default": false
+    },
+    "image_uri": {
+      "type": "string",
+      "default": "ghcr.io/guillermocomesanacimadevila/drugmr:latest"
+    },
+    "image_name": {
+      "type": "string",
+      "default": "ghcr.io/guillermocomesanacimadevila/drugmr:latest"
+    },
+    "gates": {
+      "type": "object",
+      "description": "Per-step statistical thresholds. Optional - a missing gates block (e.g. the legacy assets/config.yaml) falls back to the same defaults bin/coloc_targets.py used to hardcode.",
+      "additionalProperties": false,
+      "properties": {
+        "cis_mr": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "wald_fdr_q": { "type": "number", "minimum": 0, "maximum": 1, "default": 0.05, "description": "FDR-q cutoff for single-instrument (Wald ratio) proteins." },
+            "ivw_fdr_q": { "type": "number", "minimum": 0, "maximum": 1, "default": 0.05, "description": "FDR-q cutoff for multi-instrument (IVW) proteins." },
+            "cochran_q_pval": { "type": "number", "minimum": 0, "maximum": 1, "default": 0.05, "description": "Minimum Cochran's Q p-value (i.e. no significant heterogeneity) for IVW proteins." },
+            "egger_intercept_pval_min": { "type": "number", "minimum": 0, "maximum": 1, "default": 0, "description": "Minimum (exclusive) Egger intercept p-value for IVW proteins." },
+            "min_instruments_for_ivw": { "type": "integer", "minimum": 2, "default": 3, "description": "Instrument count at/above which IVW (rather than Wald ratio) is the gating method." }
+          }
+        },
+        "coloc": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "pp4_threshold": { "type": "number", "minimum": 0, "maximum": 1, "default": 0.7, "description": "Minimum PP.H4.abf (shared causal variant) to pass pairwise coloc." }
+          }
+        },
+        "network_mr": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "m_y_pval_threshold": { "type": "number", "minimum": 0, "maximum": 1, "default": 0.05, "description": "Maximum mediator -> outcome (M-Y) p-value for a mediator to be carried forward into NetworkMR." }
+          }
+        }
+      }
+    }
+  }
+}

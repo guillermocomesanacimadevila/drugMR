@@ -4,3 +4,5 @@ sqlalchemy==2.0.51
 psycopg2-binary==2.9.12
 streamlit==1.61.1
 plotly==6.9.0
+pytest>=8.0
+pytest-cov>=5.0

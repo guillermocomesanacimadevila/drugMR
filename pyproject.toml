@@ -24,6 +24,9 @@ dependencies = [
     "psycopg2-binary==2.9.12",
     "liftover==1.4.1",
     "synapseclient==4.13.0",
+    "jsonschema==4.26.0",
+    "pytest>=8.0",
+    "pytest-cov>=5.0"
 ]
 
 [tool.setuptools.packages.find]
