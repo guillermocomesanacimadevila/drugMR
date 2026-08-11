@@ -7,3 +7,4 @@ plotly==6.9.0
 pytest>=8.0
 pytest-cov>=5.0
 PyYAML==6.0.3
+scipy==1.17.0
