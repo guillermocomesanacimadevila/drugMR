@@ -6,7 +6,7 @@
 [![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-blue)](pyproject.toml)
 [![Docker](https://img.shields.io/badge/docker-ghcr.io-blue?logo=docker)](https://github.com/guillermocomesanacimadevila/drugMR/pkgs/container/drugmr)
 
-drugMR takes an outcome GWAS and a panel of protein QTLs and returns a ranked, safety-screened list of druggable targets. Every step in between (Mendelian randomisation, colocalisation, SMR, PheWAS) runs automatically and is gated on the evidence produced by the step before it. It integrates plasma, CSF and brain pQTLs (>10,000 proteins; Olink, SomaScan and mass-spec) from **UKB-PPP**, **deCODE**, **Wu et al. (CSF)** and **Wingo et al. (brain)**, tested against any outcome phenotype (demonstrated here on Alzheimer's disease), with optional mediation through intermediate biomarkers such as CSF pTau181 and Aβ42. Results converge in a Streamlit dashboard backed by PostgreSQL.
+drugMR takes an outcome GWAS and a panel of protein QTLs and hands you back a ranked, safety-screened shortlist of druggable targets — no manual babysitting required. Every step in between (Mendelian randomisation, colocalisation, SMR, PheWAS) runs on its own and only lets through what the previous step actually earned. It integrates plasma, CSF and brain pQTLs (>10,000 proteins; Olink, SomaScan and mass-spec) from **UKB-PPP**, **deCODE**, **Wu et al. (CSF)** and **Wingo et al. (brain)**, tested against any outcome phenotype (demonstrated here on Alzheimer's disease), with optional mediation through intermediate biomarkers such as CSF pTau181 and Aβ42. Results converge in a Streamlit dashboard backed by PostgreSQL.
 
 ---
 
@@ -18,6 +18,7 @@ drugMR takes an outcome GWAS and a panel of protein QTLs and returns a ranked, s
 - [Repository layout](#repository-layout)
 - [Installation](#installation)
 - [Configuration](#configuration)
+- [Runs, registry & synthesis](#runs-registry--synthesis)
 - [Running the pipeline](#running-the-pipeline)
 - [Dashboard](#dashboard)
 - [Synapse configuration](#synapse-configuration)
@@ -32,7 +33,7 @@ drugMR takes an outcome GWAS and a panel of protein QTLs and returns a ranked, s
 
 ## Pipeline overview
 
-Each stage reads the previous stage's output, applies a hard statistical gate, and writes only the survivors forward. Nothing advances on vibes: the thresholds below are the literal filter conditions in `bin/coloc_targets.py` and `bin/sort_smr.py`. Completed stages are cached under `results/` and reused unless `overwrite: true`.
+Each stage reads the previous stage's output, applies a hard statistical gate, and writes only the survivors forward. Nothing advances on vibes: the thresholds below are the defaults, but every one of them lives in the `gates:` block of your params file, so you can loosen or tighten them without touching a line of code. Completed stages are cached per-run under `runs/<run_id>/results/` and reused unless `overwrite: true`.
 
 ![drugMR pipeline DAG](docs/pipeline_dag.png)
 
@@ -70,14 +71,17 @@ Each stage reads the previous stage's output, applies a hard statistical gate, a
 
 ```
 drugMR/
-├── drugmr/          # Installable package: Config, SMR, PheWAS, NetworkMR, PyTwoSampleMR, utils
+├── drugmr/          # Installable package: Config, paths, registry, SMR, PheWAS, NetworkMR, PyTwoSampleMR, utils
 ├── bin/             # Pipeline stage scripts (Python + R), invoked by drugmr
 ├── scripts/         # Per-cohort data ingestion/preprocessing (deCODE, UKB-PPP, Wu CSF, Wingo, SingleBrain)
+├── params/          # One params.yaml per (pheno_id, pqtl_dataset), plus schema.json that keeps them honest
 ├── dat/             # Input data: GWAS, pQTL, sc-eQTL, cis regions, reference panel
-├── results/         # Pipeline outputs: cis-MR, COLOC, SMR, PheWAS, target stats
+│   └── derived/     # Shared preprocessing that every run for a pheno_id reuses (QC'd GWAS, mediator QC)
+├── runs/            # One folder per run (results/, manifest.json, params.lock.yaml) + registry.json pointing at "latest"
+├── synthesis/       # Cross-dataset roll-ups per pheno_id, once you've run more than one pQTL dataset
 ├── dashboard/       # Streamlit app (mr_app.py)
 ├── notebooks/       # Worked examples (00_drugmr.ipynb)
-├── assets/          # config.yaml, mediator manifests
+├── assets/          # Mediator manifests and other run-adjacent bits
 ├── env/             # Dockerfile, requirements.txt
 ├── modules/         # Git submodules (ukbppp_dl)
 ├── docs/            # Pipeline DAG (docs/pipeline_dag.png), results schema (docs/RESULTS_SCHEMA.md)
@@ -99,7 +103,7 @@ pip install -e .
 
 ## Configuration
 
-Every run is driven by `assets/config.yaml`.
+There's no single `config.yaml` to rule them all any more — every `(pheno_id, pqtl_dataset)` pair gets its own params file under `params/`, e.g. `params/AD.ukb_ppp.yaml`, `params/AD.wingo_brain.yaml`. Same outcome GWAS settings copy-pasted across each one (only `pqtl_dataset`/`pqtl_dir` differ), which looks repetitive but means each run's config is self-contained and diffable in git. `drugmr.config.Config` validates whatever you point it at against `params/schema.json`, so a typo'd column name fails loudly before anything expensive runs, instead of three hours into cis-MR.
 
 | Field | Purpose |
 | --- | --- |
@@ -114,6 +118,44 @@ Every run is driven by `assets/config.yaml`.
 | `sc_eqtl_dataset` | Single-cell eQTL dataset to run SMR against (e.g. `SingleBrain`); empty skips single-cell SMR |
 | `maf`, `remove_mhc`, `remove_apoe` | QC filters applied to GWAS/pQTLs |
 | `overwrite` | Force every stage to rerun instead of reusing existing outputs |
+| `gates` | Optional block of per-step statistical thresholds (see below) — leave it out and you get the old hardcoded defaults |
+
+The `gates` block is the fun new bit: cis-MR/COLOC/NetworkMR thresholds used to be buried as magic numbers inside `bin/coloc_targets.py`; now they're just YAML.
+
+```yaml
+gates:
+  cis_mr:
+    wald_fdr_q: 0.05              # FDR-q cutoff for single-instrument (Wald ratio) proteins
+    ivw_fdr_q: 0.05                # FDR-q cutoff for multi-instrument (IVW) proteins
+    cochran_q_pval: 0.05           # Minimum Cochran's Q p-value (no significant heterogeneity) for IVW proteins
+    egger_intercept_pval_min: 0    # Minimum (exclusive) Egger intercept p-value for IVW proteins
+    min_instruments_for_ivw: 3     # Instrument count at/above which IVW takes over from Wald ratio
+  coloc:
+    pp4_threshold: 0.7             # Minimum PP.H4.abf to pass pairwise coloc
+  network_mr:
+    m_y_pval_threshold: 0.05       # Max mediator -> outcome p-value to carry a mediator into NetworkMR
+```
+
+Old-school `assets/config.yaml` still works fine if you happen to have one lying around — it validates against the same schema, it just won't have a `gates` block, so it quietly falls back to the defaults above.
+
+---
+
+## Runs, registry & synthesis
+
+Every call to `dm.local()` / `dm.hpc()` gets its own tidy little folder instead of dumping everything into one shared `results/` and hoping nothing clobbers anything else. A run is stamped `<pheno_id>_<pqtl_dataset>_<date>_<git_sha7>` and lives at:
+
+```
+runs/AD_ukb_ppp_20260811_149fc55/
+├── results/          # Everything cis-MR, COLOC, SMR and PheWAS wrote for this run
+├── manifest.json     # What ran, when, against which commit
+└── params.lock.yaml  # A frozen copy of the params file used, so you can always answer "what config made this?"
+```
+
+`runs/registry.json` keeps a `{pheno_id}__{pqtl_dataset} -> {latest, history}` map, and — this is the important bit — it's only updated once every single step of a run has actually succeeded. So `registry["AD__ukb_ppp"]["latest"]` can never point you at a half-finished run; the dashboard trusts it blindly for exactly that reason.
+
+Preprocessing that's shared across every run for a given phenotype (QC'd GWAS, mediator QC) doesn't get needlessly re-run or re-copied per pQTL dataset — it sits once in `dat/derived/<pheno_id>/` and every run for that phenotype just reads it.
+
+Once you've run more than one pQTL dataset for the same phenotype, `synthesis/<pheno_id>/` is where the cross-dataset target roll-up belongs (e.g. `all_datasets_mined_targets.tsv`) — the one place that legitimately needs to look across `ukb_ppp`, `decode`, `wu_csf` and `wingo_brain` at once rather than living inside any single run.
 
 ---
 
@@ -122,15 +164,17 @@ Every run is driven by `assets/config.yaml`.
 ```python
 import drugmr as dm
 
-# run locally via Docker
-dm.local(config="assets/config.yaml")
+# run locally via Docker — pick the params file for the (pheno_id, pqtl_dataset) you want
+dm.local(config="params/AD.ukb_ppp.yaml")
 
 # OR run on the Falcon HPC cluster via SLURM/Apptainer
-dm.hpc(config="assets/config.yaml")
+dm.hpc(config="params/AD.ukb_ppp.yaml")
 
-# load cis-MR/COLOC results into PostgreSQL and launch the Streamlit dashboard
-dm.results()
+# load that run's cis-MR/COLOC results into PostgreSQL and launch the Streamlit dashboard
+dm.results(config="params/AD.ukb_ppp.yaml")
 ```
+
+There's no default `config` any more — with one params file per `(pheno_id, pqtl_dataset)` pair, there's no longer a single "correct" file to fall back to, so you have to say which one you mean.
 
 See [`notebooks/00_drugmr.ipynb`](notebooks/00_drugmr.ipynb) for a worked example.
 
@@ -138,7 +182,7 @@ See [`notebooks/00_drugmr.ipynb`](notebooks/00_drugmr.ipynb) for a worked exampl
 
 ## Dashboard
 
-`dm.results()` launches a Streamlit dashboard (`dashboard/mr_app.py`) with a pQTL dataset selector and sidebar filters (outcome, FDR/Q/PP.H4 thresholds, protein search), shared across:
+`dm.results()` launches a Streamlit dashboard (`dashboard/mr_app.py`) with a pQTL dataset selector, a run-history picker (courtesy of `runs/registry.json` — no more guessing which `results/` folder is the "real" one), and sidebar filters (outcome, FDR/Q/PP.H4 thresholds, protein search), shared across:
 
 | Page | Contents |
 | --- | --- |
