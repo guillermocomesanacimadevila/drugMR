@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import pytest
+
 from drugmr import paths
 
 PQTL = "ukb_ppp"
