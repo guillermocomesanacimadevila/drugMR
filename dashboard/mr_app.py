@@ -247,7 +247,7 @@ def legacy_resolve_dataset_files(project_dir: Path, phenotype: str, dataset_id: 
     return {
         "mr": mr_file,
         "coloc": coloc_file,
-        "finngen_phewas": project_dir / "results" / "PheWAS" / dataset_id / phenotype / f"{dataset_id}_{phenotype}_PheWAS.tsv",
+        "finngen_phewas": project_dir / "results" / "PheWAS-FinnGen" / dataset_id / phenotype / f"{dataset_id}_{phenotype}_PheWAS-FinnGen.tsv",
         "ukb_phewas": project_dir / "results" / "PheWAS_UKBB" / dataset_id / phenotype / f"{dataset_id}_{phenotype}_PheWAS.tsv",
         "target_info": project_dir / "results" / "target_stats" / dataset_id / phenotype / f"{dataset_id}_{phenotype}_top_cis_hits.tsv",
         "smr": project_dir / "results" / "SMR" / f"{dataset_id}_{phenotype}_final_multi_omics_targets.tsv",

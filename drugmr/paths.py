@@ -156,7 +156,7 @@ def hyprcoloc_dataset_out(pqtl_dataset: str, hc_dataset: str, pheno_id: str, out
 
 
 def phewas_out(pqtl_dataset: str, pheno_id: str, out_dir: str = "results") -> Path:
-    return Path(out_dir) / "PheWAS" / pqtl_dataset / pheno_id / f"{pqtl_dataset}_{pheno_id}_PheWAS.tsv"
+    return Path(out_dir) / "PheWAS-FinnGen" / pqtl_dataset / pheno_id / f"{pqtl_dataset}_{pheno_id}_PheWAS-FinnGen.tsv"
 
 
 def phewas_ukbb_out(pqtl_dataset: str, pheno_id: str, out_dir: str = "results") -> Path:

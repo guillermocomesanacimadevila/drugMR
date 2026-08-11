@@ -248,7 +248,7 @@ def local(config: str):
     # final harmonised target stats
     target_stats_out = project_root / paths.target_stats_out(pqtl_dataset, pheno_id, out_dir)
 
-    # phewas - ukb_ppp_AD_PheWAS.tsv
+    # phewas - ukb_ppp_AD_PheWAS-FinnGen.tsv
     phewas_out = project_root / paths.phewas_out(pqtl_dataset, pheno_id, out_dir)
 
     # phewas ukbb_out
