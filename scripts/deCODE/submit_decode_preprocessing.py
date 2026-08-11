@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 import subprocess
 
-slurm_user = "c.user"
+slurm_user = "c.c24102394"
 host = "falconlogin.cf.ac.uk"
 
 remote_cmd = """
