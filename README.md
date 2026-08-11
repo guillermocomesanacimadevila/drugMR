@@ -6,7 +6,7 @@
 [![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-blue)](pyproject.toml)
 [![Docker](https://img.shields.io/badge/docker-ghcr.io-blue?logo=docker)](https://github.com/guillermocomesanacimadevila/drugMR/pkgs/container/drugmr)
 
-drugMR takes an outcome GWAS and a panel of protein QTLs and hands you back a ranked, safety-screened shortlist of druggable targets — no manual babysitting required. Every step in between (Mendelian randomisation, colocalisation, SMR, PheWAS) runs on its own and only lets through what the previous step actually earned. It integrates plasma, CSF and brain pQTLs (>10,000 proteins; Olink, SomaScan and mass-spec) from **UKB-PPP**, **deCODE**, **Wu et al. (CSF)** and **Wingo et al. (brain)**, tested against any outcome phenotype (demonstrated here on Alzheimer's disease), with optional mediation through intermediate biomarkers such as CSF pTau181 and Aβ42. Results converge in a Streamlit dashboard backed by PostgreSQL.
+drugMR takes an outcome GWAS and a panel of protein QTLs and hands you back a ranked, safety-screened shortlist of druggable targets (no manual babysitting required). Every step in between (Mendelian randomisation, colocalisation, SMR, PheWAS) runs on its own and only lets through what survived from the previous step. It integrates plasma, CSF and brain pQTLs (>10,000 proteins; Olink, SomaScan and mass-spec) from **UKB-PPP**, **deCODE**, **Wu et al. (CSF)** and **Wingo et al. (brain)**, tested against any outcome phenotype (demonstrated here on Alzheimer's disease), with optional mediation through intermediate biomarkers such as CSF pTau181 and Aβ42. Results converge in a Streamlit dashboard backed by PostgreSQL.
 
 ---
 
@@ -33,7 +33,7 @@ drugMR takes an outcome GWAS and a panel of protein QTLs and hands you back a ra
 
 ## Pipeline overview
 
-Each stage reads the previous stage's output, applies a hard statistical gate, and writes only the survivors forward. Nothing advances on vibes: the thresholds below are the defaults, but every one of them lives in the `gates:` block of your params file, so you can loosen or tighten them without touching a line of code. Completed stages are cached per-run under `runs/<run_id>/results/` and reused unless `overwrite: true`.
+Each stage reads the previous stage's output, applies a threshold-like gate, and writes only the survivors forward. The thresholds below are the defaults, but every one of them lives in the `gates:` block of your params file, so you can loosen or tighten them without touching a line of code. Completed stages are cached per-run under `runs/<run_id>/results/` and reused unless `overwrite: true`.
 
 ![drugMR pipeline DAG](docs/pipeline_dag.png)
 
@@ -103,7 +103,7 @@ pip install -e .
 
 ## Configuration
 
-There's no single `config.yaml` to rule them all any more — every `(pheno_id, pqtl_dataset)` pair gets its own params file under `params/`, e.g. `params/AD.ukb_ppp.yaml`, `params/AD.wingo_brain.yaml`. Same outcome GWAS settings copy-pasted across each one (only `pqtl_dataset`/`pqtl_dir` differ), which looks repetitive but means each run's config is self-contained and diffable in git. `drugmr.config.Config` validates whatever you point it at against `params/schema.json`, so a typo'd column name fails loudly before anything expensive runs, instead of three hours into cis-MR.
+There's no single `config.yaml` to rule them all any more, every `(pheno_id, pqtl_dataset)` pair gets its own params file under `params/`, e.g. `params/AD.ukb_ppp.yaml`, `params/AD.wingo_brain.yaml`. Same outcome GWAS settings copy-pasted across each one (only `pqtl_dataset`/`pqtl_dir` differ), which looks repetitive but means each run's config is self-contained and diffable in git. `drugmr.config.Config` validates whatever you point it at against `params/schema.json`, so a typo'd column name fails loudly before anything expensive runs, instead of three hours into cis-MR.
 
 | Field | Purpose |
 | --- | --- |
@@ -125,7 +125,7 @@ The `gates` block is the fun new bit: cis-MR/COLOC/NetworkMR thresholds used to 
 ```yaml
 gates:
   cis_mr:
-    wald_fdr_q: 0.05              # FDR-q cutoff for single-instrument (Wald ratio) proteins
+    wald_fdr_q: 0.05               # FDR-q cutoff for single-instrument (Wald ratio) proteins
     ivw_fdr_q: 0.05                # FDR-q cutoff for multi-instrument (IVW) proteins
     cochran_q_pval: 0.05           # Minimum Cochran's Q p-value (no significant heterogeneity) for IVW proteins
     egger_intercept_pval_min: 0    # Minimum (exclusive) Egger intercept p-value for IVW proteins
@@ -136,26 +136,20 @@ gates:
     m_y_pval_threshold: 0.05       # Max mediator -> outcome p-value to carry a mediator into NetworkMR
 ```
 
-Old-school `assets/config.yaml` still works fine if you happen to have one lying around — it validates against the same schema, it just won't have a `gates` block, so it quietly falls back to the defaults above.
-
 ---
 
 ## Runs, registry & synthesis
 
-Every call to `dm.local()` / `dm.hpc()` gets its own tidy little folder instead of dumping everything into one shared `results/` and hoping nothing clobbers anything else. A run is stamped `<pheno_id>_<pqtl_dataset>_<date>_<git_sha7>` and lives at:
+Every call to `dm.local()` / `dm.hpc()` gets its own stamped directory `<pheno_id>_<pqtl_dataset>_<date>_<git_sha7>` and lives at:
 
 ```
 runs/AD_ukb_ppp_20260811_149fc55/
 ├── results/          # Everything cis-MR, COLOC, SMR and PheWAS wrote for this run
 ├── manifest.json     # What ran, when, against which commit
-└── params.lock.yaml  # A frozen copy of the params file used, so you can always answer "what config made this?"
+└── params.lock.yaml  # A frozen copy of the params file used
 ```
 
-`runs/registry.json` keeps a `{pheno_id}__{pqtl_dataset} -> {latest, history}` map, and — this is the important bit — it's only updated once every single step of a run has actually succeeded. So `registry["AD__ukb_ppp"]["latest"]` can never point you at a half-finished run; the dashboard trusts it blindly for exactly that reason.
-
-Preprocessing that's shared across every run for a given phenotype (QC'd GWAS, mediator QC) doesn't get needlessly re-run or re-copied per pQTL dataset — it sits once in `dat/derived/<pheno_id>/` and every run for that phenotype just reads it.
-
-Once you've run more than one pQTL dataset for the same phenotype, `synthesis/<pheno_id>/` is where the cross-dataset target roll-up belongs (e.g. `all_datasets_mined_targets.tsv`) — the one place that legitimately needs to look across `ukb_ppp`, `decode`, `wu_csf` and `wingo_brain` at once rather than living inside any single run.
+`runs/registry.json` keeps a `{pheno_id}__{pqtl_dataset} -> {latest, history}` map, and it's only updated once every single step of a run has actually succeeded. So `registry["AD__ukb_ppp"]["latest"]` can never point you at a half-finished run; the dashboard trusts it blindly for exactly that reason. Preprocessing that's shared across every run for a given phenotype (QC'd GWAS, mediator QC) doesn't get needlessly re-run or re-copied per pQTL dataset as it sits once in `dat/derived/<pheno_id>/` and every run for that phenotype just reads it. Once you've run more than one pQTL dataset for the same phenotype, `synthesis/<pheno_id>/` is where the cross-dataset target roll-up belongs (e.g. `all_datasets_mined_targets.tsv`).
 
 ---
 
@@ -174,15 +168,13 @@ dm.hpc(config="params/AD.ukb_ppp.yaml")
 dm.results(config="params/AD.ukb_ppp.yaml")
 ```
 
-There's no default `config` any more — with one params file per `(pheno_id, pqtl_dataset)` pair, there's no longer a single "correct" file to fall back to, so you have to say which one you mean.
-
 See [`notebooks/00_drugmr.ipynb`](notebooks/00_drugmr.ipynb) for a worked example.
 
 ---
 
 ## Dashboard
 
-`dm.results()` launches a Streamlit dashboard (`dashboard/mr_app.py`) with a pQTL dataset selector, a run-history picker (courtesy of `runs/registry.json` — no more guessing which `results/` folder is the "real" one), and sidebar filters (outcome, FDR/Q/PP.H4 thresholds, protein search), shared across:
+`dm.results()` launches a Streamlit dashboard (`dashboard/mr_app.py`) with a pQTL dataset selector, a run-history picker (`runs/registry.json`), and sidebar filters (outcome, FDR/Q/PP.H4 thresholds, protein search), shared across:
 
 | Page | Contents |
 | --- | --- |
