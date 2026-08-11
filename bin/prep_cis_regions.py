@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 import polars as pl
-import os 
+import os
 import argparse
 from pathlib import Path
+from drugmr import paths
 
 # grab .parquet files from pQTLs
 # add fixed N based on either sample size (either deCODE, UKB-PPP or WU-CSF)
@@ -25,7 +26,7 @@ wingo_brain_n = 1013
 # * colnames (pQTL and GWAS)
 
 def define_loci_from_cis_regions(pqtl_dataset: str, pheno_id: str, pqtl_dir: str):
-    gwas = pl.read_csv(f"./results/QC/{pheno_id}/{pheno_id}.tsv", separator="\t")
+    gwas = pl.read_csv(paths.qc_out(pheno_id), separator="\t")
     pqtl_dir = Path(pqtl_dir)
     pqtl_dataset = pqtl_dataset.lower()
     for file in pqtl_dir.glob("*.parquet"):

@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-import polars as pl 
+import polars as pl
 import argparse
-import os 
+import os
 from pathlib import Path
+from drugmr import paths
 
 # TO DO'S
 # Coloc outdir for pqtl dataset X
@@ -11,9 +12,8 @@ from pathlib import Path
 # map Ps - Betas - A1 - A2
 # slap onto results/info 
 
-def compile_top_cis_hits(pheno_id: str, pqtl_dataset: str):
-    coloc_res = f"./results/coloc/{pqtl_dataset}/{pqtl_dataset}_{pheno_id}_all_coloc.tsv"
-    coloc_res = pl.read_csv(coloc_res, separator="\t")
+def compile_top_cis_hits(pheno_id: str, pqtl_dataset: str, local_results_dir: str = "results"):
+    coloc_res = pl.read_csv(paths.coloc_out(pqtl_dataset, pheno_id, local_results_dir), separator="\t")
     if "protein_id" in coloc_res.columns:
         coloc_res = coloc_res.rename({"protein_id": "protein"})
     top_hits = []
@@ -82,9 +82,8 @@ def compile_top_cis_hits(pheno_id: str, pqtl_dataset: str):
         })
 
     top_hits = pl.DataFrame(top_hits)
-    out_dir = Path(f"./results/target_stats/{pqtl_dataset}/{pheno_id}")
-    out_dir.mkdir(parents=True, exist_ok=True)
-    output = out_dir / f"{pqtl_dataset}_{pheno_id}_top_cis_hits.tsv"
+    output = paths.target_stats_out(pqtl_dataset, pheno_id, local_results_dir)
+    output.parent.mkdir(parents=True, exist_ok=True)
     top_hits.write_csv(output, separator="\t")
     return top_hits
 
@@ -92,10 +91,12 @@ def main():
     p = argparse.ArgumentParser()
     p.add_argument("--pheno_id", required=True)
     p.add_argument("--pqtl_dataset", required=True)
+    p.add_argument("--local_results_dir", default="results")
     args = p.parse_args()
     compile_top_cis_hits(
         pheno_id=args.pheno_id,
-        pqtl_dataset=args.pqtl_dataset
+        pqtl_dataset=args.pqtl_dataset,
+        local_results_dir=args.local_results_dir
     )
 
 if __name__ == "__main__":

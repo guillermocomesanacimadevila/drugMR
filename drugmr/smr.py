@@ -3,6 +3,8 @@ import subprocess
 from pathlib import Path
 import os
 
+from drugmr import paths
+
 
 def SMR(
     pheno_id: str,
@@ -22,10 +24,9 @@ def SMR(
     # eqtl_dataset can be stuff like SingleBrain/Ast
     # use full path for directory but only cell name for output prefix
     eqtl_dataset = Path(eqtl_dataset)
-    eqtl_name = eqtl_dataset.name
-    out_dir = Path(f"./results/SMR/{eqtl_dataset}/{pheno_id}")
+    out_dir = paths.smr_raw_dir(eqtl_dataset, pheno_id)
     os.makedirs(out_dir, exist_ok=True)
-    out_file = out_dir / f"{pheno_id}_{eqtl_name}"
+    out_file = paths.smr_raw_prefix(eqtl_dataset, pheno_id)
     print(f"[TRACKING] Running SMR on {pheno_id} using {eqtl_dataset}")
 
     cmd_smr = f"""

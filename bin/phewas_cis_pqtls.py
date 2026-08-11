@@ -6,6 +6,7 @@ from pathlib import Path
 import polars as pl 
 import pandas as pd 
 from drugmr import PheWAS
+from drugmr import paths
 # from statsmodels.stats.multitest import fdrcorrection
 from drugmr.twosamplemr import PyTwoSampleMR
 
@@ -62,10 +63,10 @@ def clean_phewas_hit(snp: str, rsid: str):
 
 
 # this script runs AFTER cis-MR + pairwise pQTL-GWAS COLOC
-def phewas_for_compelling_targets(pheno_id: str, pqtl_dataset: str):
+def phewas_for_compelling_targets(pheno_id: str, pqtl_dataset: str, local_results_dir: str = "results"):
     # COLOC defines the targets only
     # each protein_id == its own protein assay / aptamer
-    coloc_file = f"./results/coloc/{pqtl_dataset}/{pqtl_dataset}_{pheno_id}_all_coloc.tsv"
+    coloc_file = paths.coloc_out(pqtl_dataset, pheno_id, local_results_dir)
     df_coloc = pl.read_csv(coloc_file, separator="\t")
 
     if "protein_id" in df_coloc.columns:
@@ -77,7 +78,7 @@ def phewas_for_compelling_targets(pheno_id: str, pqtl_dataset: str):
         )
     compelling_targets = (df_coloc.select(pl.col("protein").cast(pl.Utf8)).drop_nulls().unique(maintain_order=True))
     # exact harmonised instruments which were used in the original cis-MR
-    instruments_file = (f"./results/cis-MR/instruments/{pqtl_dataset}_{pheno_id}_all_MR_instruments.tsv")
+    instruments_file = paths.mr_instruments_out(pqtl_dataset, pheno_id, local_results_dir)
     df_instruments = pl.read_csv(instruments_file, separator="\t")
     required_instrument_cols = [
         "protein",
@@ -129,8 +130,8 @@ def phewas_for_compelling_targets(pheno_id: str, pqtl_dataset: str):
     # temp_dir
     temp_dir = f"./work/PheWAS/{pqtl_dataset}_{pheno_id}"
     os.makedirs(temp_dir, exist_ok=True)
-    out_dir = f"./results/PheWAS/{pqtl_dataset}/{pheno_id}"
-    os.makedirs(out_dir, exist_ok=True)
+    phewas_out_file = paths.phewas_out(pqtl_dataset, pheno_id, local_results_dir)
+    os.makedirs(phewas_out_file.parent, exist_ok=True)
     print(f"[TRACKING] Number of compelling COLOC targets for PheWAS: {compelling_targets.height}...")
     print(f"[TRACKING] Number of retained cis-MR instrument rows: {df_instruments.height}...")
     results = []
@@ -643,13 +644,7 @@ def phewas_for_compelling_targets(pheno_id: str, pqtl_dataset: str):
 
     df_results = pl.DataFrame(results, infer_schema_length=None)
     df_results = df_results.sort(["protein", "p_mr"])
-    df_results.write_csv(
-        os.path.join(
-            out_dir,
-            f"{pqtl_dataset}_{pheno_id}_PheWAS.tsv"
-        ),
-        separator="\t"
-    )
+    df_results.write_csv(phewas_out_file, separator="\t")
     print(f"[TRACKING] PheWAS completed: {df_results.height} associations saved...")
 
 
@@ -658,10 +653,12 @@ def main():
     p = argparse.ArgumentParser()
     p.add_argument("--pheno_id", required=True)
     p.add_argument("--pqtl_dataset", required=True)
+    p.add_argument("--local_results_dir", default="results")
     args = p.parse_args()
     phewas_for_compelling_targets(
         pheno_id=args.pheno_id,
-        pqtl_dataset=args.pqtl_dataset
+        pqtl_dataset=args.pqtl_dataset,
+        local_results_dir=args.local_results_dir
     )
 
 

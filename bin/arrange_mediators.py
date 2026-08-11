@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 import argparse
-import polars as pl 
+import polars as pl
 import subprocess
 from pathlib import Path
 import os
+from drugmr import paths
 
 # TO DO'S
 # ** INTEGRATE assort_networkMR.py onto drugMR/hpc.py and drugMR/local.py and test it
@@ -28,10 +29,10 @@ def qc_cmd(row, maf: float, remove_mhc: bool, remove_apoe: bool, overwrite: bool
     # target_build
     # n_total - although the qc_gwas is cc focused so we need to do it like a way that when it calcs neff - neff == n_total
 
-    out_dir = "./results/QC/mediators"
+    out_dir = str(paths.qc_mediator_dir())
     os.makedirs(out_dir, exist_ok=True)
     mediator_id = row["pheno_id"]
-    out_path = Path(out_dir) / f"{mediator_id}.tsv"
+    out_path = paths.qc_mediator_out(mediator_id)
 
     if out_path.exists() and not overwrite:
         print(f"[TRACKING] {mediator_id} already QCed, skipping!")
@@ -74,28 +75,6 @@ def qc_cmd(row, maf: float, remove_mhc: bool, remove_apoe: bool, overwrite: bool
     subprocess.run(cmd, check=True)
     print(f"[TRACKING] Saved mediator GWAS to: {out_path}")
 
-def organise_mediators():
-    qc_dir = Path("./results/QC/mediators")
-    nested_qc_dir = qc_dir / "QC"
-
-    if not nested_qc_dir.exists():
-        return
-
-    for pheno_dir in nested_qc_dir.iterdir():
-        if not pheno_dir.is_dir():
-            continue
-
-        mediator_id = pheno_dir.name
-        src = pheno_dir / f"{mediator_id}.tsv"
-        dst = qc_dir / f"{mediator_id}.tsv"
-
-        if src.exists():
-            src.rename(dst)
-            print(f"[TRACKING] Moved mediator GWAS to: {dst}")
-
-        pheno_dir.rmdir()
-    nested_qc_dir.rmdir()
-
 def preprocess_mediators(mediators: bool, mediator_manifest: str, maf: float, remove_mhc: bool, remove_apoe: bool, overwrite: bool):
     if mediators:
         df = pl.read_csv(mediator_manifest)
@@ -108,7 +87,6 @@ def preprocess_mediators(mediators: bool, mediator_manifest: str, maf: float, re
                 remove_apoe=remove_apoe,
                 overwrite=overwrite
             )
-            organise_mediators()
     else:
         print("[TRACKING] No mediators specificed, running drugMR without them then!")
 

@@ -137,8 +137,10 @@ def perform_qc(
 
     path = f"/work/{sumstats}"
     bases = ["A", "T", "C", "G"]
-    out_dir = Path(out_dir)
-    qc_dir = out_dir / "QC" / pheno_id
+    # --out-dir is the exact directory {pheno_id}.tsv is written into - the
+    # caller (drugmr/local.py, drugmr/hpc.py, bin/arrange_mediators.py) is
+    # responsible for pointing it at the right place (see drugmr/paths.py)
+    qc_dir = Path(out_dir)
     qc_dir.mkdir(parents=True, exist_ok=True)
     df = pl.read_csv(path, separator="\t", comment_prefix="#", schema_overrides={chr_col: pl.Utf8})
     print(df.shape)

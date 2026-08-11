@@ -5,6 +5,7 @@ from pathlib import Path
 import polars as pl
 import requests
 from drugmr import PheWAS
+from drugmr import paths
 from drugmr.twosamplemr import PyTwoSampleMR
 
 n_phenos = 1419
@@ -73,8 +74,8 @@ def resolve_ukbb_variant(chromosome: str, position: int, A1: str, A2: str, rsid:
     return None, None, None
 
 
-def phewas_mr_on_ukbb(pqtl_dataset: str, pheno_id: str):
-    coloc_file = f"./results/coloc/{pqtl_dataset}/{pqtl_dataset}_{pheno_id}_all_coloc.tsv"
+def phewas_mr_on_ukbb(pqtl_dataset: str, pheno_id: str, local_results_dir: str = "results"):
+    coloc_file = paths.coloc_out(pqtl_dataset, pheno_id, local_results_dir)
     df_coloc = pl.read_csv(coloc_file, separator="\t")
     if "protein_id" in df_coloc.columns:
         df_coloc = df_coloc.rename({"protein_id": "protein"})
@@ -86,7 +87,7 @@ def phewas_mr_on_ukbb(pqtl_dataset: str, pheno_id: str):
     else:
         print(f"[TRACKING] No PP.H4 column found in {coloc_file}; using every protein in the COLOC file...")
     compelling_targets = df_coloc.select(pl.col("protein").cast(pl.Utf8)).drop_nulls().unique(maintain_order=True)
-    instruments_file = f"./results/cis-MR/instruments/{pqtl_dataset}_{pheno_id}_all_MR_instruments.tsv"
+    instruments_file = paths.mr_instruments_out(pqtl_dataset, pheno_id, local_results_dir)
     df_instruments = pl.read_csv(instruments_file, separator="\t")
     required_instrument_cols = [
         "protein", "pqtl_dataset", "outcome_trait", "SNP",
@@ -125,8 +126,8 @@ def phewas_mr_on_ukbb(pqtl_dataset: str, pheno_id: str):
     )
     temp_dir = f"./work/PheWAS_UKBB/{pqtl_dataset}_{pheno_id}"
     os.makedirs(temp_dir, exist_ok=True)
-    out_dir = f"./results/PheWAS_UKBB/{pqtl_dataset}/{pheno_id}"
-    os.makedirs(out_dir, exist_ok=True)
+    phewas_ukbb_out_file = paths.phewas_ukbb_out(pqtl_dataset, pheno_id, local_results_dir)
+    os.makedirs(phewas_ukbb_out_file.parent, exist_ok=True)
     print(f"[TRACKING] Number of compelling COLOC targets for PheWAS: {compelling_targets.height}...")
     print(f"[TRACKING] Number of retained cis-MR instrument rows: {df_instruments.height}...")
     results = []
@@ -446,7 +447,7 @@ def phewas_mr_on_ukbb(pqtl_dataset: str, pheno_id: str):
         print("[TRACKING] No PheWAS associations were generated...")
         return
     df_results = pl.DataFrame(results, infer_schema_length=None).sort(["protein", "p_mr"])
-    output_file = os.path.join(out_dir, f"{pqtl_dataset}_{pheno_id}_PheWAS.tsv")
+    output_file = phewas_ukbb_out_file
     df_results.write_csv(output_file, separator="\t")
     print(f"[TRACKING] PheWAS completed: {df_results.height} associations saved to {output_file}...")
 
@@ -455,8 +456,9 @@ def main():
     p = argparse.ArgumentParser()
     p.add_argument("--pheno_id", required=True)
     p.add_argument("--pqtl_dataset", required=True)
+    p.add_argument("--local_results_dir", default="results")
     args = p.parse_args()
-    phewas_mr_on_ukbb(pheno_id=args.pheno_id, pqtl_dataset=args.pqtl_dataset)
+    phewas_mr_on_ukbb(pheno_id=args.pheno_id, pqtl_dataset=args.pqtl_dataset, local_results_dir=args.local_results_dir)
 
 
 if __name__ == "__main__":

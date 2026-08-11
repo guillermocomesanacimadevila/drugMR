@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 import subprocess
+from datetime import datetime
 from pathlib import Path
 from drugmr.config import Config
+from drugmr import paths
+from drugmr import registry
 
 # * Notes for myself before going to Greece
 # the git clone thingy
@@ -133,6 +136,7 @@ if [ -d "$HOME/drugMR" ]; then
     git clean -fd \
       -e dat/ \
       -e results/ \
+      -e runs/ \
       -e work/ \
       -e assets/config.yaml
 else
@@ -319,6 +323,11 @@ def run_network_mr(
     ref_bfile: str,
     pqtl_dataset: str,
     pqtl_dir: str,
+    local_results_dir: str = "results",
+    ivw_fdr_q: float = 0.05,
+    egger_intercept_pval_min: float = 0,
+    cochran_q_pval: float = 0.05,
+    m_y_pval_threshold: float = 0.05,
 ):
     remote, sif = get_remote_paths(falcon_user)
 
@@ -337,7 +346,12 @@ apptainer exec --bind "{remote}:/work" \\
     --pqtl_dir {pqtl_dir} \\
     --run_genomewide_mr \\
     --run_cis_mr_X_M \\
-    --run_network_mr
+    --run_network_mr \\
+    --local_results_dir {local_results_dir} \\
+    --ivw_fdr_q {ivw_fdr_q} \\
+    --egger_intercept_pval_min {egger_intercept_pval_min} \\
+    --cochran_q_pval {cochran_q_pval} \\
+    --m_y_pval_threshold {m_y_pval_threshold}
 """, falcon_user)
 
 
@@ -347,7 +361,13 @@ def run_coloc_without_mediators(
     pqtl_dataset: str,
     pheno_id: str,
     n_cases: int,
-    n_controls: int
+    n_controls: int,
+    local_results_dir: str = "results",
+    wald_fdr_q: float = 0.05,
+    ivw_fdr_q: float = 0.05,
+    cochran_q_pval: float = 0.05,
+    egger_intercept_pval_min: float = 0,
+    min_instruments_for_ivw: int = 3,
 ):
     remote, sif = get_remote_paths(falcon_user)
 
@@ -360,11 +380,16 @@ apptainer exec --bind "{remote}:/work" \\
   "{sif}" \\
   bash -c "cd /work && python bin/coloc_targets.py \\
     --pqtl_dataset {pqtl_dataset} \\
-    --local_results_dir results/cis-MR \\
+    --local_results_dir {local_results_dir} \\
     --pqtl_dir dat/cis_regions/{pqtl_dataset} \\
     --pheno_id {pheno_id} \\
     --n_cases {n_cases} \\
-    --n_controls {n_controls}"
+    --n_controls {n_controls} \\
+    --wald_fdr_q {wald_fdr_q} \\
+    --ivw_fdr_q {ivw_fdr_q} \\
+    --cochran_q_pval {cochran_q_pval} \\
+    --egger_intercept_pval_min {egger_intercept_pval_min} \\
+    --min_instruments_for_ivw {min_instruments_for_ivw}"
 """, falcon_user)
 
 
@@ -375,7 +400,10 @@ def run_coloc_with_mediators(
     n_cases: int,
     n_controls: int,
     mediators: bool = False,
-    mediator_manifest: str = ""
+    mediator_manifest: str = "",
+    local_results_dir: str = "results",
+    ivw_fdr_q: float = 0.05,
+    pp4_threshold: float = 0.7,
 ):
 
     remote, sif = get_remote_paths(falcon_user)
@@ -389,13 +417,15 @@ apptainer exec --bind "{remote}:/work" \\
   "{sif}" \\
   bash -c "cd /work && python bin/coloc_targets.py \\
     --pqtl_dataset {pqtl_dataset} \\
-    --local_results_dir results/cis-MR \\
+    --local_results_dir {local_results_dir} \\
     --pqtl_dir dat/cis_regions/{pqtl_dataset} \\
     --pheno_id {pheno_id} \\
     --n_cases {n_cases} \\
     --n_controls {n_controls} \\
     --mediators \\
-    --mediator_manifest {mediator_manifest}"
+    --mediator_manifest {mediator_manifest} \\
+    --ivw_fdr_q {ivw_fdr_q} \\
+    --pp4_threshold {pp4_threshold}"
 """, falcon_user)
 
 # RUN SMR (bulk or single-cell, depending on eqtl_mode)
@@ -408,7 +438,8 @@ def run_smr_step(
     pheno_id: str,
     sumstats: str,
     ref_bfile: str,
-    maf: float
+    maf: float,
+    local_results_dir: str = "results"
 ):
     remote, sif = get_remote_paths(falcon_user)
 
@@ -426,7 +457,8 @@ apptainer exec --bind "{remote}:/work" \\
     --eqtl_dataset {eqtl_dataset} \\
     --eqtl_mode {eqtl_mode} \\
     --ref_bfile {ref_bfile} \\
-    --maf {maf}"
+    --maf {maf} \\
+    --local_results_dir {local_results_dir}"
 """, falcon_user)
 
 
@@ -437,7 +469,8 @@ def run_hyprcoloc_step(
     falcon_user: str,
     pqtl_dataset: str,
     pheno_id: str,
-    eqtl_dataset: str
+    eqtl_dataset: str,
+    local_results_dir: str = "results"
 ):
     remote, sif = get_remote_paths(falcon_user)
 
@@ -451,7 +484,8 @@ apptainer exec --bind "{remote}:/work" \\
   bash -c "cd /work && python bin/hyprcoloc_targets.py \\
     --pqtl_dataset {pqtl_dataset} \\
     --pheno_id {pheno_id} \\
-    --eqtl_dataset {eqtl_dataset}"
+    --eqtl_dataset {eqtl_dataset} \\
+    --local_results_dir {local_results_dir}"
 """, falcon_user)
 
 
@@ -460,6 +494,7 @@ def compile_top_hits(
     falcon_user: str,
     pheno_id: str,
     pqtl_dataset: str,
+    local_results_dir: str = "results"
 ):
     remote, sif = get_remote_paths(falcon_user)
 
@@ -472,7 +507,8 @@ apptainer exec --bind "{remote}:/work" \\
   "{sif}" \\
   bash -c "cd /work && python bin/compile_cis_hit_info.py \\
     --pheno_id {pheno_id} \\
-    --pqtl_dataset {pqtl_dataset}"
+    --pqtl_dataset {pqtl_dataset} \\
+    --local_results_dir {local_results_dir}"
 """, falcon_user)
 
 # RUN PHEWAS CHECKS FOR SAFETY (LOCALLY) -> API != WORK IN SLURM HPC
@@ -490,20 +526,8 @@ def phewas_safety_finngen(
     if not local_results_dir.is_absolute():
         local_results_dir = project_root / local_results_dir
 
-    top_snp_file = (
-        local_results_dir
-        / "coloc"
-        / pqtl_dataset
-        / f"{pqtl_dataset}_{pheno_id}_all_coloc.tsv"
-    )
-
-    phewas_out = (
-        local_results_dir
-        / "PheWAS"
-        / pqtl_dataset
-        / pheno_id
-        / f"{pqtl_dataset}_{pheno_id}_PheWAS.tsv"
-    )
+    top_snp_file = paths.coloc_out(pqtl_dataset, pheno_id, out_dir=str(local_results_dir))
+    phewas_out = paths.phewas_out(pqtl_dataset, pheno_id, out_dir=str(local_results_dir))
 
     if phewas_out.exists() and phewas_out.stat().st_size > 0 and not overwrite:
         print(f"[TRACKING] FinnGen PheWAS safety analysis already completed: {phewas_out}")
@@ -532,7 +556,8 @@ set -euo pipefail
 cd "{project_root}"
 python bin/phewas_cis_pqtls.py \\
   --pheno_id {pheno_id} \\
-  --pqtl_dataset {pqtl_dataset}
+  --pqtl_dataset {pqtl_dataset} \\
+  --local_results_dir {local_results_dir}
 """
 
     print(f"[TRACKING] FinnGen PheWAS pairwise COLOC input found: {top_snp_file}")
@@ -553,20 +578,8 @@ def phewas_safety_ukbb(
     if not local_results_dir.is_absolute():
         local_results_dir = project_root / local_results_dir
 
-    top_snp_file = (
-        local_results_dir
-        / "coloc"
-        / pqtl_dataset
-        / f"{pqtl_dataset}_{pheno_id}_all_coloc.tsv"
-    )
-
-    phewas_out = (
-        local_results_dir
-        / "PheWAS_UKBB"
-        / pqtl_dataset
-        / pheno_id
-        / f"{pqtl_dataset}_{pheno_id}_PheWAS.tsv"
-    )
+    top_snp_file = paths.coloc_out(pqtl_dataset, pheno_id, out_dir=str(local_results_dir))
+    phewas_out = paths.phewas_ukbb_out(pqtl_dataset, pheno_id, out_dir=str(local_results_dir))
 
     if phewas_out.exists() and phewas_out.stat().st_size > 0 and not overwrite:
         print(f"[TRACKING] UKBB PheWAS safety analysis already completed: {phewas_out}")
@@ -595,7 +608,8 @@ set -euo pipefail
 cd "{project_root}"
 python bin/ukb_phewas.py \\
   --pheno_id {pheno_id} \\
-  --pqtl_dataset {pqtl_dataset}
+  --pqtl_dataset {pqtl_dataset} \\
+  --local_results_dir {local_results_dir}
 """
 
     print(f"[TRACKING] UKBB PheWAS pairwise COLOC input found: {top_snp_file}")
@@ -622,11 +636,12 @@ def load_postgres(
     falcon_user: str,
     pqtl_dataset: str,
     pheno_id: str,
-    db_id: str = "drugmr"
+    db_id: str = "drugmr",
+    local_results_dir: str = "results"
 ):
     remote, sif = get_remote_paths(falcon_user)
-    mr_res = f"results/cis-MR/{pqtl_dataset}_{pheno_id}_all_MR.tsv"
-    coloc_res = f"results/coloc/{pqtl_dataset}/{pqtl_dataset}_{pheno_id}_all_coloc.tsv"
+    mr_res = str(paths.mr_out(pqtl_dataset, pheno_id, local_results_dir))
+    coloc_res = str(paths.coloc_out(pqtl_dataset, pheno_id, local_results_dir))
 
     ssh(f"""
 set -euo pipefail
@@ -659,27 +674,22 @@ def pull_results_local(
     overwrite: bool = True
 ):
     remote, _ = get_remote_paths(falcon_user)
-    remote_mr = f"{remote}/results/cis-MR/{pqtl_dataset}_{pheno_id}_all_MR.tsv"
-    remote_coloc = f"{remote}/results/coloc/{pqtl_dataset}/{pqtl_dataset}_{pheno_id}_all_coloc.tsv"
-    remote_target_stats = f"{remote}/results/target_stats/{pqtl_dataset}/{pheno_id}/{pqtl_dataset}_{pheno_id}_top_cis_hits.tsv"
-    remote_smr = f"{remote}/results/SMR/{pqtl_dataset}_{pheno_id}_final_multi_omics_targets.tsv"
-    remote_hyprcoloc = f"{remote}/results/hyprcoloc/{pqtl_dataset}_{pheno_id}_all_hyprcoloc.tsv"
+    remote_mr = f"{remote}/{paths.mr_out(pqtl_dataset, pheno_id)}"
+    remote_coloc = f"{remote}/{paths.coloc_out(pqtl_dataset, pheno_id)}"
+    remote_target_stats = f"{remote}/{paths.target_stats_out(pqtl_dataset, pheno_id)}"
+    remote_smr = f"{remote}/{paths.smr_final_targets_out(pqtl_dataset, pheno_id)}"
+    remote_hyprcoloc = f"{remote}/{paths.hyprcoloc_out(pqtl_dataset, pheno_id)}"
     local_results_dir = Path(local_results_dir)
-    local_mr_dir = local_results_dir / "cis-MR"
-    local_coloc_dir = local_results_dir / "coloc" / pqtl_dataset
-    local_target_stats_dir = local_results_dir / "target_stats" / pqtl_dataset / pheno_id
-    local_smr_dir = local_results_dir / "SMR"
-    local_hyprcoloc_dir = local_results_dir / "hyprcoloc"
-    local_mr_dir.mkdir(parents=True, exist_ok=True)
-    local_coloc_dir.mkdir(parents=True, exist_ok=True)
-    local_target_stats_dir.mkdir(parents=True, exist_ok=True)
-    local_smr_dir.mkdir(parents=True, exist_ok=True)
-    local_hyprcoloc_dir.mkdir(parents=True, exist_ok=True)
-    local_mr = local_mr_dir / f"{pqtl_dataset}_{pheno_id}_all_MR.tsv"
-    local_coloc = local_coloc_dir / f"{pqtl_dataset}_{pheno_id}_all_coloc.tsv"
-    local_target_stats = local_target_stats_dir / f"{pqtl_dataset}_{pheno_id}_top_cis_hits.tsv"
-    local_smr = local_smr_dir / f"{pqtl_dataset}_{pheno_id}_final_multi_omics_targets.tsv"
-    local_hyprcoloc = local_hyprcoloc_dir / f"{pqtl_dataset}_{pheno_id}_all_hyprcoloc.tsv"
+    local_mr = paths.mr_out(pqtl_dataset, pheno_id, out_dir=str(local_results_dir))
+    local_coloc = paths.coloc_out(pqtl_dataset, pheno_id, out_dir=str(local_results_dir))
+    local_target_stats = paths.target_stats_out(pqtl_dataset, pheno_id, out_dir=str(local_results_dir))
+    local_smr = paths.smr_final_targets_out(pqtl_dataset, pheno_id, out_dir=str(local_results_dir))
+    local_hyprcoloc = paths.hyprcoloc_out(pqtl_dataset, pheno_id, out_dir=str(local_results_dir))
+    local_mr.parent.mkdir(parents=True, exist_ok=True)
+    local_coloc.parent.mkdir(parents=True, exist_ok=True)
+    local_target_stats.parent.mkdir(parents=True, exist_ok=True)
+    local_smr.parent.mkdir(parents=True, exist_ok=True)
+    local_hyprcoloc.parent.mkdir(parents=True, exist_ok=True)
     for remote_file, local_file in [
         (remote_mr, local_mr),
         (remote_coloc, local_coloc),
@@ -704,7 +714,7 @@ def pull_results_local(
     else:
         remote_smr_check = check_remote_output(
             falcon_user=falcon_user,
-            path=f"results/SMR/{pqtl_dataset}_{pheno_id}_final_multi_omics_targets.tsv",
+            path=str(paths.smr_final_targets_out(pqtl_dataset, pheno_id)),
             step="SMR",
             overwrite=False
         )
@@ -724,7 +734,7 @@ def pull_results_local(
     else:
         remote_hyprcoloc_check = check_remote_output(
             falcon_user=falcon_user,
-            path=f"results/hyprcoloc/{pqtl_dataset}_{pheno_id}_all_hyprcoloc.tsv",
+            path=str(paths.hyprcoloc_out(pqtl_dataset, pheno_id)),
             step="HyPrColoc",
             overwrite=False
         )
@@ -760,14 +770,15 @@ python -m streamlit run dashboard/mr_app.py -- \\
 def check_outputs(
     falcon_user: str,
     pqtl_dataset: str,
-    pheno_id: str
+    pheno_id: str,
+    local_results_dir: str = "results"
 ):
     remote, _ = get_remote_paths(falcon_user)
-    mr_res = f"results/cis-MR/{pqtl_dataset}_{pheno_id}_all_MR.tsv"
-    coloc_res = f"results/coloc/{pqtl_dataset}/{pqtl_dataset}_{pheno_id}_all_coloc.tsv"
-    target_stats_res = f"results/target_stats/{pqtl_dataset}/{pheno_id}/{pqtl_dataset}_{pheno_id}_top_cis_hits.tsv"
-    smr_res = f"results/SMR/{pqtl_dataset}_{pheno_id}_final_multi_omics_targets.tsv"
-    hyprcoloc_res = f"results/hyprcoloc/{pqtl_dataset}_{pheno_id}_all_hyprcoloc.tsv"
+    mr_res = str(paths.mr_out(pqtl_dataset, pheno_id, local_results_dir))
+    coloc_res = str(paths.coloc_out(pqtl_dataset, pheno_id, local_results_dir))
+    target_stats_res = str(paths.target_stats_out(pqtl_dataset, pheno_id, local_results_dir))
+    smr_res = str(paths.smr_final_targets_out(pqtl_dataset, pheno_id, local_results_dir))
+    hyprcoloc_res = str(paths.hyprcoloc_out(pqtl_dataset, pheno_id, local_results_dir))
 
     ssh(f"""
 set -euo pipefail
@@ -816,7 +827,10 @@ fi
 
 
 # Function to run all the HPC gist
-def hpc(config: str = "assets/config.yaml"):
+def hpc(config: str):
+    # config has no default on purpose - there's no single correct params file
+    # anymore now that each (pheno_id, pqtl_dataset) pair has its own under
+    # params/ (e.g. params/AD.wingo_brain.yaml) - pass one explicitly.
     cfg = Config(config)
     falcon_user = cfg.falcon_user
     pheno_id = cfg.pheno_id
@@ -837,7 +851,6 @@ def hpc(config: str = "assets/config.yaml"):
     af_col = cfg.af_col
     genome_build = cfg.genome_build
     target_build = cfg.target_build
-    out_dir = getattr(cfg, "out_dir", "results")
     maf = getattr(cfg, "maf", 0.01)
     mediators = getattr(cfg, "mediators", False)
     mediator_manifest = getattr(cfg, "mediator_manifest", "")
@@ -845,32 +858,57 @@ def hpc(config: str = "assets/config.yaml"):
     info_col = getattr(cfg, "info_col", None)
     remove_mhc = getattr(cfg, "remove_mhc", True)
     remove_apoe = getattr(cfg, "remove_apoe", False)
-    local_results_dir = getattr(cfg, "local_results_dir", "results")
     overwrite = getattr(cfg, "overwrite", False)
     run_smr = getattr(cfg, "run_smr", True)
     bulk_eqtl_datasets = getattr(cfg, "bulk_eqtl_datasets", [])
     sc_eqtl_dataset = getattr(cfg, "sc_eqtl_dataset", "")
 
-    # define all outputs first so pipeline knows what has already been ran
-    qc_out = f"{out_dir}/QC/{pheno_id}/{pheno_id}.tsv"
-    mr_out = f"results/cis-MR/{pqtl_dataset}_{pheno_id}_all_MR.tsv"
-    coloc_out = f"results/coloc/{pqtl_dataset}/{pqtl_dataset}_{pheno_id}_all_coloc.tsv"
-
-    # change this where NetworkMR saves its final compiled output
-    network_mr_out = f"results/network-MR/{pqtl_dataset}/{pqtl_dataset}_{pheno_id}_network_MR.tsv"
-    target_stats_out = (f"results/target_stats/{pqtl_dataset}/{pheno_id}/{pqtl_dataset}_{pheno_id}_top_cis_hits.tsv")
-
-    # SMR (bulk and/or single-cell) - promising target output per eQTL mode
-    # bulk_eqtl_datasets is a list (eQTLGen / MetaBrain / GTEx_v10 etc. are pre-computed
-    # separately under results/SMR/bulk/{dataset}/) so its per-dataset outputs are built
-    # inside the SMR step below rather than up front here
-    smr_sc_out = f"results/SMR/sc/{sc_eqtl_dataset}/{pheno_id}/{pqtl_dataset}_{pheno_id}_promising_targets_SMR.tsv"
+    # cis-MR / coloc gate thresholds - see params/schema.json's gates block;
+    # defaults match what bin/coloc_targets.py used to hardcode
+    wald_fdr_q = cfg.gate("cis_mr", "wald_fdr_q", 0.05)
+    ivw_fdr_q = cfg.gate("cis_mr", "ivw_fdr_q", 0.05)
+    cochran_q_pval = cfg.gate("cis_mr", "cochran_q_pval", 0.05)
+    egger_intercept_pval_min = cfg.gate("cis_mr", "egger_intercept_pval_min", 0)
+    min_instruments_for_ivw = cfg.gate("cis_mr", "min_instruments_for_ivw", 3)
+    pp4_threshold = cfg.gate("coloc", "pp4_threshold", 0.7)
+    m_y_pval_threshold = cfg.gate("network_mr", "m_y_pval_threshold", 0.05)
 
     print("[TRACKING] Preparing Falcon repo...")
     clone_repo(falcon_user)
 
     print("[TRACKING] Preparing Falcon env...")
     container_checks(falcon_user)
+
+    # run_id uses the REMOTE repo's HEAD (post clone_repo() reset), since that's the
+    # code version that actually executes the pipeline - not this local machine's HEAD.
+    # Deterministic for a given (pheno_id, pqtl_dataset, day, remote commit): rerunning
+    # today against the same remote commit reuses the same runs/<run_id>/ dir (and its
+    # check_remote_output() skip behavior) both on Falcon and in the pulled-down local copy.
+    remote, _ = get_remote_paths(falcon_user)
+    git_sha_result = ssh(f'cd "{remote}" && git rev-parse --short=7 HEAD', falcon_user)
+    git_sha7 = git_sha_result.stdout.strip()
+    date_str = datetime.now().strftime("%Y%m%d")
+    run_id = paths.make_run_id(pheno_id, pqtl_dataset, date_str, git_sha7)
+    out_dir = str(paths.run_results_dir(run_id))
+    local_results_dir = out_dir
+    print(f"[TRACKING] run_id: {run_id}")
+
+    # define all outputs first so pipeline knows what has already been ran
+    qc_out = str(paths.qc_out(pheno_id))
+    mr_out = str(paths.mr_out(pqtl_dataset, pheno_id, out_dir))
+    coloc_out = str(paths.coloc_out(pqtl_dataset, pheno_id, out_dir))
+
+    # change this where NetworkMR saves its final compiled output
+    # NetworkMR is gated directly on its actual final output (the mediation
+    # estimates file coloc_with_mediators() also reads) - no separate gate literal
+    network_mr_out = str(paths.network_mr_mediation_estimates_out(pqtl_dataset, pheno_id, out_dir))
+    target_stats_out = str(paths.target_stats_out(pqtl_dataset, pheno_id, out_dir))
+
+    # SMR (bulk and/or single-cell) - promising target output per eQTL mode
+    # bulk_eqtl_datasets is a list (eQTLGen / MetaBrain / GTEx_v10 etc. are pre-computed
+    # separately under results/SMR/bulk/{dataset}/) so its per-dataset outputs are built
+    # inside the SMR step below rather than up front here
+    smr_sc_out = str(paths.smr_sc_out(pqtl_dataset, pheno_id, sc_eqtl_dataset, out_dir))
 
     if not check_remote_output(
         falcon_user=falcon_user,
@@ -883,7 +921,7 @@ def hpc(config: str = "assets/config.yaml"):
             falcon_user=falcon_user,
             pheno_id=pheno_id,
             sumstats=sumstats,
-            out_dir=out_dir,
+            out_dir=str(paths.qc_out(pheno_id).parent),
             snp_col=snp_col,
             a1_col=a1_col,
             a2_col=a2_col,
@@ -982,6 +1020,11 @@ def hpc(config: str = "assets/config.yaml"):
                 ref_bfile=ref_bfile,
                 pqtl_dataset=pqtl_dataset,
                 pqtl_dir=f"dat/cis_regions/{pqtl_dataset}",
+                local_results_dir=out_dir,
+                ivw_fdr_q=ivw_fdr_q,
+                egger_intercept_pval_min=egger_intercept_pval_min,
+                cochran_q_pval=cochran_q_pval,
+                m_y_pval_threshold=m_y_pval_threshold,
             )
     else:
         print("[TRACKING] No mediators specified, skipping NetworkMR.")
@@ -1002,7 +1045,10 @@ def hpc(config: str = "assets/config.yaml"):
                 n_cases=n_cases,
                 n_controls=n_controls,
                 mediators=mediators,
-                mediator_manifest=mediator_manifest    
+                mediator_manifest=mediator_manifest,
+                local_results_dir=out_dir,
+                ivw_fdr_q=ivw_fdr_q,
+                pp4_threshold=pp4_threshold
             )
         else:
             run_coloc_without_mediators(
@@ -1011,6 +1057,12 @@ def hpc(config: str = "assets/config.yaml"):
                 pheno_id=pheno_id,
                 n_cases=n_cases,
                 n_controls=n_controls,
+                local_results_dir=out_dir,
+                wald_fdr_q=wald_fdr_q,
+                ivw_fdr_q=ivw_fdr_q,
+                cochran_q_pval=cochran_q_pval,
+                egger_intercept_pval_min=egger_intercept_pval_min,
+                min_instruments_for_ivw=min_instruments_for_ivw
             )
 
     require_remote_output(
@@ -1032,6 +1084,7 @@ def hpc(config: str = "assets/config.yaml"):
             falcon_user=falcon_user,
             pheno_id=pheno_id,
             pqtl_dataset=pqtl_dataset,
+            local_results_dir=out_dir
         )
 
     require_remote_output(
@@ -1049,7 +1102,7 @@ def hpc(config: str = "assets/config.yaml"):
             # bulk eQTL SMR (eQTLGen / MetaBrain / GTEx_v10) is pre-computed elsewhere -
             # bin/sort_smr.py ingests results/SMR/bulk/{dataset}/ rather than re-running SMR
             for bulk_dataset in bulk_eqtl_datasets:
-                smr_bulk_out = f"results/SMR/bulk/{bulk_dataset}/{pheno_id}/{pqtl_dataset}_{pheno_id}_promising_targets_SMR.tsv"
+                smr_bulk_out = str(paths.smr_bulk_out(pqtl_dataset, pheno_id, bulk_dataset, out_dir))
 
                 if not check_remote_output(
                     falcon_user=falcon_user,
@@ -1067,6 +1120,7 @@ def hpc(config: str = "assets/config.yaml"):
                         sumstats=qc_out,
                         ref_bfile=ref_bfile,
                         maf=maf,
+                        local_results_dir=out_dir
                     )
         else:
             print("[TRACKING] No bulk_eqtl_datasets specified, skipping bulk SMR.")
@@ -1088,6 +1142,7 @@ def hpc(config: str = "assets/config.yaml"):
                     sumstats=qc_out,
                     ref_bfile=ref_bfile,
                     maf=maf,
+                    local_results_dir=out_dir
                 )
         else:
             print("[TRACKING] No sc_eqtl_dataset specified, skipping single-cell SMR.")
@@ -1101,7 +1156,7 @@ def hpc(config: str = "assets/config.yaml"):
 
     if run_smr and hyprcoloc_eqtl_datasets:
         for hc_dataset in hyprcoloc_eqtl_datasets:
-            hc_dataset_out = f"results/hyprcoloc/{pqtl_dataset}/{hc_dataset}/{pheno_id}_hyprcoloc.tsv"
+            hc_dataset_out = str(paths.hyprcoloc_dataset_out(pqtl_dataset, hc_dataset, pheno_id, out_dir))
 
             if not check_remote_output(
                 falcon_user=falcon_user,
@@ -1115,6 +1170,7 @@ def hpc(config: str = "assets/config.yaml"):
                     pqtl_dataset=pqtl_dataset,
                     pheno_id=pheno_id,
                     eqtl_dataset=hc_dataset,
+                    local_results_dir=out_dir
                 )
     else:
         print("[TRACKING] No bulk_eqtl_datasets or sc_eqtl_dataset specified (or run_smr is False), skipping HyPrColoc.")
@@ -1124,6 +1180,7 @@ def hpc(config: str = "assets/config.yaml"):
         falcon_user=falcon_user,
         pqtl_dataset=pqtl_dataset,
         pheno_id=pheno_id,
+        local_results_dir=out_dir
     )
 
     print("[TRACKING] Pulling results locally...")
@@ -1154,4 +1211,25 @@ def hpc(config: str = "assets/config.yaml"):
     print(f"[TRACKING] Expected cis-MR output: {mr_out}")
     print(f"[TRACKING] Expected pairwise COLOC output: {coloc_out}")
     print(f"[TRACKING] Expected top cis-hit output: {target_stats_out}")
+
+    # Reached only if every check_remote_output()/require_remote_output() gate above
+    # passed - an ssh/apptainer failure earlier raises and this is never reached, so
+    # the registry can never point at a partial/failed run.
+    project_root = Path(__file__).resolve().parents[1]
+    registry.write_manifest(
+        run_id,
+        {
+            "pheno_id": pheno_id,
+            "pqtl_dataset": pqtl_dataset,
+            "git_sha7": git_sha7,
+            "date": date_str,
+            "created_at": datetime.now().isoformat(),
+            "mode": "hpc",
+            "falcon_user": falcon_user,
+            "overwrite": overwrite,
+        },
+        root=str(project_root / "runs"),
+    )
+    registry.record_successful_run(pheno_id, pqtl_dataset, run_id, root=str(project_root / "runs"))
+    print(f"[TRACKING] Recorded successful run in registry: {run_id}")
     print("[DONE] drugMR pipeline completed successfully.")

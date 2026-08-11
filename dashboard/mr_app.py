@@ -7,6 +7,8 @@ import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
 
+from drugmr import paths, registry
+
 # shared plotting conventions so charts look consistent across tabs rather than each
 # px.* call picking its own default palette
 SIGNIFICANCE_COLOR_MAP = {True: "#d62728", False: "#7f7f7f"}  # red = significant, grey = not
@@ -205,6 +207,78 @@ def find_result_file(project_dir: Path, candidate_files: list[Path], candidate_n
         return matches[0]
 
     return None
+
+
+def legacy_resolve_dataset_files(project_dir: Path, phenotype: str, dataset_id: str):
+    """Pre-Phase-3 candidate-path guessing, kept as a fallback for any
+    (phenotype, dataset_id) with no runs/registry.json entry yet - e.g. a
+    dataset that predates the runs/ migration and was never backfilled."""
+    mr_file = find_result_file(
+        project_dir,
+        [
+            project_dir / f"results/cis-MR/{dataset_id}_{phenotype}_all_MR.tsv",
+            project_dir / f"results/cis_MR/{dataset_id}_{phenotype}_all_MR.tsv",
+            project_dir / f"results/cis_MR/{dataset_id}/{phenotype}/{dataset_id}_{phenotype}_all_MR.tsv",
+            project_dir / f"results/MR/{dataset_id}/{phenotype}/{dataset_id}_{phenotype}_all_MR.tsv",
+            project_dir / f"results/MR/{dataset_id}_{phenotype}_all_MR.tsv"
+        ],
+        [
+            f"{dataset_id}_{phenotype}_all_MR.tsv",
+            f"{dataset_id}_{phenotype}_MR.tsv"
+        ]
+    )
+
+    coloc_file = find_result_file(
+        project_dir,
+        [
+            project_dir / f"results/coloc/{dataset_id}/{dataset_id}_{phenotype}_all_coloc.tsv",
+            project_dir / f"results/coloc/{dataset_id}/{phenotype}/{dataset_id}_{phenotype}_all_coloc.tsv",
+            project_dir / f"results/COLOC/{dataset_id}/{phenotype}/{dataset_id}_{phenotype}_all_coloc.tsv",
+            project_dir / f"results/COLOC/{dataset_id}_{phenotype}_all_coloc.tsv",
+            project_dir / f"results/coloc/{dataset_id}_{phenotype}_all_coloc.tsv"
+        ],
+        [
+            f"{dataset_id}_{phenotype}_all_coloc.tsv",
+            f"{dataset_id}_{phenotype}_coloc.tsv",
+            f"{dataset_id}_{phenotype}_COLOC.tsv"
+        ]
+    )
+
+    return {
+        "mr": mr_file,
+        "coloc": coloc_file,
+        "finngen_phewas": project_dir / "results" / "PheWAS" / dataset_id / phenotype / f"{dataset_id}_{phenotype}_PheWAS.tsv",
+        "ukb_phewas": project_dir / "results" / "PheWAS_UKBB" / dataset_id / phenotype / f"{dataset_id}_{phenotype}_PheWAS.tsv",
+        "target_info": project_dir / "results" / "target_stats" / dataset_id / phenotype / f"{dataset_id}_{phenotype}_top_cis_hits.tsv",
+        "smr": project_dir / "results" / "SMR" / f"{dataset_id}_{phenotype}_final_multi_omics_targets.tsv",
+        "hyprcoloc": project_dir / "results" / "hyprcoloc" / f"{dataset_id}_{phenotype}_all_hyprcoloc.tsv",
+    }
+
+
+def resolve_dataset_files(project_dir: Path, phenotype: str, dataset_id: str, run_id: str = "latest"):
+    """Resolve this dataset's 7 dashboard files via runs/registry.json first -
+    falling back to legacy_resolve_dataset_files() when this (phenotype,
+    dataset_id) has no registry entry (never run through the migrated
+    pipeline). Returns (run_id_used_or_None, {file_key: Path}).
+    """
+    runs_root = str(project_dir / "runs")
+    resolved_run_id = run_id
+    if run_id == "latest":
+        resolved_run_id = registry.get_latest_run_id(phenotype, dataset_id, root=runs_root)
+
+    if resolved_run_id is not None:
+        out_dir = str(project_dir / paths.run_results_dir(resolved_run_id))
+        return resolved_run_id, {
+            "mr": project_dir / paths.mr_out(dataset_id, phenotype, out_dir),
+            "coloc": project_dir / paths.coloc_out(dataset_id, phenotype, out_dir),
+            "finngen_phewas": project_dir / paths.phewas_out(dataset_id, phenotype, out_dir),
+            "ukb_phewas": project_dir / paths.phewas_ukbb_out(dataset_id, phenotype, out_dir),
+            "target_info": project_dir / paths.target_stats_out(dataset_id, phenotype, out_dir),
+            "smr": project_dir / paths.smr_final_targets_out(dataset_id, phenotype, out_dir),
+            "hyprcoloc": project_dir / paths.hyprcoloc_out(dataset_id, phenotype, out_dir),
+        }
+
+    return None, legacy_resolve_dataset_files(project_dir, phenotype, dataset_id)
 
 
 def filter_protein(df: pd.DataFrame, protein: str):
@@ -815,64 +889,22 @@ def dashboard(db_name: str, port_number: str, phenotype: str, pqtl_dataset: str)
 
     project_dir = Path(__file__).resolve().parent.parent
 
-    # check which datasets have the required dashboard files
+    # check which datasets have the required dashboard files - resolved via
+    # runs/registry.json first (see resolve_dataset_files()), falling back to
+    # legacy candidate-path guessing for any dataset never run through runs/
     dataset_result_files = {}
+    dataset_run_ids = {}
     available_datasets = []
 
     for dataset_id in dataset_names:
-        mr_file = find_result_file(
-            project_dir,
-            [
-                project_dir / f"results/cis-MR/{dataset_id}_{phenotype}_all_MR.tsv",
-                project_dir / f"results/cis_MR/{dataset_id}_{phenotype}_all_MR.tsv",
-                project_dir / f"results/cis_MR/{dataset_id}/{phenotype}/{dataset_id}_{phenotype}_all_MR.tsv",
-                project_dir / f"results/MR/{dataset_id}/{phenotype}/{dataset_id}_{phenotype}_all_MR.tsv",
-                project_dir / f"results/MR/{dataset_id}_{phenotype}_all_MR.tsv"
-            ],
-            [
-                f"{dataset_id}_{phenotype}_all_MR.tsv",
-                f"{dataset_id}_{phenotype}_MR.tsv"
-            ]
-        )
+        run_id_used, files = resolve_dataset_files(project_dir, phenotype, dataset_id, run_id="latest")
 
-        coloc_file = find_result_file(
-            project_dir,
-            [
-                project_dir / f"results/coloc/{dataset_id}/{dataset_id}_{phenotype}_all_coloc.tsv",
-                project_dir / f"results/coloc/{dataset_id}/{phenotype}/{dataset_id}_{phenotype}_all_coloc.tsv",
-                project_dir / f"results/COLOC/{dataset_id}/{phenotype}/{dataset_id}_{phenotype}_all_coloc.tsv",
-                project_dir / f"results/COLOC/{dataset_id}_{phenotype}_all_coloc.tsv",
-                project_dir / f"results/coloc/{dataset_id}_{phenotype}_all_coloc.tsv"
-            ],
-            [
-                f"{dataset_id}_{phenotype}_all_coloc.tsv",
-                f"{dataset_id}_{phenotype}_coloc.tsv",
-                f"{dataset_id}_{phenotype}_COLOC.tsv"
-            ]
-        )
-
-        finngen_phewas_file = project_dir / "results" / "PheWAS" / dataset_id / phenotype / f"{dataset_id}_{phenotype}_PheWAS.tsv"
-        ukb_phewas_file = project_dir / "results" / "PheWAS_UKBB" / dataset_id / phenotype / f"{dataset_id}_{phenotype}_PheWAS.tsv"
-        target_info_file = project_dir / "results" / "target_stats" / dataset_id / phenotype / f"{dataset_id}_{phenotype}_top_cis_hits.tsv"
-        smr_file = project_dir / "results" / "SMR" / f"{dataset_id}_{phenotype}_final_multi_omics_targets.tsv"
-        hyprcoloc_file = project_dir / "results" / "hyprcoloc" / f"{dataset_id}_{phenotype}_all_hyprcoloc.tsv"
-
-        required_files = [
-            mr_file,
-            coloc_file
-        ]
+        required_files = [files["mr"], files["coloc"]]
 
         if all(file is not None and file.exists() for file in required_files):
             available_datasets.append(dataset_id)
-            dataset_result_files[dataset_id] = {
-                "mr": mr_file,
-                "coloc": coloc_file,
-                "finngen_phewas": finngen_phewas_file,
-                "ukb_phewas": ukb_phewas_file,
-                "target_info": target_info_file,
-                "smr": smr_file,
-                "hyprcoloc": hyprcoloc_file
-            }
+            dataset_result_files[dataset_id] = files
+            dataset_run_ids[dataset_id] = run_id_used
 
     if len(available_datasets) == 0:
         st.error(f"No dataset has a complete set of cis-MR and COLOC dashboard files for {phenotype}.")
@@ -890,7 +922,7 @@ def dashboard(db_name: str, port_number: str, phenotype: str, pqtl_dataset: str)
     st.caption("Genetically supported drug target discovery and clinical safety dashboard")
 
     with st.container(border=True):
-        dataset_col, dataset_info_col = st.columns([2, 1])
+        dataset_col, run_col, dataset_info_col = st.columns([2, 1, 1])
 
         with dataset_col:
             selected_dataset_name = st.segmented_control(
@@ -908,6 +940,25 @@ def dashboard(db_name: str, port_number: str, phenotype: str, pqtl_dataset: str)
         pqtl_dataset = dataset_ids[selected_dataset_name]
         dataset_name = dataset_names[pqtl_dataset]
         dataset_n = dataset_ns[pqtl_dataset]
+
+        # run selector - history comes from runs/registry.json; a dataset resolved
+        # via legacy_resolve_dataset_files() (no registry entry) has no history at all
+        run_history = registry.load_registry(root=str(project_dir / "runs")).get(
+            f"{phenotype}__{pqtl_dataset}", {}
+        ).get("history", [])
+
+        with run_col:
+            if run_history:
+                run_options = ["latest"] + list(reversed(run_history))
+                selected_run = st.selectbox("Run", run_options, index=0, key="run_selector")
+            else:
+                selected_run = "latest"
+                st.caption("No run history (legacy path)")
+
+        if selected_run != "latest":
+            _, dataset_result_files[pqtl_dataset] = resolve_dataset_files(
+                project_dir, phenotype, pqtl_dataset, run_id=selected_run
+            )
 
         with dataset_info_col:
             st.metric("pQTL sample size", f"{dataset_n:,}")

@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
 import sys
 import subprocess
+from datetime import datetime
 from pathlib import Path
 from drugmr.config import Config
+from drugmr import paths
+from drugmr import registry
 
 # LOCAL RESULTS / DASHBOARD STUFF
 # Need to create local running functions including a pulling docker from container function
@@ -80,7 +83,7 @@ def require_output(path: Path, step: str, required_for: str):
         )
 
 def results(
-    config: str = "assets/config.yaml",
+    config: str,
     db_id: str = "drugmr",
     dashboard_script: str = "dashboard/mr_app.py",
     db_script: str = "bin/load_db_into_postgres.py",
@@ -90,8 +93,8 @@ def results(
     cfg = Config(project_root / config)
     pqtl_dataset = cfg.pqtl_dataset
     pheno_id = cfg.pheno_id
-    mr_res = project_root / "results" / "cis-MR" / f"{pqtl_dataset}_{pheno_id}_all_MR.tsv"
-    coloc_res = project_root / "results" / "coloc" / pqtl_dataset / f"{pqtl_dataset}_{pheno_id}_all_coloc.tsv"
+    mr_res = project_root / paths.mr_out(pqtl_dataset, pheno_id)
+    coloc_res = project_root / paths.coloc_out(pqtl_dataset, pheno_id)
     db_script = project_root / db_script
     dashboard_script = project_root / dashboard_script
 
@@ -167,7 +170,10 @@ def results(
 # produce the same output as in the cloud -> which then run local scripts to load into postgres db and then dashboard
 # to check docker container - create a function within local()
 
-def local(config: str = "assets/config.yaml"):
+def local(config: str):
+    # config has no default on purpose - there's no single correct params file
+    # anymore now that each (pheno_id, pqtl_dataset) pair has its own under
+    # params/ (e.g. params/AD.wingo_brain.yaml) - pass one explicitly.
     project_root = Path(__file__).resolve().parents[1]
     cfg = Config(project_root / config)
     pheno_id = cfg.pheno_id
@@ -188,7 +194,6 @@ def local(config: str = "assets/config.yaml"):
     af_col = cfg.af_col
     genome_build = cfg.genome_build
     target_build = cfg.target_build
-    out_dir = getattr(cfg, "out_dir", "results")
     maf = getattr(cfg, "maf", 0.01)
     info_threshold = getattr(cfg, "info_threshold", None)
     info_col = getattr(cfg, "info_col", None)
@@ -203,75 +208,55 @@ def local(config: str = "assets/config.yaml"):
     bulk_eqtl_datasets = getattr(cfg, "bulk_eqtl_datasets", [])
     sc_eqtl_dataset = getattr(cfg, "sc_eqtl_dataset", "")
 
+    # cis-MR / coloc gate thresholds - see params/schema.json's gates block;
+    # defaults match what bin/coloc_targets.py used to hardcode
+    wald_fdr_q = cfg.gate("cis_mr", "wald_fdr_q", 0.05)
+    ivw_fdr_q = cfg.gate("cis_mr", "ivw_fdr_q", 0.05)
+    cochran_q_pval = cfg.gate("cis_mr", "cochran_q_pval", 0.05)
+    egger_intercept_pval_min = cfg.gate("cis_mr", "egger_intercept_pval_min", 0)
+    min_instruments_for_ivw = cfg.gate("cis_mr", "min_instruments_for_ivw", 3)
+    pp4_threshold = cfg.gate("coloc", "pp4_threshold", 0.7)
+    m_y_pval_threshold = cfg.gate("network_mr", "m_y_pval_threshold", 0.05)
+
 
     # set projectDir()
     project_root = Path(__file__).resolve().parents[1] # i.e. "Users/.../drugMR"
 
+    # run_id is deterministic for a given (pheno_id, pqtl_dataset, day, git commit) -
+    # rerunning today on the same commit reuses the same runs/<run_id>/ dir (and its
+    # check_output()/require_output() skip behavior); a new day or a new commit starts
+    # a fresh, separately-tracked run rather than silently overwriting the old one
+    git_sha7 = registry.current_git_sha7(cwd=project_root)
+    date_str = datetime.now().strftime("%Y%m%d")
+    run_id = paths.make_run_id(pheno_id, pqtl_dataset, date_str, git_sha7)
+    out_dir = str(paths.run_results_dir(run_id))
+    print(f"[TRACKING] run_id: {run_id}")
+
     # define all outputs first so pipeline knows what has already been ran
-    qc_out = project_root / out_dir / "QC" / pheno_id / f"{pheno_id}.tsv"
+    qc_out = project_root / paths.qc_out(pheno_id)
     cis_dir = project_root / "dat" / "cis_regions" / pqtl_dataset
-    mr_out = project_root / "results" / "cis-MR" / f"{pqtl_dataset}_{pheno_id}_all_MR.tsv"
-    mr_instruments_out = (
-        project_root
-        / "results"
-        / "cis-MR"
-        / "instruments"
-        / f"{pqtl_dataset}_{pheno_id}_all_MR_instruments.tsv"
-    )
-    coloc_out = project_root / "results" / "coloc" / pqtl_dataset / f"{pqtl_dataset}_{pheno_id}_all_coloc.tsv"
+    mr_out = project_root / paths.mr_out(pqtl_dataset, pheno_id, out_dir)
+    mr_instruments_out = project_root / paths.mr_instruments_out(pqtl_dataset, pheno_id, out_dir)
+    coloc_out = project_root / paths.coloc_out(pqtl_dataset, pheno_id, out_dir)
 
     # SMR (bulk and/or single-cell) - promising target output per eQTL mode
     # bulk_eqtl_datasets is a list (eQTLGen / MetaBrain / GTEx_v10 etc. are pre-computed
     # separately under results/SMR/bulk/{dataset}/) so its per-dataset outputs are built
     # inside the SMR step below rather than up front here
-    smr_sc_out = (
-        project_root
-        / "results"
-        / "SMR"
-        / "sc"
-        / sc_eqtl_dataset
-        / pheno_id
-        / f"{pqtl_dataset}_{pheno_id}_promising_targets_SMR.tsv"
-    )
+    smr_sc_out = project_root / paths.smr_sc_out(pqtl_dataset, pheno_id, sc_eqtl_dataset, out_dir)
 
     # final harmonised target stats
-    target_stats_out = (
-        project_root
-        / "results"
-        / "target_stats"
-        / pqtl_dataset
-        / pheno_id
-        / f"{pqtl_dataset}_{pheno_id}_top_cis_hits.tsv"
-    )
+    target_stats_out = project_root / paths.target_stats_out(pqtl_dataset, pheno_id, out_dir)
 
     # phewas - ukb_ppp_AD_PheWAS.tsv
-    phewas_out = (
-        project_root
-        / "results"
-        / "PheWAS"
-        / pqtl_dataset
-        / pheno_id
-        / f"{pqtl_dataset}_{pheno_id}_PheWAS.tsv"
-    )
+    phewas_out = project_root / paths.phewas_out(pqtl_dataset, pheno_id, out_dir)
 
     # phewas ukbb_out
-    phewas_ukbb_out = (
-        project_root
-        / "results"
-        / "PheWAS_UKBB"
-        / pqtl_dataset
-        / pheno_id
-        / f"{pqtl_dataset}_{pheno_id}_PheWAS.tsv"
-    )
-    
-    # change this where NetworkMR saves its final compiled output
-    network_mr_out = (
-        project_root
-        / "results"
-        / "network-MR"
-        / pqtl_dataset
-        / f"{pqtl_dataset}_{pheno_id}_network_MR.tsv"
-    )
+    phewas_ukbb_out = project_root / paths.phewas_ukbb_out(pqtl_dataset, pheno_id, out_dir)
+
+    # NetworkMR is gated directly on its actual final output (the mediation
+    # estimates file coloc_with_mediators() also reads) - no separate gate literal
+    network_mr_out = project_root / paths.network_mr_mediation_estimates_out(pqtl_dataset, pheno_id, out_dir)
 
     def check_docker():
         print("[TRACKING] Checking Docker...")
@@ -326,7 +311,7 @@ docker run --rm \\
   python bin/qc_gwas.py \\
     --pheno-id {pheno_id} \\
     --sumstats {sumstats} \\
-    --out-dir {out_dir} \\
+    --out-dir {paths.qc_out(pheno_id).parent} \\
     --maf {maf} \\
     --snp-col {snp_col} \\
     --a1-col {a1_col} \\
@@ -426,7 +411,7 @@ docker run --rm \\
     {pqtl_dataset} \\
     dat/cis_regions/{pqtl_dataset} \\
     {pheno_id} \\
-    {out_dir}/QC/{pheno_id}/{pheno_id}.tsv \\
+    {paths.qc_out(pheno_id)} \\
     {ref_bfile}
 """
 
@@ -449,13 +434,18 @@ docker run --rm \\
   "{image_name}" \\
   python bin/assort_network_mr.py \\
     --pheno_id {pheno_id} \\
-    --pheno_gwas {out_dir}/QC/{pheno_id}/{pheno_id}.tsv \\
+    --pheno_gwas {paths.qc_out(pheno_id)} \\
     --ref_bfile {ref_bfile} \\
     --pqtl_dataset {pqtl_dataset} \\
     --pqtl_dir dat/cis_regions/{pqtl_dataset} \\
     --run_genomewide_mr \\
     --run_cis_mr_X_M \\
-    --run_network_mr
+    --run_network_mr \\
+    --local_results_dir {out_dir} \\
+    --ivw_fdr_q {ivw_fdr_q} \\
+    --egger_intercept_pval_min {egger_intercept_pval_min} \\
+    --cochran_q_pval {cochran_q_pval} \\
+    --m_y_pval_threshold {m_y_pval_threshold}
 """
 
         if not check_output(network_mr_out, "NetworkMR", overwrite):
@@ -477,13 +467,15 @@ docker run --rm \\
   "{image_name}" \\
   python bin/coloc_targets.py \\
     --pqtl_dataset {pqtl_dataset} \\
-    --local_results_dir results/cis-MR \\
+    --local_results_dir {out_dir} \\
     --pqtl_dir dat/cis_regions/{pqtl_dataset} \\
     --pheno_id {pheno_id} \\
     --n_cases {n_cases} \\
     --n_controls {n_controls} \\
     --mediators \\
-    --mediator_manifest {mediator_manifest}
+    --mediator_manifest {mediator_manifest} \\
+    --ivw_fdr_q {ivw_fdr_q} \\
+    --pp4_threshold {pp4_threshold}
 """
 
     # without mediators
@@ -496,11 +488,16 @@ docker run --rm \\
   "{image_name}" \\
   python bin/coloc_targets.py \\
     --pqtl_dataset {pqtl_dataset} \\
-    --local_results_dir results/cis-MR \\
+    --local_results_dir {out_dir} \\
     --pqtl_dir dat/cis_regions/{pqtl_dataset} \\
     --pheno_id {pheno_id} \\
     --n_cases {n_cases} \\
-    --n_controls {n_controls}
+    --n_controls {n_controls} \\
+    --wald_fdr_q {wald_fdr_q} \\
+    --ivw_fdr_q {ivw_fdr_q} \\
+    --cochran_q_pval {cochran_q_pval} \\
+    --egger_intercept_pval_min {egger_intercept_pval_min} \\
+    --min_instruments_for_ivw {min_instruments_for_ivw}
 """
 
     if not check_output(coloc_out, "COLOC", overwrite):
@@ -523,7 +520,8 @@ docker run --rm \
   "{image_name}" \
   python bin/compile_cis_hit_info.py \
     --pheno_id {pheno_id} \
-    --pqtl_dataset {pqtl_dataset}
+    --pqtl_dataset {pqtl_dataset} \
+    --local_results_dir {out_dir}
 """
 
     if not check_output(target_stats_out, "Top cis-hit compilation", overwrite):
@@ -544,15 +542,7 @@ docker run --rm \
             # bulk eQTL SMR (eQTLGen / MetaBrain / GTEx_v10) is pre-computed elsewhere -
             # bin/sort_smr.py ingests results/SMR/bulk/{dataset}/ rather than re-running SMR
             for bulk_dataset in bulk_eqtl_datasets:
-                smr_bulk_out = (
-                    project_root
-                    / "results"
-                    / "SMR"
-                    / "bulk"
-                    / bulk_dataset
-                    / pheno_id
-                    / f"{pqtl_dataset}_{pheno_id}_promising_targets_SMR.tsv"
-                )
+                smr_bulk_out = project_root / paths.smr_bulk_out(pqtl_dataset, pheno_id, bulk_dataset, out_dir)
 
                 cmd_smr_bulk = f"""
 set -euo pipefail
@@ -563,12 +553,13 @@ docker run --rm \\
   "{image_name}" \\
   python bin/sort_smr.py \\
     --pheno_id {pheno_id} \\
-    --sumstats {out_dir}/QC/{pheno_id}/{pheno_id}.tsv \\
+    --sumstats {paths.qc_out(pheno_id)} \\
     --pqtl_dataset {pqtl_dataset} \\
     --eqtl_dataset {bulk_dataset} \\
     --eqtl_mode bulk \\
     --ref_bfile {ref_bfile} \\
-    --maf {maf}
+    --maf {maf} \\
+    --local_results_dir {out_dir}
 """
 
                 if not check_output(smr_bulk_out, f"Bulk SMR ({bulk_dataset})", overwrite):
@@ -587,12 +578,13 @@ docker run --rm \\
   "{image_name}" \\
   python bin/sort_smr.py \\
     --pheno_id {pheno_id} \\
-    --sumstats {out_dir}/QC/{pheno_id}/{pheno_id}.tsv \\
+    --sumstats {paths.qc_out(pheno_id)} \\
     --pqtl_dataset {pqtl_dataset} \\
     --eqtl_dataset {sc_eqtl_dataset} \\
     --eqtl_mode single_cell \\
     --ref_bfile {ref_bfile} \\
-    --maf {maf}
+    --maf {maf} \\
+    --local_results_dir {out_dir}
 """
 
             if not check_output(smr_sc_out, "Single-cell SMR", overwrite):
@@ -609,25 +601,13 @@ docker run --rm \\
     # runs a 3-trait (pQTL / GWAS / eQTL) HyPrColoc restricted to that target's
     # cis-region, matched on shared SNPs (see drugmr.extract_common_snps). Each
     # dataset is run (and gated) independently so bulk and single-cell compose.
-    hyprcoloc_out = (
-        project_root
-        / "results"
-        / "hyprcoloc"
-        / f"{pqtl_dataset}_{pheno_id}_all_hyprcoloc.tsv"
-    )
+    hyprcoloc_out = project_root / paths.hyprcoloc_out(pqtl_dataset, pheno_id, out_dir)
 
     hyprcoloc_eqtl_datasets = list(bulk_eqtl_datasets) + ([sc_eqtl_dataset] if sc_eqtl_dataset else [])
 
     if run_smr and hyprcoloc_eqtl_datasets:
         for hc_dataset in hyprcoloc_eqtl_datasets:
-            hc_dataset_out = (
-                project_root
-                / "results"
-                / "hyprcoloc"
-                / pqtl_dataset
-                / hc_dataset
-                / f"{pheno_id}_hyprcoloc.tsv"
-            )
+            hc_dataset_out = project_root / paths.hyprcoloc_dataset_out(pqtl_dataset, hc_dataset, pheno_id, out_dir)
 
             cmd_hyprcoloc = f"""
 set -euo pipefail
@@ -639,7 +619,8 @@ docker run --rm \\
   python bin/hyprcoloc_targets.py \\
     --pqtl_dataset {pqtl_dataset} \\
     --pheno_id {pheno_id} \\
-    --eqtl_dataset {hc_dataset}
+    --eqtl_dataset {hc_dataset} \\
+    --local_results_dir {out_dir}
 """
 
             if not check_output(hc_dataset_out, f"HyPrColoc ({hc_dataset})", overwrite):
@@ -658,7 +639,8 @@ docker run --rm \\
   "{image_name}" \\
   python bin/phewas_cis_pqtls.py \\
     --pheno_id {pheno_id} \\
-    --pqtl_dataset {pqtl_dataset}
+    --pqtl_dataset {pqtl_dataset} \\
+    --local_results_dir {out_dir}
 """
 
     # PheWAS depends on the pairwise COLOC results + cis-MR instruments
@@ -683,7 +665,8 @@ docker run --rm \\
   "{image_name}" \\
   python bin/ukb_phewas.py \\
     --pheno_id {pheno_id} \\
-    --pqtl_dataset {pqtl_dataset}
+    --pqtl_dataset {pqtl_dataset} \\
+    --local_results_dir {out_dir}
 """
 
     require_output(coloc_out, "COLOC", "UKBB PheWAS")
@@ -697,4 +680,24 @@ docker run --rm \\
 
     print(f"[TRACKING] cis-MR instruments found: {mr_instruments_out}")
     print(f"[TRACKING] Final harmonised target stats found: {target_stats_out}")
+
+    # Reached only if every check_output()/require_output() gate above passed - a
+    # docker/subprocess failure earlier raises and this is never reached, so the
+    # registry can never point at a partial/failed run.
+    registry.write_manifest(
+        run_id,
+        {
+            "pheno_id": pheno_id,
+            "pqtl_dataset": pqtl_dataset,
+            "git_sha7": git_sha7,
+            "date": date_str,
+            "created_at": datetime.now().isoformat(),
+            "mode": "local",
+            "image_name": image_name,
+            "overwrite": overwrite,
+        },
+        root=str(project_root / "runs"),
+    )
+    registry.record_successful_run(pheno_id, pqtl_dataset, run_id, root=str(project_root / "runs"))
+    print(f"[TRACKING] Recorded successful run in registry: {run_id}")
     print("[DONE] Local Docker run completed.")

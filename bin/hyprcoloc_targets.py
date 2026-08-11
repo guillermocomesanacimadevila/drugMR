@@ -4,6 +4,7 @@ import subprocess
 import polars as pl
 from pathlib import Path
 from drugmr import extract_common_snps
+from drugmr import paths
 
 # HyPrColoc for the final multi-omics targets
 # -> for every target x cell-type/tissue hit that passed cis-MR + COLOC + SMR + HEIDI
@@ -166,13 +167,13 @@ def load_eqtl_table(data_type: str, eqtl_dataset: str, cell_type: str, base_gene
     return None
 
 
-def hyprcoloc_targets(pqtl_dataset: str, pheno_id: str, eqtl_dataset: str):
+def hyprcoloc_targets(pqtl_dataset: str, pheno_id: str, eqtl_dataset: str, local_results_dir: str = "results"):
     hyprcoloc_script = "./bin/hyprcoloc.R"
     work_dir = Path(f"./work/hyprcoloc/{pqtl_dataset}/{pheno_id}")
     work_dir.mkdir(parents=True, exist_ok=True)
-    out_dir = Path(f"./results/hyprcoloc/{pqtl_dataset}")
+    out_dir = paths.hyprcoloc_dataset_out(pqtl_dataset, eqtl_dataset, pheno_id, local_results_dir).parent.parent
     out_dir.mkdir(parents=True, exist_ok=True)
-    targets_file = Path(f"./results/SMR/{pqtl_dataset}_{pheno_id}_final_multi_omics_targets.tsv")
+    targets_file = paths.smr_final_targets_out(pqtl_dataset, pheno_id, local_results_dir)
     targets = pl.read_csv(targets_file, separator="\t", null_values=["NA"])
     targets = (
         targets
@@ -276,15 +277,14 @@ def hyprcoloc_targets(pqtl_dataset: str, pheno_id: str, eqtl_dataset: str):
     # per-dataset output, used as the idempotency marker by local.py / hpc.py (mirrors
     # sort_smr.py's per-bulk_dataset promising_targets_SMR.tsv pattern) so re-running
     # for one eqtl_dataset doesn't require re-running every other one
-    per_dataset_dir = Path(f"./results/hyprcoloc/{pqtl_dataset}/{eqtl_dataset}")
-    per_dataset_dir.mkdir(parents=True, exist_ok=True)
-    per_dataset_file = per_dataset_dir / f"{pheno_id}_hyprcoloc.tsv"
+    per_dataset_file = paths.hyprcoloc_dataset_out(pqtl_dataset, eqtl_dataset, pheno_id, local_results_dir)
+    per_dataset_file.parent.mkdir(parents=True, exist_ok=True)
     dataset_results.write_csv(per_dataset_file, separator="\t")
 
     # canonical combined output (bulk + single-cell hits together) - upsert: drop any
     # stale rows for this eqtl_dataset, then append the fresh ones, so bulk and
     # single-cell runs (in either order) compose instead of overwriting each other
-    master_file = out_dir.parent / f"{pqtl_dataset}_{pheno_id}_all_hyprcoloc.tsv"
+    master_file = paths.hyprcoloc_out(pqtl_dataset, pheno_id, local_results_dir)
     if master_file.exists() and master_file.stat().st_size > 0:
         existing = pl.read_csv(master_file, separator="\t", null_values=["NA"])
         if "eqtl_dataset" in existing.columns:
@@ -302,11 +302,13 @@ def main():
     p.add_argument("--pqtl_dataset", required=True, choices=["ukb_ppp", "decode", "wu_csf", "wingo_brain"])
     p.add_argument("--pheno_id", required=True)
     p.add_argument("--eqtl_dataset", default="SingleBrain")
+    p.add_argument("--local_results_dir", default="results")
     args = p.parse_args()
     hyprcoloc_targets(
         pqtl_dataset=args.pqtl_dataset,
         pheno_id=args.pheno_id,
-        eqtl_dataset=args.eqtl_dataset
+        eqtl_dataset=args.eqtl_dataset,
+        local_results_dir=args.local_results_dir
     )
 
 

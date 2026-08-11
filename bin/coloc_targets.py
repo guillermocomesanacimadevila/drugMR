@@ -4,8 +4,9 @@ import pandas as pd
 import subprocess
 import argparse
 from pathlib import Path
-import os 
+import os
 import json
+from drugmr import paths
 
 # look at MR results based on dataset X (which == arg)
 # IVW p_FDR < 0.05 and passes egger intercept and cochran Q
@@ -28,30 +29,43 @@ import json
 # - pqtl_dataset
 # - pqtl_dir (maybe)
 
-def pairwise_coloc(pqtl_dataset: str, local_results_dir: str, pqtl_dir: str, pheno_id: str, n_cases: int, n_controls: int):
+def pairwise_coloc(
+    pqtl_dataset: str,
+    local_results_dir: str,
+    pqtl_dir: str,
+    pheno_id: str,
+    n_cases: int,
+    n_controls: int,
+    wald_fdr_q: float = 0.05,
+    ivw_fdr_q: float = 0.05,
+    cochran_q_pval: float = 0.05,
+    egger_intercept_pval_min: float = 0,
+    min_instruments_for_ivw: int = 3,
+):
+    # local_results_dir is the general Tier-2 results root (e.g. runs/<run_id>/results),
+    # not just the cis-MR dir - every paths.py call below derives its own subdir from it
     pqtl_dataset = pqtl_dataset.lower()
     pqtl_dir = Path(pqtl_dir)
-    local_results_dir = Path(local_results_dir)
     coloc_script = "./bin/coloc.R"
-    out_dir = Path("./results/coloc") / pqtl_dataset
+    out_dir = paths.coloc_out(pqtl_dataset, pheno_id, local_results_dir).parent
     out_dir.mkdir(parents=True, exist_ok=True)
-    df = pl.read_csv(f"{local_results_dir}/{pqtl_dataset}_{pheno_id}_all_MR.tsv", separator="\t")
+    df = pl.read_csv(paths.mr_out(pqtl_dataset, pheno_id, local_results_dir), separator="\t")
     results = []
 
-    # filter for proteins which passed cis-MR thresholds
+    # filter for proteins which passed cis-MR thresholds (params/*.yaml gates.cis_mr)
     df2 = (
         df
         .filter(
             (
-                (pl.col("n_instruments") >= 3) & ###### CHANGE - MAYBE DURING CI/CD  
-                (pl.col("IVW_FDR_q") < 0.05) & ###### CHANGE - MAYBE DURING CI/CD  
-                (pl.col("egger_intercept_pval") > 0) & ###### CHANGE - MAYBE DURING CI/CD  
-                (pl.col("Q_pval") > 0.05) ###### CHANGE - MAYBE DURING CI/CD  
+                (pl.col("n_instruments") >= min_instruments_for_ivw) &
+                (pl.col("IVW_FDR_q") < ivw_fdr_q) &
+                (pl.col("egger_intercept_pval") > egger_intercept_pval_min) &
+                (pl.col("Q_pval") > cochran_q_pval)
             )
             |
             (
-                (pl.col("n_instruments") == 1) & ###### CHANGE - MAYBE DURING CI/CD  
-                (pl.col("Wald_FDR_q") < 0.05) ###### CHANGE - MAYBE DURING CI/CD  
+                (pl.col("n_instruments") == 1) &
+                (pl.col("Wald_FDR_q") < wald_fdr_q)
             )
         )
         .select("protein")
@@ -86,7 +100,17 @@ def pairwise_coloc(pqtl_dataset: str, local_results_dir: str, pqtl_dir: str, phe
 
 
 
-def coloc_with_mediators(pqtl_dataset: str, local_results_dir: str, pqtl_dir: str, pheno_id: str, n_cases: int, n_controls: int, mediator_manifest: str):
+def coloc_with_mediators(
+    pqtl_dataset: str,
+    local_results_dir: str,
+    pqtl_dir: str,
+    pheno_id: str,
+    n_cases: int,
+    n_controls: int,
+    mediator_manifest: str,
+    ivw_fdr_q: float = 0.05,
+    pp4_threshold: float = 0.7,
+):
     standard_coloc = "./bin/coloc.R"
     moloc = "./bin/moloc.R"
     Ms = Path(mediator_manifest)
@@ -95,7 +119,7 @@ def coloc_with_mediators(pqtl_dataset: str, local_results_dir: str, pqtl_dir: st
     cis_regions = Path(f"./dat/cis_regions/{pqtl_dataset}")
 
     # out_dir
-    out_dir = Path("./results/coloc") / pqtl_dataset
+    out_dir = paths.coloc_out(pqtl_dataset, pheno_id, local_results_dir).parent
     os.makedirs(out_dir, exist_ok=True)
 
     moloc_json_dir = Path("./work/coloc")
@@ -104,8 +128,7 @@ def coloc_with_mediators(pqtl_dataset: str, local_results_dir: str, pqtl_dir: st
 
     Ms = pl.read_csv(mediator_manifest)
     mediators = Ms["pheno_id"].to_list()
-    network_mr_outputs = Path(f"./results/networkMR/mediation_estimates/{pqtl_dataset}")
-    res = network_mr_outputs / f"{pqtl_dataset}_{pheno_id}_networkMR.tsv"
+    res = paths.network_mr_mediation_estimates_out(pqtl_dataset, pheno_id, local_results_dir)
 
     # ukb_ppp_AD_networkMR.tsv
     df = pl.read_csv(res, separator="\t")
@@ -128,7 +151,7 @@ def coloc_with_mediators(pqtl_dataset: str, local_results_dir: str, pqtl_dir: st
         # X_Y_cochran_q = row["X_Y_IVW_FDR_q"]
         M_Y_IVW_pval = row["M_Y_IVW_pval"]
 
-        if X_Y_IVW_FDR_q < 1: ####### CHANGE THESE PARAMS BACK TO 0.05 AFETR CI/CD TESTING
+        if X_Y_IVW_FDR_q < ivw_fdr_q:
             outcome = row["pheno_id"]
             protein = row["protein"]
             if str(outcome) == pheno_id:
@@ -150,7 +173,7 @@ def coloc_with_mediators(pqtl_dataset: str, local_results_dir: str, pqtl_dir: st
             results_pairwise.append(pairwise_df)
 
             # second if (not strictly necessary -> as we can carry on with only X -> Y coloc)
-            if X_M_IVW_FDR_q < 1: ####### CHANGE THESE PARAMS BACK TO 0.05 AFETR CI/CD TESTING
+            if X_M_IVW_FDR_q < ivw_fdr_q:
                 mediator = row["mediator"]
                 if mediator in mediators:
                     print(f"[TRACKING] Mediator {mediator} tracked!")
@@ -177,7 +200,7 @@ def coloc_with_mediators(pqtl_dataset: str, local_results_dir: str, pqtl_dir: st
                 if y_row.height > 0 and m_row.height > 0:
                     y_pp4 = y_row["PP.H4.abf"][0]
                     m_pp4 = m_row["PP.H4.abf"][0]
-                    if y_pp4 > 0.01 and m_pp4 > 0.01: ####### CHANGE THESE PARAMS BACK TO 0.7 AFETR CI/CD TESTING
+                    if y_pp4 > pp4_threshold and m_pp4 > pp4_threshold:
                         print(f"[TRACKING] {protein} passed pairwise COLOC for {outcome} and {mediator}")
 
                         if protein not in moloc_json:
@@ -226,6 +249,12 @@ def main():
     p.add_argument("--n_controls", required=True, type=int)
     p.add_argument("--mediators", action="store_true")
     p.add_argument("--mediator_manifest", required=False)
+    p.add_argument("--wald_fdr_q", type=float, default=0.05)
+    p.add_argument("--ivw_fdr_q", type=float, default=0.05)
+    p.add_argument("--cochran_q_pval", type=float, default=0.05)
+    p.add_argument("--egger_intercept_pval_min", type=float, default=0)
+    p.add_argument("--min_instruments_for_ivw", type=int, default=3)
+    p.add_argument("--pp4_threshold", type=float, default=0.7)
     args = p.parse_args()
 
     # if mediators: true:
@@ -241,6 +270,8 @@ def main():
             n_cases=args.n_cases,
             n_controls=args.n_controls,
             mediator_manifest=args.mediator_manifest,
+            ivw_fdr_q=args.ivw_fdr_q,
+            pp4_threshold=args.pp4_threshold,
         )
 
     # else:
@@ -252,6 +283,11 @@ def main():
             pheno_id=args.pheno_id,
             n_cases=args.n_cases,
             n_controls=args.n_controls,
+            wald_fdr_q=args.wald_fdr_q,
+            ivw_fdr_q=args.ivw_fdr_q,
+            cochran_q_pval=args.cochran_q_pval,
+            egger_intercept_pval_min=args.egger_intercept_pval_min,
+            min_instruments_for_ivw=args.min_instruments_for_ivw,
         )
 
 if __name__ == "__main__":

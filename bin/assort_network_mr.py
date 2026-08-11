@@ -4,6 +4,7 @@ import polars as pl
 from pathlib import Path
 import subprocess
 from drugmr import NetworkMR
+from drugmr import paths
 import os
 
 # what do we need to run it for CI/CD testing
@@ -18,12 +19,12 @@ import os
 # For each protein part of dataset X
 # Run cis-MR (twice) -> For each X -> M
 # Also run M -> Y (whole genome) 
-# results/networkMR/ 3 subdirectories
-# results/networkMR/M_Y/....csv (Genome-wide - one CSV with MR outputs where 1 entry == univariable MR from a mediator M on Y)
-# results/networkMR/X_M/mediator_1/....csv (1 entry == univariable cis-MR - 1 protein vs that mediator)
-# results/networkMR/X_M/mediator_2/....csv (1 entry == univariable cis-MR - 1 protein vs that mediator)
-# results/networkMR/X_M/mediator_N/....csv (1 entry == univariable cis-MR - 1 protein vs that mediator)
-# results/networkMR/mediation_estimates/...csv (massive CSV with a given protein that FDR significant in X->M and X->Y and also if IVW_p < 0.05 in X->Y run NetworkMR package - here the output of NetworkMR package)
+# dat/derived/<pheno_id>/network_mr/M_Y/....csv (Genome-wide, shared across every pqtl_dataset -
+#   one CSV with MR outputs where 1 entry == univariable MR from a mediator M on Y)
+# <local_results_dir>/network_mr/X_M/mediator_1/....csv (1 entry == univariable cis-MR - 1 protein vs that mediator)
+# <local_results_dir>/network_mr/X_M/mediator_2/....csv (1 entry == univariable cis-MR - 1 protein vs that mediator)
+# <local_results_dir>/network_mr/X_M/mediator_N/....csv (1 entry == univariable cis-MR - 1 protein vs that mediator)
+# <local_results_dir>/network_mr/mediation_estimates/...csv (massive CSV with a given protein that FDR significant in X->M and X->Y and also if IVW_p < 0.05 in X->Y run NetworkMR package - here the output of NetworkMR package)
 
 # ARGS
 # pheno_id   
@@ -43,8 +44,8 @@ import os
 
 def run_genomewide_mr(ref_bfile: str, pheno_id: str, pheno_gwas: str):
     genomewide_mr = "./bin/genomewide_mr.R"
-    mediator_dir = Path("./results/QC/mediators")
-    out_dir = Path(f"./results/networkMR/M_Y/{pheno_id}")
+    mediator_dir = paths.qc_mediator_dir()
+    out_dir = paths.network_mr_m_y_dir(pheno_id)
     out_dir.mkdir(parents=True, exist_ok=True)
     all_results = []
     for file in mediator_dir.glob("*.tsv"):
@@ -86,12 +87,12 @@ Rscript {genomewide_mr} \\
         print("[CONCERN] No genome-wide mediator MR results generated.")
 
 
-def run_cis_mr_X_M(pqtl_dataset: str, pqtl_dir: str, ref_bfile: str):
+def run_cis_mr_X_M(pqtl_dataset: str, pqtl_dir: str, ref_bfile: str, local_results_dir: str = "results"):
     ref_bfile = Path(ref_bfile)
     pqtl_dir = Path(pqtl_dir)
-    out_dir = Path(f"./results/networkMR/X_M/{pqtl_dataset}")
+    out_dir = paths.network_mr_x_m_dir(pqtl_dataset, local_results_dir)
     protein_dir = Path(f"./dat/cis_regions/{pqtl_dataset}")
-    mediator_gwas = Path("./results/QC/mediators")
+    mediator_gwas = paths.qc_mediator_dir()
     out_dir.mkdir(parents=True, exist_ok=True)
 
     for protein_path in protein_dir.iterdir():
@@ -155,13 +156,21 @@ def run_cis_mr_X_M(pqtl_dataset: str, pqtl_dir: str, ref_bfile: str):
         mediator_id = mediator_file.stem
         print(f"[TRACKING] Running cis-MR X -> {mediator_id}")
 
+        # NOTE: this reads via paths.qc_out(mediator_id), which mirrors the *main*
+        # pheno QC path template (dat/derived/{{id}}/qc_gwas/{{id}}.tsv) rather than
+        # paths.qc_mediator_out(mediator_id) (the actual flat mediator QC location
+        # used everywhere else in this file). That mismatch pre-dates this migration
+        # (it was "./results/QC/{{mediator_id}}/{{mediator_id}}.tsv" vs the real
+        # "./results/QC/mediators/{{mediator_id}}.tsv") - preserved as-is here rather
+        # than silently fixed, since fixing it changes behavior rather than just
+        # relocating a path. Flag for follow-up: this file likely never resolves.
         cmd = f"""
 set -euo pipefail
 Rscript bin/cis_mr.R \\
     {pqtl_dataset} \\
     dat/cis_regions/{pqtl_dataset} \\
     {mediator_id} \\
-    ./results/QC/{mediator_id}/{mediator_id}.tsv \\
+    {paths.qc_out(mediator_id)} \\
     {ref_bfile}
 mv ./results/cis-MR/{pqtl_dataset}_{mediator_id}_all_MR.tsv \\
    {out_dir}/{pqtl_dataset}_{mediator_id}_all_MR.tsv
@@ -179,30 +188,27 @@ mv ./results/cis-MR/{pqtl_dataset}_{mediator_id}_all_MR.tsv \\
 
 
 
-def perform_network_mr(pheno_id: str, pqtl_dataset: str):
-    mediator_dir = Path("./results/QC/mediators") # ***** PROBS NEED TO CHANGE THIS TO THE MANIFEST ITSELF FOR IT NOT TO BREAK WITH >1 RUN/S
+def perform_network_mr(
+    pheno_id: str,
+    pqtl_dataset: str,
+    local_results_dir: str = "results",
+    ivw_fdr_q: float = 0.05,
+    egger_intercept_pval_min: float = 0,
+    cochran_q_pval: float = 0.05,
+    m_y_pval_threshold: float = 0.05,
+):
+    mediator_dir = paths.qc_mediator_dir() # ***** PROBS NEED TO CHANGE THIS TO THE MANIFEST ITSELF FOR IT NOT TO BREAK WITH >1 RUN/S
     mediators = [file.stem for file in mediator_dir.glob("*.tsv")]
     results = []
 
     # out_dir for X->Ms
-    X_to_M = Path(f"./results/networkMR/X_M/{pqtl_dataset}")
-    # {pqtl_dataset}_{mediator_id}_all_MR.tsv
+    X_to_M = paths.network_mr_x_m_dir(pqtl_dataset, local_results_dir)
 
-    # out_dir for X->Y
-    # ukb_ppp_AD_all_MR.tsv 
-    X_to_Y = Path("./results/cis-MR")
-
-    # out_dir for M->Y
-    M_to_Y = Path(f"./results/networkMR/M_Y/{pheno_id}")
-
-    # read M -> Y results
-    # AD_mediator_genomewide_MR.tsv
-    m_M_to_Y = M_to_Y / f"{pheno_id}_mediator_genomewide_MR.tsv"
-    df_M_to_Y = pl.read_csv(m_M_to_Y, separator="\t", null_values=["NA", "NaN", "nan", ""])
+    # read M -> Y results (Tier 1, pheno-scoped only)
+    df_M_to_Y = pl.read_csv(paths.network_mr_m_y_out(pheno_id), separator="\t", null_values=["NA", "NaN", "nan", ""])
 
     # read X -> Y results once
-    cis_X_to_Y = X_to_Y / f"{pqtl_dataset}_{pheno_id}_all_MR.tsv"
-    df_X_to_Y = pl.read_csv(cis_X_to_Y, separator="\t", null_values=["NA", "NaN", "nan", ""])
+    df_X_to_Y = pl.read_csv(paths.mr_out(pqtl_dataset, pheno_id, local_results_dir), separator="\t", null_values=["NA", "NaN", "nan", ""])
 
     for m in mediators:
         row_M_to_Y = df_M_to_Y.filter(pl.col("mediator") == m)
@@ -229,7 +235,7 @@ def perform_network_mr(pheno_id: str, pqtl_dataset: str):
             continue
 
         # declare cis-MR result output for mediator M
-        cis_X_to_M = X_to_M / f"{pqtl_dataset}_{m}_all_MR.tsv"
+        cis_X_to_M = paths.network_mr_x_m_out(pqtl_dataset, m, local_results_dir)
 
         if not cis_X_to_M.exists():
             print(f"[CONCERN] Missing X -> M cis-MR file for {m}")
@@ -237,7 +243,7 @@ def perform_network_mr(pheno_id: str, pqtl_dataset: str):
 
         df_X_to_M = pl.read_csv(cis_X_to_M, separator="\t", null_values=["NA", "NaN", "nan", ""])
 
-        if m_y_pval < 1: ########### CHANGE TO 0.05 -> POST CI/CD TESTING
+        if m_y_pval < m_y_pval_threshold:
             print(f"[TRACKING] All good! M -> Y {m_y_method} p-value passed!")
         else:
             print(f"[CONCERN] {m} -> {pheno_id} {m_y_method} p-value failed. Skipping.")
@@ -270,10 +276,10 @@ def perform_network_mr(pheno_id: str, pqtl_dataset: str):
                 print(f"[CONCERN] Missing X -> Y IVW sensitivity results for {p}. Skipping.")
                 continue
 
-            if cis_ivw_p < 1 and egger_i_p > 0 and cochan_p > 0: ########### CHANGE ALL TO 0.05 -> POST CI/CD TESTING
+            if cis_ivw_p < ivw_fdr_q and egger_i_p > egger_intercept_pval_min and cochan_p > cochran_q_pval:
                 print(f"[TRACKING] Protein {p} -> passed X -> M cis-MR!")
 
-                if cis_ivw_p_x_y < 1 and egger_i_p_x_y > 0 and cochan_p_x_y > 0: ########### CHANGE ALL TO 0.05 -> POST CI/CD TESTING
+                if cis_ivw_p_x_y < ivw_fdr_q and egger_i_p_x_y > egger_intercept_pval_min and cochan_p_x_y > cochran_q_pval:
                     print(f"[TRACKING] Protein {p} -> passed X -> Y cis-MR too! Carried forward for NetworkMR!")
 
                     # networkMR
@@ -307,10 +313,10 @@ def perform_network_mr(pheno_id: str, pqtl_dataset: str):
                     }) 
     
     # saving networkMR res
-    out_dir = Path(f"./results/networkMR/mediation_estimates/{pqtl_dataset}")
-    out_dir.mkdir(parents=True, exist_ok=True)
+    mediation_out = paths.network_mr_mediation_estimates_out(pqtl_dataset, pheno_id, local_results_dir)
+    mediation_out.parent.mkdir(parents=True, exist_ok=True)
     if results:
-        pl.DataFrame(results).write_csv(out_dir / f"{pqtl_dataset}_{pheno_id}_networkMR.tsv", separator="\t")
+        pl.DataFrame(results).write_csv(mediation_out, separator="\t")
     else:
         print("[TRACKING] No protein-mediator pairs passed filters for NetworkMR.")
 
@@ -325,6 +331,11 @@ def main():
     p.add_argument("--run_genomewide_mr", action="store_true")
     p.add_argument("--run_cis_mr_X_M", action="store_true")
     p.add_argument("--run_network_mr", action="store_true")
+    p.add_argument("--local_results_dir", default="results")
+    p.add_argument("--ivw_fdr_q", type=float, default=0.05)
+    p.add_argument("--egger_intercept_pval_min", type=float, default=0)
+    p.add_argument("--cochran_q_pval", type=float, default=0.05)
+    p.add_argument("--m_y_pval_threshold", type=float, default=0.05)
     args = p.parse_args()
 
     if args.run_genomewide_mr:
@@ -339,12 +350,18 @@ def main():
             pqtl_dataset=args.pqtl_dataset,
             pqtl_dir=args.pqtl_dir,
             ref_bfile=args.ref_bfile,
+            local_results_dir=args.local_results_dir,
         )
 
     if args.run_network_mr:
         perform_network_mr(
             pheno_id=args.pheno_id,
             pqtl_dataset=args.pqtl_dataset,
+            local_results_dir=args.local_results_dir,
+            ivw_fdr_q=args.ivw_fdr_q,
+            egger_intercept_pval_min=args.egger_intercept_pval_min,
+            cochran_q_pval=args.cochran_q_pval,
+            m_y_pval_threshold=args.m_y_pval_threshold,
         )
 
 
