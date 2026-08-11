@@ -62,9 +62,9 @@ The canonical combined SMR output the dashboard reads — one row per target × 
 
 **Gate to "Final Targets":** `q_SMR < 0.05` AND `p_HEIDI > 0.01`.
 
-## `results/PheWAS/<pqtl_dataset>/<pheno_id>/*_PheWAS.tsv` and `results/PheWAS_UKBB/...` (same shape)
+## `results/PheWAS-FinnGen/<pqtl_dataset>/<pheno_id>/*_PheWAS-FinnGen.tsv` and `results/PheWAS_UKBB/...` (same shape)
 
-One row per protein × PheWAS outcome phenotype. `results/PheWAS` is the FinnGen screen, `results/PheWAS_UKBB` is the UK Biobank screen — same columns in both.
+One row per protein × PheWAS outcome phenotype. `results/PheWAS-FinnGen` is the FinnGen screen, `results/PheWAS_UKBB` is the UK Biobank screen — same columns in both.
 
 | Column | Meaning |
 | --- | --- |

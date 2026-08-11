@@ -98,7 +98,7 @@ def test_hyprcoloc_dataset_out():
 
 
 def test_phewas_out():
-    assert paths.phewas_out(PQTL, PHENO) == Path("results/PheWAS/ukb_ppp/AD/ukb_ppp_AD_PheWAS.tsv")
+    assert paths.phewas_out(PQTL, PHENO) == Path("results/PheWAS-FinnGen/ukb_ppp/AD/ukb_ppp_AD_PheWAS-FinnGen.tsv")
 
 
 def test_phewas_ukbb_out():
