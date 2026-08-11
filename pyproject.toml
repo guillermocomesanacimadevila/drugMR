@@ -14,8 +14,8 @@ dependencies = [
     "pandas==3.0.5",
     "polars[rtcompat]==1.43.2",
     "pyarrow==24.0.0",
-    "scipy==1.18.0",
-    "pyyaml==6.0.3",
+    "scipy==1.17.0",
+    "PyYAML==6.0.3",
     "requests==2.34.2",
     "statsmodels==0.14.6",
     "streamlit==1.61.1",
@@ -26,9 +26,7 @@ dependencies = [
     "synapseclient==4.13.0",
     "jsonschema==4.26.0",
     "pytest>=8.0",
-    "pytest-cov>=5.0",
-    "PyYAML==6.0.3",
-    "scipy==1.17.0"
+    "pytest-cov>=5.0"
 ]
 
 [tool.setuptools.packages.find]
