@@ -1,0 +1,3 @@
+[submodule "tools/pwcoco"]
+	path = tools/pwcoco
+	url = https://github.com/jwr-git/pwcoco.git
