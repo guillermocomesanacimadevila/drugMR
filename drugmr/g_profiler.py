@@ -17,15 +17,3 @@ class RunGProfiler:
             query=gene_list,
         )
         return pl.from_pandas(result)
-
-
-
-if __name__ == "__main__":
-    profiler = RunGProfiler()
-
-    results = profiler.run_gprofiler(
-        ["ADAM10", "ACE"]
-    )
-
-    print(results)
-    print(results.height)
