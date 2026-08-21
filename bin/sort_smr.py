@@ -326,9 +326,11 @@ def run_single_cell_smr(pqtl_dataset: str, eqtl_dataset: str, pheno_id: str, sum
             #####
             #####
 
-            # check whether SMR has already been ran for trait X in cell type Y
-            # single-cell results live under results/SMR/sc/... (sibling to results/SMR/bulk/...)
-            smr_res = paths.smr_raw_dir(f"sc/{eqtl_dataset}/{cell}", pheno_id, local_results_dir)
+            # check whether SMR has already been ran for trait X in cell type Y - this
+            # depends only on (pheno_id, eqtl_dataset, cell), never on pqtl_dataset, so
+            # it's looked up under the shared synthesis/ tree (not local_results_dir)
+            # and reused by every pqtl_dataset run instead of being recomputed per run
+            smr_res = paths.smr_raw_dir(f"sc/{eqtl_dataset}/{cell}", pheno_id, "synthesis")
             existing_smr = [f for f in smr_res.glob(f"*{pheno_id}*.smr") if f.stat().st_size > 0]
 
             if len(existing_smr) > 0:
@@ -343,13 +345,14 @@ def run_single_cell_smr(pqtl_dataset: str, eqtl_dataset: str, pheno_id: str, sum
                     peqtl_smr=5.0e-8, #### change to default one
                     peqtl_heidi=1.57e-3, ###### change to real default
                     thread_num=8,
-                    maf=maf
+                    maf=maf,
+                    out_dir="synthesis"
                 )
 
             # load SMR results
             # saving into out_dir 1 results file per cell type for trait X
-            # results/SMR/sc/SingleBrain/{cell}/{pheno_id}/...
-            smr_res = paths.smr_raw_dir(f"sc/{eqtl_dataset}/{cell}", pheno_id, local_results_dir)
+            # synthesis/SMR/sc/SingleBrain/{cell}/{pheno_id}/...
+            smr_res = paths.smr_raw_dir(f"sc/{eqtl_dataset}/{cell}", pheno_id, "synthesis")
             for f in smr_res.glob("*.smr"):
                 if pheno_id in f.name:
                     fdr_correct_smr_file(f, pheno_id, cell)
@@ -364,7 +367,7 @@ def run_single_cell_smr(pqtl_dataset: str, eqtl_dataset: str, pheno_id: str, sum
         # so 7 cell types x X targets in terms of rows
         all_target_smr = []
         for cell in cell_types:
-            smr_res = paths.smr_raw_dir(f"sc/{eqtl_dataset}/{cell}", pheno_id, local_results_dir)
+            smr_res = paths.smr_raw_dir(f"sc/{eqtl_dataset}/{cell}", pheno_id, "synthesis")
             for f in smr_res.glob("*.smr"):
                 if pheno_id not in f.name:
                     continue
@@ -471,7 +474,11 @@ def run_bulk_smr(pqtl_dataset: str, eqtl_dataset: str, pheno_id: str, sumstats: 
     temp_sumstats = prepare_smr_gwas(sumstats, pheno_id)
 
     for label, chr_prefixes in tissues.items():
-        bulk_dir = paths.smr_bulk_dir(eqtl_dataset, local_results_dir)
+        # bulk SMR(GWAS x eQTL) for a given (pheno_id, eqtl_dataset, label) never depends
+        # on pqtl_dataset - always looked up/written under the shared synthesis/ tree
+        # (not local_results_dir) so every pqtl_dataset run reuses the same completed
+        # genome-wide SMR instead of re-running the smr binary per chromosome each time
+        bulk_dir = paths.smr_bulk_dir(eqtl_dataset, "synthesis")
         final_dir = bulk_dir / f"eQTL_{label}"
         final_file = final_dir / f"{pheno_id}_{label}.smr"
 
@@ -500,9 +507,10 @@ def run_bulk_smr(pqtl_dataset: str, eqtl_dataset: str, pheno_id: str, sumstats: 
                 peqtl_smr=5.0e-8, #### change to default one
                 peqtl_heidi=1.57e-3, ###### change to real default
                 thread_num=8,
-                maf=maf
+                maf=maf,
+                out_dir="synthesis"
             )
-            chr_out = Path(f"{paths.smr_raw_prefix(f'bulk_raw/{eqtl_dataset}/{label}/chr{chr_num}', pheno_id, local_results_dir)}.smr")
+            chr_out = Path(f"{paths.smr_raw_prefix(f'bulk_raw/{eqtl_dataset}/{label}/chr{chr_num}', pheno_id, 'synthesis')}.smr")
             if chr_out.exists() and chr_out.stat().st_size > 0:
                 chr_smr_files.append(chr_out)
             else:
@@ -522,7 +530,7 @@ def run_bulk_smr(pqtl_dataset: str, eqtl_dataset: str, pheno_id: str, sumstats: 
         fdr_correct_smr_file(final_file, pheno_id, label)
         print(f"[DONE] Saved genome-wide bulk SMR results for {label}: {final_file}")
 
-        scratch_dir = Path(local_results_dir) / "SMR" / "bulk_raw" / eqtl_dataset / label
+        scratch_dir = Path("synthesis") / "SMR" / "bulk_raw" / eqtl_dataset / label
         if scratch_dir.exists():
             shutil.rmtree(scratch_dir)
 
@@ -538,7 +546,10 @@ def run_bulk_smr(pqtl_dataset: str, eqtl_dataset: str, pheno_id: str, sumstats: 
 # is tissue-resolved (1 file per tissue via rglob, same idea as single-cell's per-cell
 # loop); eQTLGen / MetaBrain are flat (1 file for the dataset).
 def ingest_bulk_smr(pqtl_dataset: str, eqtl_dataset: str, pheno_id: str, local_results_dir: str = "results"):
-    bulk_dir = paths.smr_bulk_dir(eqtl_dataset, local_results_dir)
+    # same shared synthesis/ tree run_bulk_smr() writes to/checks - independent of
+    # local_results_dir (this dataset's run-scoped out_dir) since the underlying SMR
+    # computation is keyed only by (pheno_id, eqtl_dataset), not pqtl_dataset
+    bulk_dir = paths.smr_bulk_dir(eqtl_dataset, "synthesis")
     smr_files = sorted(bulk_dir.rglob(f"*{pheno_id}*.smr"))
 
     if len(smr_files) == 0:

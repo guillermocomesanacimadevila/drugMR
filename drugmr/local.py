@@ -93,8 +93,17 @@ def results(
     cfg = Config(project_root / config)
     pqtl_dataset = cfg.pqtl_dataset
     pheno_id = cfg.pheno_id
-    mr_res = project_root / paths.mr_out(pqtl_dataset, pheno_id)
-    coloc_res = project_root / paths.coloc_out(pqtl_dataset, pheno_id)
+
+    run_id = registry.get_latest_run_id(pheno_id, pqtl_dataset, root=str(project_root / "runs"))
+    if run_id is None:
+        raise FileNotFoundError(
+            f"No recorded run found for pheno_id={pheno_id!r}, pqtl_dataset={pqtl_dataset!r}. "
+            "Run dm.local(config=...) (or dm.hpc(...)) first."
+        )
+    out_dir = str(paths.run_results_dir(run_id, root=str(project_root / "runs")))
+
+    mr_res = project_root / paths.mr_out(pqtl_dataset, pheno_id, out_dir)
+    coloc_res = project_root / paths.coloc_out(pqtl_dataset, pheno_id, out_dir)
     db_script = project_root / db_script
     dashboard_script = project_root / dashboard_script
 
@@ -170,10 +179,17 @@ def results(
 # produce the same output as in the cloud -> which then run local scripts to load into postgres db and then dashboard
 # to check docker container - create a function within local()
 
-def local(config: str):
+def local(config: str, run_id: str = None):
     # config has no default on purpose - there's no single correct params file
     # anymore now that each (pheno_id, pqtl_dataset) pair has its own under
     # params/ (e.g. params/AD.wingo_brain.yaml) - pass one explicitly.
+    #
+    # run_id defaults to None, which keeps the deterministic
+    # (pheno_id, pqtl_dataset, day, git commit) behaviour below. Pass an
+    # existing runs/<run_id> value explicitly to resume/retry into that same
+    # run dir instead - e.g. after fixing a bug in one step, to pick up
+    # where a previous day's run left off rather than starting a fresh
+    # runs/<run_id> dir (and therefore rerunning every step from scratch).
     project_root = Path(__file__).resolve().parents[1]
     cfg = Config(project_root / config)
     pheno_id = cfg.pheno_id
@@ -225,10 +241,20 @@ def local(config: str):
     # run_id is deterministic for a given (pheno_id, pqtl_dataset, day, git commit) -
     # rerunning today on the same commit reuses the same runs/<run_id>/ dir (and its
     # check_output()/require_output() skip behavior); a new day or a new commit starts
-    # a fresh, separately-tracked run rather than silently overwriting the old one
+    # a fresh, separately-tracked run rather than silently overwriting the old one -
+    # unless run_id is passed explicitly, in which case that existing run dir is
+    # reused as-is (its own check_output()/require_output() gates then decide what
+    # still needs to run)
     git_sha7 = registry.current_git_sha7(cwd=project_root)
     date_str = datetime.now().strftime("%Y%m%d")
-    run_id = paths.make_run_id(pheno_id, pqtl_dataset, date_str, git_sha7)
+    if run_id is None:
+        run_id = paths.make_run_id(pheno_id, pqtl_dataset, date_str, git_sha7)
+    elif not run_id.startswith(f"{pheno_id}_{pqtl_dataset}_"):
+        raise ValueError(
+            f"run_id {run_id!r} does not match config's pheno_id={pheno_id!r}, "
+            f"pqtl_dataset={pqtl_dataset!r} - refusing to write into a run dir "
+            "for a different (pheno_id, pqtl_dataset) pair."
+        )
     out_dir = str(paths.run_results_dir(run_id))
     print(f"[TRACKING] run_id: {run_id}")
 
@@ -348,10 +374,11 @@ docker run --rm \\
             mediator_args += " --remove_apoe"
 
         cmd_m_qc = f"""
-set -euo pipefail 
+set -euo pipefail
 docker run --rm \\
   -v "{project_root}:/work" \\
   -w /work \\
+  -e PYTHONPATH=. \\
   "{image_name}" \\
   python bin/arrange_mediators.py \\
     --mediators \\
@@ -372,6 +399,7 @@ docker run --rm \\
   --platform linux/amd64 \\
   -v "{project_root}:/work" \\
   -w /work \\
+  -e PYTHONPATH=. \\
   "{image_name}" \\
   python bin/prep_cis_regions.py \\
     --pqtl_dataset {pqtl_dataset} \\
@@ -412,7 +440,8 @@ docker run --rm \\
     dat/cis_regions/{pqtl_dataset} \\
     {pheno_id} \\
     {paths.qc_out(pheno_id)} \\
-    {ref_bfile}
+    {ref_bfile} \\
+    {out_dir}
 """
 
     if not check_output(mr_out, "cis-MR", overwrite):

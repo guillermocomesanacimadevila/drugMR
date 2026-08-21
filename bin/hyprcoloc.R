@@ -8,20 +8,23 @@ suppressPackageStartupMessages({
 
 args <- commandArgs(trailingOnly = TRUE)
 
-if (length(args) < 5) {
-  stop("Usage: Rscript hyprcoloc.R <pqtl_dataset> <protein> <cell_type> <pheno_id> <trio_dir>")
+if (length(args) < 6) {
+  stop("Usage: Rscript hyprcoloc.R <pqtl_dataset> <protein> <cell_type> <pheno_id> <trio_dir> <local_results_dir>")
 }
 
 # trio_dir holds pqtl.parquet / gwas.parquet / eqtl.parquet for this protein x
 # cell type - already matched to the same SNP set and aligned to a common
 # effect allele (the GWAS A1) by bin/hyprcoloc_targets.py
-pqtl_dataset <- args[1]
-protein      <- args[2]
-cell_type    <- args[3]
-pheno_id     <- args[4]
-trio_dir     <- args[5]
+pqtl_dataset      <- args[1]
+protein           <- args[2]
+cell_type         <- args[3]
+pheno_id          <- args[4]
+trio_dir          <- args[5]
+local_results_dir <- args[6]
 
-out_dir <- file.path("./results/hyprcoloc", pqtl_dataset)
+# must match paths.hyprcoloc_dataset_out(...).parent.parent in
+# bin/hyprcoloc_targets.py, which is where the caller looks for out_file
+out_dir <- file.path(local_results_dir, "hyprcoloc", pqtl_dataset)
 dir.create(out_dir, showWarnings = FALSE, recursive = TRUE)
 out_file <- file.path(out_dir, paste0(pheno_id, "_", protein, "_", cell_type, "_hyprcoloc.tsv"))
 
@@ -89,5 +92,9 @@ result <- hyprcoloc_runner(
   pheno_id     = pheno_id,
   trio_dir     = trio_dir
 )
+
+
+###### PRINT PRIORS 
+# formals(hyprcoloc::hyprcoloc)[c("prior.1", "prior.c", "prior.12")]
 
 print(result)

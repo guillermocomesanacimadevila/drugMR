@@ -9,7 +9,7 @@ suppressPackageStartupMessages({
 args <- commandArgs(trailingOnly = TRUE)
 
 if (length(args) < 7) {
-  stop("Usage: Rscript coloc.R <pqtl_dataset> <protein_id> <pheno_id> <gwas_parquet> <pqtl_parquet> <n_cases> <n_controls>")
+  stop("Usage: Rscript coloc.R <pqtl_dataset> <protein_id> <pheno_id> <gwas_parquet> <pqtl_parquet> <n_cases> <n_controls> [results_dir]")
 }
 
 # we have defined that the exposure pQTL == quant ALWAYS
@@ -22,11 +22,14 @@ gwas_file    <- args[4]
 pqtl_file    <- args[5]
 n_cases      <- as.numeric(args[6])
 n_controls   <- as.numeric(args[7])
+# results_dir mirrors drugmr/paths.py's out_dir (e.g. "runs/<run_id>/results") -
+# must match what coloc_targets.py's pairwise_coloc()/coloc_with_mediators() read back
+results_dir  <- ifelse(length(args) >= 8, args[8], "results")
 
 exposure_def <- "quant"
 pp4_thresh   <- 0.70
 outcome_def  <- "cc"   # might have to change this at some other stage
-out_dir <- file.path("./results/coloc", pqtl_dataset)
+out_dir <- file.path(results_dir, "coloc", pqtl_dataset)
 dir.create(out_dir, showWarnings = FALSE, recursive = TRUE)
 
 # out_file = just 1 file eventually, but for now 1 file per protein
@@ -57,12 +60,17 @@ print(paste0("[TRACKING] GWAS file: ", gwas_file))
 print(paste0("[TRACKING] pQTL SNPs: ", nrow(protein)))
 print(paste0("[TRACKING] GWAS SNPs: ", nrow(gwas)))
 
+# deCODE's own pQTL extraction has used both "FRQ" and "MAF" for the same
+# allele-frequency column across different runs/scripts - pick whichever is
+# actually present rather than hardcoding "FRQ"
+protein_maf_col <- if ("FRQ" %in% names(protein)) "FRQ" else "MAF"
+
 # conform pQTL dataset
 dataset1 <- list(
   snp     = protein$SNP,
   beta    = protein$BETA,
   varbeta = protein$SE^2,
-  MAF     = protein$FRQ,
+  MAF     = protein[[protein_maf_col]],
   N       = n_protein,
   type    = exposure_def
 )
@@ -79,6 +87,8 @@ dataset2 <- list(
 )
 
 # compile results with default priors
+
+
 res <- coloc.abf(
   dataset1 = dataset1,
   dataset2 = dataset2,
@@ -86,6 +96,83 @@ res <- coloc.abf(
   p2 = 1e-4,
   p12 = 1e-5
 )
+
+
+######### SENSITIVITY PRIORS
+sensitivity_priors <- list(
+  most_conservative = list(
+    p1 = 1e-4,
+    p2 = 1e-4,
+    p12 = 1e-6
+  ),
+  conservative = list(
+    p1 = 1e-4,
+    p2 = 1e-4,
+    p12 = 2e-6
+  ),
+  moderately_conservative = list(
+    p1 = 1e-4,
+    p2 = 1e-4,
+    p12 = 5e-6
+  )
+)
+
+
+sensitivity_results <- list()
+
+for (scenario_name in names(sensitivity_priors)) {
+  pair <- sensitivity_priors[[scenario_name]]
+
+  sens_res <- coloc.abf(
+    dataset1 = dataset1,
+    dataset2 = dataset2,
+    p1  = pair$p1,
+    p2  = pair$p2,
+    p12 = pair$p12
+  )
+
+  sens_summary <- as.data.table(as.list(sens_res$summary))
+  sens_summary[, scenario := scenario_name]
+  sens_summary[, p1 := pair$p1]
+  sens_summary[, p2 := pair$p2]
+  sens_summary[, p12 := pair$p12]
+  sens_summary[, coloc_pass := PP.H4.abf >= pp4_thresh]
+
+  sensitivity_results[[scenario_name]] <- sens_summary
+}
+
+sensitivity_summary <- rbindlist(sensitivity_results)
+sensitivity_summary[, protein_id := protein_id]
+sensitivity_summary[, outcome_trait := pheno_id]
+sensitivity_summary[, top_snp := top_snp]
+sensitivity_summary[, pp4_threshold := pp4_thresh]
+
+setcolorder(sensitivity_summary, c(
+  "protein_id",
+  "outcome_trait",
+  "top_snp",
+  "scenario",
+  "p1",
+  "p2",
+  "p12",
+  "nsnps",
+  "PP.H0.abf",
+  "PP.H1.abf",
+  "PP.H2.abf",
+  "PP.H3.abf",
+  "PP.H4.abf",
+  "coloc_pass",
+  "pp4_threshold"
+))
+
+sensitivity_file <- file.path(out_dir, paste0(pheno_id, "_", protein_id, "_coloc_sensitivity.tsv"))
+fwrite(sensitivity_summary, sensitivity_file, sep = "\t")
+print(paste0("[DONE] Saved COLOC sensitivity results: ", sensitivity_file))
+
+
+
+
+
 
 print(paste0("[RESULTS] COLOC results!: ", out_file))
 print(res)

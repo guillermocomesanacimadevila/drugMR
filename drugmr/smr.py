@@ -15,7 +15,8 @@ def SMR(
     peqtl_smr: float,
     peqtl_heidi: float,
     thread_num: int,
-    maf: float
+    maf: float,
+    out_dir: str = "synthesis"
 ):
     ref_bfile = Path(ref_bfile)
     sumstats = Path(sumstats)
@@ -24,9 +25,13 @@ def SMR(
     # eqtl_dataset can be stuff like SingleBrain/Ast
     # use full path for directory but only cell name for output prefix
     eqtl_dataset = Path(eqtl_dataset)
-    out_dir = paths.smr_raw_dir(eqtl_dataset, pheno_id)
-    os.makedirs(out_dir, exist_ok=True)
-    out_file = paths.smr_raw_prefix(eqtl_dataset, pheno_id)
+    # SMR(GWAS x eQTL) result for a given (pheno_id, eqtl_dataset) never depends on
+    # pqtl_dataset, so this defaults to the shared synthesis/ tree rather than a
+    # per-run out_dir - every pqtl_dataset run reuses the same computation instead
+    # of re-running the smr binary from scratch
+    raw_out_dir = paths.smr_raw_dir(eqtl_dataset, pheno_id, out_dir)
+    os.makedirs(raw_out_dir, exist_ok=True)
+    out_file = paths.smr_raw_prefix(eqtl_dataset, pheno_id, out_dir)
     print(f"[TRACKING] Running SMR on {pheno_id} using {eqtl_dataset}")
 
     cmd_smr = f"""

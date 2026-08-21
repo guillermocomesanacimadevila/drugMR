@@ -118,5 +118,3 @@ class PyTwoSampleMR:
             "CI_HIGH": [CI_HIGH_IVW]
         })
         return ivw_result, snp_results
-    
-    # def WME -> At least 50% of instruments have valid IVWs

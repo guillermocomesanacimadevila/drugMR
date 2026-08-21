@@ -250,7 +250,7 @@ def hyprcoloc_targets(pqtl_dataset: str, pheno_id: str, eqtl_dataset: str, local
 
         cmd_hyprcoloc = [
             "Rscript", hyprcoloc_script,
-            pqtl_dataset, protein, cell_type, pheno_id, str(trio_dir)
+            pqtl_dataset, protein, cell_type, pheno_id, str(trio_dir), local_results_dir
         ]
         print(f"[TRACKING] Running HyPrColoc for {protein} x {cell_type}")
         subprocess.run(cmd_hyprcoloc, check=True)

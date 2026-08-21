@@ -1363,10 +1363,41 @@ def dashboard(db_name: str, port_number: str, phenotype: str, pqtl_dataset: str)
         if col in mr_coloc_pass.columns:
             mr_coloc_pass[col] = mr_coloc_pass[col].round(3)
 
+    # Overview-only PheWAS safety gate: a target that passes cis-MR + pQTL COLOC
+    # is only "prioritised" on the front page if it also has no Bonferroni-
+    # significant FinnGen or UKB PheWAS MR hit with beta_mr >= 0 (same allele
+    # raising both the target and the adverse phenotype). Mirrors the
+    # FinnGen/UKB stages of the Final Targets Sankey, but applied here so it
+    # gates the Overview tab's card list too - mr_coloc_pass itself is left
+    # untouched since the Sankey needs the un-gated COLOC-pass set to draw its
+    # own FinnGen/UKB drop-off columns.
+    mr_coloc_pass_proteins = (
+        set(mr_coloc_pass["protein"].dropna().astype(str))
+        if "protein" in mr_coloc_pass.columns else set()
+    )
+
+    overview_finngen_status = compute_phewas_safety_status(finngen_phewas_outcome, mr_coloc_pass_proteins)
+    overview_finngen_safe = {
+        protein for protein in mr_coloc_pass_proteins
+        if overview_finngen_status.get(protein) != "fail"
+    }
+
+    overview_ukb_status = compute_phewas_safety_status(ukb_phewas_outcome, overview_finngen_safe)
+    overview_phewas_safe_proteins = {
+        protein for protein in overview_finngen_safe
+        if overview_ukb_status.get(protein) != "fail"
+    }
+
+    mr_coloc_safe_pass = (
+        mr_coloc_pass[mr_coloc_pass["protein"].astype(str).isin(overview_phewas_safe_proteins)].copy()
+        if "protein" in mr_coloc_pass.columns else mr_coloc_pass.copy()
+    )
+
     # main staged target counts
     n_tested = safe_nunique(mr_outcome, "protein")
     n_mr = safe_nunique(mr_pass, "protein")
     n_mr_coloc = safe_nunique(mr_coloc_pass, "protein")
+    n_mr_coloc_safe = safe_nunique(mr_coloc_safe_pass, "protein")
     n_finngen_phewas = safe_nunique(finngen_phewas_outcome, "protein")
     n_ukb_phewas = safe_nunique(ukb_phewas_outcome, "protein")
 
@@ -1401,17 +1432,24 @@ def dashboard(db_name: str, port_number: str, phenotype: str, pqtl_dataset: str)
         st.divider()
         st.subheader("Target prioritisation")
         st.caption(
-            "Targets move from cis-MR testing to MR support and then to shared pQTL–GWAS "
+            "Targets move from cis-MR testing to MR support, then to shared pQTL–GWAS "
             "causal signal support through pairwise COLOC (stages 1-2 of the pipeline "
-            "above). The complete flow through every stage, including PheWAS safety, SMR "
-            "and HyPrColoc, is drawn as a Sankey diagram on the **7. Final Targets** tab."
+            "above), then through a FinnGen/UKB PheWAS safety check (stages 3-4). The "
+            "complete flow through every stage, including SMR and HyPrColoc, is drawn as "
+            "a Sankey diagram on the **7. Final Targets** tab."
         )
 
         with st.container(border=True):
-            metric1, metric2, metric3 = st.columns(3)
+            metric1, metric2, metric3, metric4 = st.columns(4)
             metric1.metric("Proteins tested by cis-MR", n_tested)
             metric2.metric("cis-MR supported", n_mr, f"{retention(n_mr, n_tested):.1f}% of tested", delta_color="off")
             metric3.metric("cis-MR + pQTL COLOC", n_mr_coloc, f"{retention(n_mr_coloc, n_mr):.1f}% retained", delta_color="off")
+            metric4.metric(
+                "+ PheWAS safe (FinnGen/UKB)",
+                n_mr_coloc_safe,
+                f"{retention(n_mr_coloc_safe, n_mr_coloc):.1f}% retained",
+                delta_color="off"
+            )
 
         st.divider()
 
@@ -1419,12 +1457,14 @@ def dashboard(db_name: str, port_number: str, phenotype: str, pqtl_dataset: str)
             "stage": [
                 "Proteins tested by cis-MR",
                 "cis-MR supported",
-                "cis-MR + pQTL COLOC"
+                "cis-MR + pQTL COLOC",
+                "+ PheWAS safe (FinnGen/UKB)"
             ],
             "n_targets": [
                 n_tested,
                 n_mr,
-                n_mr_coloc
+                n_mr_coloc,
+                n_mr_coloc_safe
             ]
         })
 
@@ -1452,20 +1492,30 @@ def dashboard(db_name: str, port_number: str, phenotype: str, pqtl_dataset: str)
         st.subheader("Prioritised targets")
         st.caption(
             "Every protein that has passed cis-MR and pairwise pQTL–GWAS COLOC at the "
-            "thresholds set in the sidebar, 1 card each. Betas and alleles are harmonised "
-            "to the outcome GWAS risk allele."
+            "thresholds set in the sidebar, and has no Bonferroni-significant FinnGen or "
+            "UKB PheWAS MR hit with a beta in the same direction (i.e. no evidence the "
+            "same risk allele also drives an adverse phenotype), 1 card each. Betas and "
+            "alleles are harmonised to the outcome GWAS risk allele."
         )
 
-        if not mr_coloc_pass.empty:
+        if not mr_coloc_safe_pass.empty:
             st.success(
-                f"{n_mr_coloc} unique target(s) passed the selected cis-MR and pairwise COLOC thresholds."
+                f"{n_mr_coloc_safe} unique target(s) passed the selected cis-MR and pairwise COLOC "
+                "thresholds with no adverse Bonferroni-significant FinnGen/UKB PheWAS signal."
             )
 
-            cards_df = mr_coloc_pass.sort_values(
+            if n_mr_coloc_safe < n_mr_coloc:
+                st.caption(
+                    f"{n_mr_coloc - n_mr_coloc_safe} additional target(s) passed cis-MR + COLOC but were "
+                    "excluded here for a Bonferroni-significant, same-direction FinnGen/UKB PheWAS hit - "
+                    "see the Sankey diagram on the **7. Final Targets** tab for the full breakdown."
+                )
+
+            cards_df = mr_coloc_safe_pass.sort_values(
                 ["pp_h4_abf", "mr_fdr_q"],
                 ascending=[False, True],
                 na_position="last"
-            ) if "pp_h4_abf" in mr_coloc_pass.columns else mr_coloc_pass
+            ) if "pp_h4_abf" in mr_coloc_safe_pass.columns else mr_coloc_safe_pass
 
             render_prioritised_target_cards(cards_df, outcome)
 
@@ -1494,16 +1544,16 @@ def dashboard(db_name: str, port_number: str, phenotype: str, pqtl_dataset: str)
                 "pp_h4_abf"
             ]
 
-            prioritised_cols = available_cols(mr_coloc_pass, prioritised_cols)
+            prioritised_cols = available_cols(mr_coloc_safe_pass, prioritised_cols)
 
-            if "pp_h4_abf" in mr_coloc_pass.columns:
-                mr_coloc_pass = mr_coloc_pass.sort_values(
+            if "pp_h4_abf" in mr_coloc_safe_pass.columns:
+                mr_coloc_safe_pass = mr_coloc_safe_pass.sort_values(
                     ["pp_h4_abf", "mr_fdr_q"],
                     ascending=[False, True],
                     na_position="last"
                 )
 
-            overview_table = mr_coloc_pass[prioritised_cols].copy()
+            overview_table = mr_coloc_safe_pass[prioritised_cols].copy()
 
             overview_column_names = {
                 "protein": "Protein",
@@ -1562,6 +1612,12 @@ def dashboard(db_name: str, port_number: str, phenotype: str, pqtl_dataset: str)
                     width="stretch"
                 )
 
+        elif n_mr_coloc > 0:
+            st.info(
+                f"{n_mr_coloc} target(s) passed the selected cis-MR and pQTL COLOC thresholds, but all were "
+                "excluded here for a Bonferroni-significant, same-direction FinnGen/UKB PheWAS hit - see the "
+                "Sankey diagram on the **7. Final Targets** tab for the full breakdown."
+            )
         else:
             st.info("No proteins currently pass both the selected cis-MR and pQTL COLOC thresholds.")
 

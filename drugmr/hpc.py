@@ -261,7 +261,9 @@ def run_mediator_qc(
 set -euo pipefail
 cd "{remote}"
 
-apptainer exec --bind "{remote}:/work" "{sif}" \\
+apptainer exec --bind "{remote}:/work" \\
+  --env PYTHONPATH=. \\
+  "{sif}" \\
 bash -c "cd /work && python bin/arrange_mediators.py \\
   --mediators \\
   --mediator-manifest {mediator_manifest} \\
@@ -284,7 +286,9 @@ def prep_cis_regions(
 set -euo pipefail 
 cd "{remote}"
 
-apptainer exec --bind "{remote}:/work" "{sif}" \\
+apptainer exec --bind "{remote}:/work" \\
+  --env PYTHONPATH=. \\
+  "{sif}" \\
 bash -c "cd /work && python bin/prep_cis_regions.py \\
   --pqtl_dataset {pqtl_dataset} \\
   --pheno_id {pheno_id} \\
@@ -299,7 +303,8 @@ def run_cis_mr(
     pqtl_dir: str,
     pheno_id: str,
     pheno_gwas: str,
-    ref_bfile: str
+    ref_bfile: str,
+    out_dir: str = "results"
 ):
     remote, sif = get_remote_paths(falcon_user)
 
@@ -313,7 +318,8 @@ bash -c "cd /work && Rscript bin/cis_mr.R \\
   {pqtl_dir} \\
   {pheno_id} \\
   {pheno_gwas} \\
-  {ref_bfile}"
+  {ref_bfile} \\
+  {out_dir}"
 """, falcon_user)
 
 def run_network_mr(
@@ -827,10 +833,15 @@ fi
 
 
 # Function to run all the HPC gist
-def hpc(config: str):
+def hpc(config: str, run_id: str = None):
     # config has no default on purpose - there's no single correct params file
     # anymore now that each (pheno_id, pqtl_dataset) pair has its own under
     # params/ (e.g. params/AD.wingo_brain.yaml) - pass one explicitly.
+    #
+    # run_id defaults to None, which keeps the deterministic
+    # (pheno_id, pqtl_dataset, day, remote commit) behaviour below. Pass an
+    # existing runs/<run_id> value explicitly to resume/retry into that same
+    # run dir instead of starting a fresh one.
     cfg = Config(config)
     falcon_user = cfg.falcon_user
     pheno_id = cfg.pheno_id
@@ -883,12 +894,21 @@ def hpc(config: str):
     # code version that actually executes the pipeline - not this local machine's HEAD.
     # Deterministic for a given (pheno_id, pqtl_dataset, day, remote commit): rerunning
     # today against the same remote commit reuses the same runs/<run_id>/ dir (and its
-    # check_remote_output() skip behavior) both on Falcon and in the pulled-down local copy.
+    # check_remote_output() skip behavior) both on Falcon and in the pulled-down local
+    # copy - unless run_id is passed explicitly, in which case that existing run dir is
+    # reused as-is.
     remote, _ = get_remote_paths(falcon_user)
     git_sha_result = ssh(f'cd "{remote}" && git rev-parse --short=7 HEAD', falcon_user)
     git_sha7 = git_sha_result.stdout.strip()
     date_str = datetime.now().strftime("%Y%m%d")
-    run_id = paths.make_run_id(pheno_id, pqtl_dataset, date_str, git_sha7)
+    if run_id is None:
+        run_id = paths.make_run_id(pheno_id, pqtl_dataset, date_str, git_sha7)
+    elif not run_id.startswith(f"{pheno_id}_{pqtl_dataset}_"):
+        raise ValueError(
+            f"run_id {run_id!r} does not match config's pheno_id={pheno_id!r}, "
+            f"pqtl_dataset={pqtl_dataset!r} - refusing to write into a run dir "
+            "for a different (pheno_id, pqtl_dataset) pair."
+        )
     out_dir = str(paths.run_results_dir(run_id))
     local_results_dir = out_dir
     print(f"[TRACKING] run_id: {run_id}")
@@ -989,6 +1009,7 @@ def hpc(config: str):
             pheno_id=pheno_id,
             pheno_gwas=qc_out,
             ref_bfile=ref_bfile,
+            out_dir=out_dir,
         )
 
     require_remote_output(
@@ -1072,7 +1093,7 @@ def hpc(config: str):
         required_for="Top cis-hit compilation"
     )
 
-    # compile final hits 
+    # compile final hits
     if not check_remote_output(
         falcon_user=falcon_user,
         path=target_stats_out,

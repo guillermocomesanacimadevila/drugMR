@@ -42,10 +42,11 @@ pqtl_dir     <- args[2] # dat/cis_regions/{pqtl_dataset}
 pheno_id     <- args[3] # AD
 pheno_gwas   <- args[4] # dat/gwas/{pheno_id}
 ref_bfile    <- args[5] # /Users/c.user/Desktop/neurobridge/ref/ldsc/1000G_EUR_Phase3_plink/1000G.EUR.QC.ALL"
-local_results_dir = "../results/cis-MR"
-# out_dir      <- args[6]
+# results_dir mirrors drugmr/paths.py's out_dir (e.g. "runs/<run_id>/results") -
+# must match what local.py's require_output() checks, hence not left hardcoded
+results_dir <- ifelse(length(args) >= 6, args[6], "results")
 
-out_dir <- "./results/cis-MR"
+out_dir <- file.path(results_dir, "cis-MR")
 
 # let's just assume for now that the ldsc ref stuff is inside dat/ref
 # ld <- ".dat/ref/ldsc/eur_w_ld_chr" -> for mediators
@@ -60,6 +61,12 @@ PVAL_THRESH   <- 5e-8
 F_THRESH      <- 10
 MIN_IV_WME    <- 3
 MIN_IV_EGGER  <- 3
+
+# deCODE's own pQTL extraction has used both "FRQ" and "MAF" for the same allele-
+# frequency column across different runs/scripts - pick whichever is actually present
+# rather than hardcoding one, so a schema change upstream doesn't silently zero out
+# every instrument via format_data()'s eaf.exposure being NA for a missing column
+eaf_col_name <- function(df) if ("FRQ" %in% names(df)) "FRQ" else "MAF"
 
 # create outdir 
 dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
@@ -204,14 +211,14 @@ mr_function <- function(pqtl_dataset, pqtl_dir, pheno_id, pheno_gwas, ref_bfile,
         se_col            = "SE",
         effect_allele_col = "A1",
         other_allele_col  = "A2",
-        eaf_col           = "FRQ",
+        eaf_col           = eaf_col_name(df),
         pval_col          = "P",
         samplesize_col    = "N",
         phenotype_col     = "phenotype"
       )
-      # check shape 
+      # check shape
       dim(exposure)
-      
+
       outcome <- format_data(
         df_pheno,
         type              = "outcome",
@@ -220,7 +227,7 @@ mr_function <- function(pqtl_dataset, pqtl_dir, pheno_id, pheno_gwas, ref_bfile,
         se_col            = "SE",
         effect_allele_col = "A1",
         other_allele_col  = "A2",
-        eaf_col           = "FRQ",
+        eaf_col           = eaf_col_name(df_pheno),
         pval_col          = "P",
         samplesize_col    = "N",
         phenotype_col     = "phenotype"
@@ -240,7 +247,10 @@ mr_function <- function(pqtl_dataset, pqtl_dir, pheno_id, pheno_gwas, ref_bfile,
           exposure$eaf.exposure < 0.99,
       ]
       exposure$F <- (exposure$beta.exposure^2) / (exposure$se.exposure^2)
-      exposure <- exposure[exposure$F >= F_THRESH, ]
+      # NA F (e.g. missing SE upstream) must be dropped explicitly - exposure[NA, ]
+      # keeps an all-NA row rather than excluding it, which silently corrupted
+      # instruments and made harmonise_data() find "no harmonised SNPs" downstream
+      exposure <- exposure[!is.na(exposure$F) & exposure$F >= F_THRESH, ]
       
       print(paste0("[TRACKING] Instruments after p/F filters: ", nrow(exposure)))
       

@@ -51,6 +51,7 @@ def pairwise_coloc(
     out_dir.mkdir(parents=True, exist_ok=True)
     df = pl.read_csv(paths.mr_out(pqtl_dataset, pheno_id, local_results_dir), separator="\t")
     results = []
+    results_sensitivity = []
 
     # filter for proteins which passed cis-MR thresholds (params/*.yaml gates.cis_mr)
     df2 = (
@@ -80,17 +81,29 @@ def pairwise_coloc(
         gwas = protein_dir / "gwas.parquet"
         pqtl = protein_dir / "pqtl.parquet"
         protein_file = out_dir / f"{pheno_id}_{protein}_coloc.tsv"
-        cmd_coloc = ["Rscript", coloc_script, pqtl_dataset, protein, pheno_id, str(gwas), str(pqtl), str(n_cases), str(n_controls)]
+        sensitivity_file = out_dir / f"{pheno_id}_{protein}_coloc_sensitivity.tsv"
+        cmd_coloc = ["Rscript", coloc_script, pqtl_dataset, protein, pheno_id, str(gwas), str(pqtl), str(n_cases), str(n_controls), str(local_results_dir)]
         print(f"[TRACKING] Running COLOC for {protein}")
         subprocess.run(cmd_coloc, check=True)
         results.append(pd.read_csv(protein_file, sep="\t"))
         protein_file.unlink()
+        results_sensitivity.append(pd.read_csv(sensitivity_file, sep="\t"))
+        sensitivity_file.unlink()
 
-        # compile into 1 master file 
+        # compile into 1 master file
     master = pd.concat(results, ignore_index=True)
     out_file = out_dir / f"{pqtl_dataset}_{pheno_id}_all_coloc.tsv"
     master.to_csv(out_file, sep="\t", index=False)
     print(f"[DONE] Saved master COLOC table: {out_file}")
+
+    # same treatment for the per-protein prior sensitivity sidecar bin/coloc.R
+    # writes alongside each protein_file - collect into 1 master table so it
+    # rides on the same check_output(coloc_out, ...) skip gate as everything
+    # else in this step, rather than leaving 1 orphaned TSV per protein behind
+    master_sensitivity = pd.concat(results_sensitivity, ignore_index=True)
+    sensitivity_out_file = paths.coloc_sensitivity_out(pqtl_dataset, pheno_id, local_results_dir)
+    master_sensitivity.to_csv(sensitivity_out_file, sep="\t", index=False)
+    print(f"[DONE] Saved master COLOC sensitivity table: {sensitivity_out_file}")
 
 
 
@@ -136,6 +149,8 @@ def coloc_with_mediators(
     # results list (for pairwise coloc runs)
     results_pairwise = []
     results_mediator_pairwise = []
+    results_pairwise_sensitivity = []
+    results_mediator_pairwise_sensitivity = []
 
     # compile candidate proteins for coloc
     proteins = df["protein"].to_list()
@@ -166,11 +181,15 @@ def coloc_with_mediators(
             pqtl = protein_dir / "pqtl.parquet"
 
             protein_file = out_dir / f"{pheno_id}_{protein}_coloc.tsv"
-            cmd_coloc = ["Rscript", standard_coloc, pqtl_dataset, protein, pheno_id, str(gwas), str(pqtl), str(n_cases), str(n_controls)]
+            protein_sensitivity_file = out_dir / f"{pheno_id}_{protein}_coloc_sensitivity.tsv"
+            cmd_coloc = ["Rscript", standard_coloc, pqtl_dataset, protein, pheno_id, str(gwas), str(pqtl), str(n_cases), str(n_controls), str(local_results_dir)]
             print(f"[TRACKING] Running COLOC for {protein}")
             subprocess.run(cmd_coloc, check=True)
             pairwise_df = pl.read_csv(protein_file, separator="\t")
             results_pairwise.append(pairwise_df)
+            protein_file.unlink()
+            results_pairwise_sensitivity.append(pl.read_csv(protein_sensitivity_file, separator="\t"))
+            protein_sensitivity_file.unlink()
 
             # second if (not strictly necessary -> as we can carry on with only X -> Y coloc)
             if X_M_IVW_FDR_q < ivw_fdr_q:
@@ -183,13 +202,17 @@ def coloc_with_mediators(
                 # cont...
                 m = protein_dir / "mediators" / f"{mediator}.parquet"
                 mediator_file = out_dir / f"{mediator}_{protein}_coloc.tsv"
+                mediator_sensitivity_file = out_dir / f"{mediator}_{protein}_coloc_sensitivity.tsv"
 
                 # n_cases and n_controls == n/a because mediator == quant trait
-                cmd_coloc = [ "Rscript", standard_coloc, pqtl_dataset, protein, mediator, str(m), str(pqtl), str(n_cases), str(n_controls)]
+                cmd_coloc = [ "Rscript", standard_coloc, pqtl_dataset, protein, mediator, str(m), str(pqtl), str(n_cases), str(n_controls), str(local_results_dir)]
                 print(f"[TRACKING] Running COLOC for {protein}")
                 subprocess.run(cmd_coloc, check=True)
                 mediator_df = pl.read_csv(mediator_file, separator="\t")
                 results_mediator_pairwise.append(mediator_df)
+                mediator_file.unlink()
+                results_mediator_pairwise_sensitivity.append(pl.read_csv(mediator_sensitivity_file, separator="\t"))
+                mediator_sensitivity_file.unlink()
 
                 # open those two coloc results and make sure pp4 for the same protein == > 0.7
                 # if pp4 > 0.7 on both: (PP.H4.abf)
@@ -210,6 +233,37 @@ def coloc_with_mediators(
                             moloc_json[protein].append(mediator)
 
                 # we need to also check whether > 1 mediator colocalises oin that same protein and save the correspondign according json file for moloc
+
+    # compile into master files, same treatment as pairwise_coloc(): 1 row per
+    # protein/mediator pair rather than 1 orphaned TSV per pair left in out_dir.
+    # coloc_out() is what local.py's/hpc.py's check_output(coloc_out, "COLOC", ...)
+    # gates the whole step on, so writing it here too (this branch previously
+    # never wrote it at all) means a mediators run now also satisfies that gate.
+    if results_pairwise:
+        pl.concat(results_pairwise).write_csv(
+            str(paths.coloc_out(pqtl_dataset, pheno_id, local_results_dir)), separator="\t"
+        )
+        print(f"[DONE] Saved master COLOC table: {paths.coloc_out(pqtl_dataset, pheno_id, local_results_dir)}")
+
+        pl.concat(results_pairwise_sensitivity).write_csv(
+            str(paths.coloc_sensitivity_out(pqtl_dataset, pheno_id, local_results_dir)), separator="\t"
+        )
+        print(f"[DONE] Saved master COLOC sensitivity table: {paths.coloc_sensitivity_out(pqtl_dataset, pheno_id, local_results_dir)}")
+    else:
+        print("[CONCERN] No proteins passed X_Y_IVW_FDR_q - no COLOC master table to save.")
+
+    if results_mediator_pairwise:
+        pl.concat(results_mediator_pairwise).write_csv(
+            str(paths.coloc_mediator_out(pqtl_dataset, pheno_id, local_results_dir)), separator="\t"
+        )
+        print(f"[DONE] Saved master mediator COLOC table: {paths.coloc_mediator_out(pqtl_dataset, pheno_id, local_results_dir)}")
+
+        pl.concat(results_mediator_pairwise_sensitivity).write_csv(
+            str(paths.coloc_mediator_sensitivity_out(pqtl_dataset, pheno_id, local_results_dir)), separator="\t"
+        )
+        print(f"[DONE] Saved master mediator COLOC sensitivity table: {paths.coloc_mediator_sensitivity_out(pqtl_dataset, pheno_id, local_results_dir)}")
+    else:
+        print("[CONCERN] No proteins passed X_M_IVW_FDR_q - no mediator COLOC master table to save.")
 
     moloc_json = {
         protein: traits

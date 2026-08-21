@@ -72,6 +72,33 @@ def coloc_out(pqtl_dataset: str, pheno_id: str, out_dir: str = "results") -> Pat
     return Path(out_dir) / "coloc" / pqtl_dataset / f"{pqtl_dataset}_{pheno_id}_all_coloc.tsv"
 
 
+def coloc_susie_out(pqtl_dataset: str, pheno_id: str, out_dir: str = "results") -> Path:
+    """SuSiE-based sensitivity check on top of coloc_out() - informational only,
+    nothing downstream gates on this file (see bin/coloc_susie.py)."""
+    return Path(out_dir) / "coloc_susie" / pqtl_dataset / f"{pqtl_dataset}_{pheno_id}_all_coloc_susie.tsv"
+
+
+def coloc_sensitivity_out(pqtl_dataset: str, pheno_id: str, out_dir: str = "results") -> Path:
+    """Prior sensitivity check on top of coloc_out() - reruns coloc.abf() per
+    protein under the named prior scenarios in bin/coloc.R's sensitivity_priors
+    list. Informational only, nothing downstream gates on this file. Lives
+    alongside coloc_out() (not its own top-level dir) since bin/coloc.R writes
+    both the primary and sensitivity TSV for a protein into the same out_dir."""
+    return Path(out_dir) / "coloc" / pqtl_dataset / f"{pqtl_dataset}_{pheno_id}_all_coloc_sensitivity.tsv"
+
+
+def coloc_mediator_out(pqtl_dataset: str, pheno_id: str, out_dir: str = "results") -> Path:
+    """Protein x mediator COLOC results from coloc_with_mediators() (bin/coloc_targets.py) -
+    the M-side pairs used to build the moloc.json candidate list, kept separate
+    from coloc_out()'s protein x outcome (Y) pairs since it's a different pairing."""
+    return Path(out_dir) / "coloc" / pqtl_dataset / f"{pqtl_dataset}_{pheno_id}_all_coloc_mediators.tsv"
+
+
+def coloc_mediator_sensitivity_out(pqtl_dataset: str, pheno_id: str, out_dir: str = "results") -> Path:
+    """Prior sensitivity check on top of coloc_mediator_out() - see coloc_sensitivity_out()."""
+    return Path(out_dir) / "coloc" / pqtl_dataset / f"{pqtl_dataset}_{pheno_id}_all_coloc_mediators_sensitivity.tsv"
+
+
 def network_mr_m_y_dir(pheno_id: str) -> Path:
     """Tier-1: mediator -> outcome genome-wide MR. Shared across every
     pqtl_dataset run for this pheno_id (run_genomewide_mr() takes no
