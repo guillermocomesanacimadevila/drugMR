@@ -9,4 +9,5 @@ pytest-cov>=5.0
 PyYAML==6.0.3
 scipy==1.17.0
 pyenrichr==1.0.2
+stringdb==0.1.5
 synapseclient
