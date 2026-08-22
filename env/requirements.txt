@@ -10,4 +10,7 @@ PyYAML==6.0.3
 scipy==1.17.0
 pyenrichr==1.0.2
 stringdb==0.1.5
+markov-clustering==0.0.6.dev0
+networkx==3.6.1
+matplotlib==3.10.8
 synapseclient
