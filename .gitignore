@@ -22,6 +22,7 @@ jupyter/
 scripts/
 plots/
 logs/
+build/
 work/
 outputs/
 results/
