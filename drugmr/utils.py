@@ -50,7 +50,6 @@ def extract_common_snps(datasets: dict, reference: str):
     return {name: shared_snps.join(df, on="SNP", how="inner").sort("SNP") for name, df in aligned.items()}
 
 
-
 def filter_mr_targets(df: pl.DataFrame):
     targets = []
     for row in df.iter_rows(named=True):
@@ -67,9 +66,27 @@ def filter_mr_targets(df: pl.DataFrame):
                 targets.append(protein)
     return targets
 
-# plink \
-#   --bfile 1000G.EUR.QC.ALL \
-#   --ld rs653765 rs1427281
+
+def filter_coloc_targets(df: pl.DataFrame):
+    targets = []
+    for row in df.iter_rows(named=True):
+        protein = row["protein"]
+        coloc_pass = row["coloc_pass"]
+        if coloc_pass == True:
+            targets.append(protein)
+    return targets
+
+
+def filter_phewas(df: pl.DataFrame):
+    targets = []
+    for row in df.iter_rows(named=True):
+        protein = row["protein"]
+        beta_mr = row["beta_mr"]
+        bf_sig = row["bonferroni_significant"]
+        if not bf_sig and beta_mr < 0:
+            targets.append(protein)
+        else:
+            print("F")
 
 
 def impute_ld(ref_bfile, snp_1, snp_2):
@@ -79,4 +96,3 @@ plink \
     --ld {snp_1} {snp_2}
 """
     return subprocess.run(cmd, shell=True, check=False, executable="/bin/bash", capture_output=True, text=True)
-
