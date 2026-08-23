@@ -50,6 +50,10 @@ def extract_common_snps(datasets: dict, reference: str):
     return {name: shared_snps.join(df, on="SNP", how="inner").sort("SNP") for name, df in aligned.items()}
 
 
+def strip_protein_id(targets: list[str]) -> list[str]:
+    return [target.split("_", 1)[0] for target in targets]
+
+
 def filter_mr_targets(df: pl.DataFrame):
     targets = []
     for row in df.iter_rows(named=True):
@@ -87,7 +91,8 @@ def filter_phewas(df: pl.DataFrame):
             targets.append(protein)
         else:
             print("F")
-
+    return targets
+        
 
 def impute_ld(ref_bfile, snp_1, snp_2):
     cmd = f"""

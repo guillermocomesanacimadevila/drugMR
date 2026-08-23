@@ -189,7 +189,6 @@ def phewas_out(pqtl_dataset: str, pheno_id: str, out_dir: str = "results") -> Pa
 def phewas_ukbb_out(pqtl_dataset: str, pheno_id: str, out_dir: str = "results") -> Path:
     return Path(out_dir) / "PheWAS_UKBB" / pqtl_dataset / pheno_id / f"{pqtl_dataset}_{pheno_id}_PheWAS.tsv"
 
-
 def smr_raw_dir(eqtl_dataset, pheno_id: str, out_dir: str = "results") -> Path:
     """Directory for the raw `smr` binary's own output (drugmr.smr.SMR()'s
     --out prefix lives inside this dir - see smr_raw_prefix). eqtl_dataset
