@@ -2,7 +2,7 @@
 # utils.py
 import polars as pl
 import subprocess
-
+import numpy as np 
 
 # generic 3+ trait SNP matcher for multi-trait coloc-style analyses (HyPrColoc,
 # MOLOC, ...) - each df in `datasets` needs SNP / A1 / A2 / BETA / SE columns and
@@ -101,3 +101,23 @@ plink \
     --ld {snp_1} {snp_2}
 """
     return subprocess.run(cmd, shell=True, check=False, executable="/bin/bash", capture_output=True, text=True)
+
+
+def quick_f_statistic(beta_exposure, se_exposure):
+    return (beta_exposure / se_exposure)**2
+
+
+def lambda_sample_overlap(
+        n_overlap,
+        n_exposure_total,
+        n_outcome_total):
+    lambda_res = (
+        n_overlap / np.sqrt(n_exposure_total * n_outcome_total)
+    )
+    return lambda_res
+
+
+def sample_overlap_relative_bias(lambda_funct, f_statistic):
+    raw = lambda_funct / f_statistic
+    percent = raw * 100
+    return raw, percent
