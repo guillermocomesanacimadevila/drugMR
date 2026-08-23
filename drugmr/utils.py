@@ -74,7 +74,7 @@ def filter_mr_targets(df: pl.DataFrame):
 def filter_coloc_targets(df: pl.DataFrame):
     targets = []
     for row in df.iter_rows(named=True):
-        protein = row["protein"]
+        protein = row["protein_id"]
         coloc_pass = row["coloc_pass"]
         if coloc_pass == True:
             targets.append(protein)
