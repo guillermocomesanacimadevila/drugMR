@@ -50,50 +50,6 @@ def extract_common_snps(datasets: dict, reference: str):
     return {name: shared_snps.join(df, on="SNP", how="inner").sort("SNP") for name, df in aligned.items()}
 
 
-def strip_protein_id(targets: list[str]) -> list[str]:
-    return [target.split("_", 1)[0] for target in targets]
-
-
-def filter_mr_targets(df: pl.DataFrame):
-    targets = []
-    for row in df.iter_rows(named=True):
-        protein = row["protein"]
-        n_instruments = row["n_instruments"]
-        wald = row["Wald_FDR_q"]
-        q = row["Q_pval"]
-        ivw = row["IVW_FDR_q"]
-        if n_instruments == 1:
-            if wald is not None and wald < 0.05:
-                targets.append(protein)
-        elif n_instruments > 1:
-            if (ivw is not None and q is not None and ivw < 0.05 and q > 0.05):
-                targets.append(protein)
-    return targets
-
-
-def filter_coloc_targets(df: pl.DataFrame):
-    targets = []
-    for row in df.iter_rows(named=True):
-        protein = row["protein_id"]
-        coloc_pass = row["coloc_pass"]
-        if coloc_pass == True:
-            targets.append(protein)
-    return targets
-
-
-def filter_phewas(df: pl.DataFrame):
-    targets = []
-    for row in df.iter_rows(named=True):
-        protein = row["protein"]
-        beta_mr = row["beta_mr"]
-        bf_sig = row["bonferroni_significant"]
-        if not bf_sig and beta_mr < 0:
-            targets.append(protein)
-        else:
-            print("F")
-    return targets
-        
-
 def impute_ld(ref_bfile, snp_1, snp_2):
     cmd = f"""
 plink \
