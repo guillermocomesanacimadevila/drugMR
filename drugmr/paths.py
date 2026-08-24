@@ -201,6 +201,63 @@ def smr_raw_prefix(eqtl_dataset, pheno_id: str, out_dir: str = "results") -> Pat
     return smr_raw_dir(eqtl_dataset, pheno_id, out_dir) / f"{pheno_id}_{eqtl_name}"
 
 
+# Pathway enrichement pipeline -> paths
+###################################
+###################################
+
+
+def pathways_dir(pqtl_dataset: str, pheno_id: str, out_dir: str = "results") -> Path:
+    """Tier-2: STRING PPI -> MCL clustering -> EnrichR pathway workflow
+    (bin/ppi_cluster_pathway.py), one directory per pqtl_dataset/pheno_id run."""
+    return Path(out_dir) / "Pathways" / pqtl_dataset / pheno_id
+
+
+def pathway_candidate_targets_out(pqtl_dataset: str, pheno_id: str, out_dir: str = "results") -> Path:
+    """Targets passing the 3-stage gate (cis-MR -> COLOC -> PheWAS safety) fed into STRING."""
+    return pathways_dir(pqtl_dataset, pheno_id, out_dir) / "candidate_targets" / f"{pqtl_dataset}_{pheno_id}_candidate_targets.tsv"
+
+
+def pathway_string_ppi_out(pqtl_dataset: str, pheno_id: str, out_dir: str = "results") -> Path:
+    """STRING PPI edges filtered by string_score."""
+    return pathways_dir(pqtl_dataset, pheno_id, out_dir) / "string_ppi" / f"{pqtl_dataset}_{pheno_id}_string_ppi_filtered.tsv"
+
+
+def pathway_mcl_dir(pqtl_dataset: str, pheno_id: str, out_dir: str = "results") -> Path:
+    return pathways_dir(pqtl_dataset, pheno_id, out_dir) / "mcl"
+
+
+def pathway_mcl_clusters_out(pqtl_dataset: str, pheno_id: str, out_dir: str = "results") -> Path:
+    """cluster_id -> gene mapping - the join key that ties pathway_enrichr_out()
+    files back to the cluster they were computed from."""
+    return pathway_mcl_dir(pqtl_dataset, pheno_id, out_dir) / f"{pqtl_dataset}_{pheno_id}_mcl_clusters.tsv"
+
+
+def pathway_mcl_plot_out(pqtl_dataset: str, pheno_id: str, out_dir: str = "results") -> Path:
+    return pathway_mcl_dir(pqtl_dataset, pheno_id, out_dir) / f"{pqtl_dataset}_{pheno_id}_mcl_clusters.png"
+
+
+def pathway_enrichr_dir(pqtl_dataset: str, pheno_id: str, out_dir: str = "results") -> Path:
+    return pathways_dir(pqtl_dataset, pheno_id, out_dir) / "enrichr"
+
+
+def pathway_enrichr_out(pqtl_dataset: str, pheno_id: str, cluster_id: int, library: str, out_dir: str = "results") -> Path:
+    """library is "GO" or "KEGG" - one file per cluster per library."""
+    return pathway_enrichr_dir(pqtl_dataset, pheno_id, out_dir) / f"{pqtl_dataset}_{pheno_id}_cluster{cluster_id}_{library}.tsv"
+
+
+
+
+
+
+###################################
+###################################
+
+
+
+
+
+
+
 def make_run_id(pheno_id: str, pqtl_dataset: str, date_str: str, git_sha7: str) -> str:
     return f"{pheno_id}_{pqtl_dataset}_{date_str}_{git_sha7}"
 
