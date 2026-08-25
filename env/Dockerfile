@@ -1,3 +1,24 @@
+################################################################
+################################################################
+
+# Stage 1 -> for CLI tools (i.e. PWCoCo)
+FROM debian:bookworm-slim AS pwcoco-builder
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    cmake \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY tools/pwcoco /src/pwcoco
+
+RUN cmake -S /src/pwcoco -B /src/pwcoco/build -DCMAKE_BUILD_TYPE=Release \
+    && cmake --build /src/pwcoco/build -j"$(nproc)"
+
+################################################################
+################################################################
+
+# Stage 2 -> main container
 FROM mambaorg/micromamba:1.5.10
 
 # docker buildx build \
@@ -7,6 +28,7 @@ FROM mambaorg/micromamba:1.5.10
 #   --push .
 
 # adding moloc
+# docker run --rm ghcr.io/guillermocomesanacimadevila/drugmr:latest pwcoco --help
 
 USER root
 
@@ -117,6 +139,11 @@ RUN GCTA_BIN="$(command -v gcta64)" && \
     test -x "${GCTA_BIN}" && \
     ln -sf "${GCTA_BIN}" /usr/local/bin/gcta && \
     test -x /usr/local/bin/gcta
+
+
+# PWCoCo gist
+COPY --from=pwcoco-builder /src/pwcoco/build/pwcoco /usr/local/bin/pwcoco
+RUN chmod +x /usr/local/bin/pwcoco
 
 USER $MAMBA_USER
 
