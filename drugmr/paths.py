@@ -99,6 +99,28 @@ def coloc_mediator_sensitivity_out(pqtl_dataset: str, pheno_id: str, out_dir: st
     return Path(out_dir) / "coloc" / pqtl_dataset / f"{pqtl_dataset}_{pheno_id}_all_coloc_mediators_sensitivity.tsv"
 
 
+def pwcoco_raw_dir(pqtl_dataset: str, pheno_id: str, out_dir: str = "results") -> Path:
+    """Per-protein PWCoCo --out prefix lives inside this dir. PWCoCo appends
+    rather than overwrites its .coloc/.cojo output, so each protein needs its
+    own unique prefix - this dir gives bin/pwcoco_targets.py somewhere to put
+    per-protein raw PWCoCo output before it's parsed/aggregated into
+    pwcoco_out() below."""
+    return Path(out_dir) / "pwcoco" / pqtl_dataset / pheno_id
+
+
+def pwcoco_raw_prefix(pqtl_dataset: str, pheno_id: str, protein: str, out_dir: str = "results") -> Path:
+    return pwcoco_raw_dir(pqtl_dataset, pheno_id, out_dir) / protein
+
+
+def pwcoco_out(pqtl_dataset: str, pheno_id: str, out_dir: str = "results") -> Path:
+    """Aggregated PWCoCo results across all proteins for this pqtl_dataset x
+    pheno_id run - what bin/pwcoco_targets.py parses pwcoco_raw_prefix()'s
+    per-protein .coloc files into. Same shape/naming as coloc_out() so the
+    coloc_support concordance join between the two can be a plain merge on
+    (pqtl_dataset, pheno_id, protein)."""
+    return Path(out_dir) / "pwcoco" / pqtl_dataset / f"{pqtl_dataset}_{pheno_id}_all_pwcoco.tsv"
+
+
 def network_mr_m_y_dir(pheno_id: str) -> Path:
     """Tier-1: mediator -> outcome genome-wide MR. Shared across every
     pqtl_dataset run for this pheno_id (run_genomewide_mr() takes no

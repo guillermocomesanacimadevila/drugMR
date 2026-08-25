@@ -17,8 +17,8 @@ from drugmr.twosamplemr import PyTwoSampleMR
 finngen_icd_endpoints = 2511
 # The COLOC output is used strictly to define which protein targets go into PheWAS
 # For every selected target - grab the exact SNPs which were used in cis-MR
-# Make A1 the AD risk allele for every cis-MR instrument
-# Align pQTL beta + FinnGen beta to the AD risk allele before Wald ratio / IVW
+# Make A1 the pQTL exposure-increasing allele for every cis-MR instrument
+# Align AD beta + FinnGen beta to the pQTL risk allele before Wald ratio / IVW
 # FinnGen BETA == effect of ALT allele
 # For each pheno -> ensure ICD-10 coded
 # TO DO'S
@@ -201,7 +201,7 @@ def phewas_for_compelling_targets(pheno_id: str, pqtl_dataset: str, local_result
             rsid = str(instrument_row["SNP"])
             exposure_effect_allele = str(instrument_row["effect_allele.exposure"]).upper()
             exposure_other_allele = str(instrument_row["other_allele.exposure"]).upper()
-            beta_exposure = float(instrument_row["beta.exposure"])
+            beta_exposure_original = float(instrument_row["beta.exposure"])
             se_exposure = float(instrument_row["se.exposure"])
             p_exposure = float(instrument_row["pval.exposure"])
             ad_effect_allele = str(instrument_row["effect_allele.outcome"]).upper()
@@ -209,54 +209,54 @@ def phewas_for_compelling_targets(pheno_id: str, pqtl_dataset: str, local_result
             beta_ad_original = float(instrument_row["beta.outcome"])
             chromosome = str(instrument_row["CHR"]).replace("chr", "")
             position = int(instrument_row["BP"])
-            # make A1 the AD risk-increasing allele
-            # this guarantees beta_ad > 0 relative to A1
-            if beta_ad_original > 0:
-                A1 = ad_effect_allele
-                A2 = ad_other_allele
-                beta_ad = beta_ad_original
-                ad_A1_flipped = False
-            elif beta_ad_original < 0:
-                A1 = ad_other_allele
-                A2 = ad_effect_allele
-                beta_ad = -beta_ad_original
-                ad_A1_flipped = True
+            # make A1 the pQTL exposure-increasing allele
+            # this guarantees beta_exposure > 0 relative to A1
+            if beta_exposure_original > 0:
+                A1 = exposure_effect_allele
+                A2 = exposure_other_allele
+                beta_exposure = beta_exposure_original
+                exposure_A1_flipped = False
+            elif beta_exposure_original < 0:
+                A1 = exposure_other_allele
+                A2 = exposure_effect_allele
+                beta_exposure = -beta_exposure_original
+                exposure_A1_flipped = True
             else:
-                print(f"[TRACKING] AD beta is zero for {rsid}...")
+                print(f"[TRACKING] pQTL beta is zero for {rsid}...")
                 continue
 
-            # pQTL BETA originally corresponds to effect_allele.exposure
-            # align pQTL beta to the AD risk allele A1
-            beta_exposure_original = beta_exposure
+            # AD BETA originally corresponds to effect_allele.outcome
+            # align AD beta to the pQTL risk allele A1
             if (
-                exposure_effect_allele == A1 and
-                exposure_other_allele == A2
+                ad_effect_allele == A1 and
+                ad_other_allele == A2
             ):
-                exposure_A1_flipped = False
+                ad_A1_flipped = False
+                beta_ad = beta_ad_original
 
             elif (
-                exposure_effect_allele == A2 and
-                exposure_other_allele == A1
+                ad_effect_allele == A2 and
+                ad_other_allele == A1
             ):
-                beta_exposure = -beta_exposure
-                exposure_A1_flipped = True
+                beta_ad = -beta_ad_original
+                ad_A1_flipped = True
 
             else:
                 print(
-                    f"[TRACKING] Exposure alleles "
-                    f"{exposure_effect_allele}/{exposure_other_allele} "
-                    f"do not match AD risk alleles {A1}/{A2} "
+                    f"[TRACKING] AD alleles "
+                    f"{ad_effect_allele}/{ad_other_allele} "
+                    f"do not match pQTL risk alleles {A1}/{A2} "
                     f"for {rsid}..."
                 )
                 continue
 
             print(
-                f"[TRACKING] AD risk alignment for {rsid}: "
+                f"[TRACKING] pQTL risk alignment for {rsid}: "
                 f"A1={A1}, A2={A2}, "
-                f"AD beta={beta_ad}, "
-                f"original pQTL beta={beta_exposure_original}, "
-                f"A1-aligned pQTL beta={beta_exposure}, "
-                f"pQTL flipped={exposure_A1_flipped}..."
+                f"pQTL beta={beta_exposure}, "
+                f"original AD beta={beta_ad_original}, "
+                f"A1-aligned AD beta={beta_ad}, "
+                f"AD flipped={ad_A1_flipped}..."
             )
 
             # FinnGen requires chromosome-position-reference-alternative

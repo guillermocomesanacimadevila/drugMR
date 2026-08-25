@@ -59,6 +59,28 @@ plink \
     return subprocess.run(cmd, shell=True, check=False, executable="/bin/bash", capture_output=True, text=True)
 
 
+def grab_cis_mr_hits(csv_file, cochran_q_thresh: float, causal_thresh: float):
+    targets = []
+    df = pl.read_csv(csv_file, separator="\t")
+    for row in df.iter_rows(named=True):
+        protein = row["protein"]
+        n_instruments = row["n_instruments"]
+        ivw_fdr_q = row["IVW_FDR_q"]
+        q_pval = row["Q_pval"]
+        wald_fdr_q = row["Wald_FDR_q"]
+        if int(n_instruments) == 1:
+            if wald_fdr_q < causal_thresh:
+                targets.append(protein)
+        elif int(n_instruments) == 2:
+            if ivw_fdr_q < causal_thresh:
+                targets.append(protein)
+        else:
+            if int(n_instruments) >= 3:
+                if ivw_fdr_q < causal_thresh and q_pval > cochran_q_thresh:
+                    targets.append(protein)
+    return targets
+
+
 def quick_f_statistic(beta_exposure, se_exposure):
     return (beta_exposure / se_exposure)**2
 
@@ -76,4 +98,4 @@ def lambda_sample_overlap(
 def sample_overlap_relative_bias(lambda_funct, f_statistic):
     raw = lambda_funct / f_statistic
     percent = raw * 100
-    return raw, percent
+    return percent
