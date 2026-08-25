@@ -82,6 +82,23 @@ hyprcoloc_runner <- function(pqtl_dataset, protein, cell_type, pheno_id, trio_di
 
   fwrite(res, out_file, sep = "\t")
   print(paste0("[DONE] Saved HyPrColoc result: ", out_file))
+
+  sensitivity_file <- file.path(out_dir, paste0(pheno_id, "_", protein, "_", cell_type, "_sensitivity.pdf"))
+  pdf(sensitivity_file)
+  hyprcoloc::sensitivity.plot(
+    effect.est       = betas,
+    effect.se        = ses,
+    trait.names      = trait_names,
+    snp.id           = rsid,
+    prior.1          = 1e-4,
+    prior.c          = c(0.05, 0.02, 0.01, 0.005),
+    reg.thresh       = c(0.5, 0.6, 0.7),
+    align.thresh     = c(0.5, 0.6, 0.7),
+    equal.thresholds = TRUE
+  )
+  dev.off()
+  print(paste0("[DONE] Saved HyPrColoc sensitivity plot: ", sensitivity_file))
+
   return(res)
 }
 
@@ -92,9 +109,5 @@ result <- hyprcoloc_runner(
   pheno_id     = pheno_id,
   trio_dir     = trio_dir
 )
-
-
-###### PRINT PRIORS 
-# formals(hyprcoloc::hyprcoloc)[c("prior.1", "prior.c", "prior.12")]
 
 print(result)
