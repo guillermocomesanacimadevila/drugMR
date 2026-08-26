@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# utils.py
 import polars as pl
 import subprocess
 import numpy as np 
@@ -56,7 +55,7 @@ plink \
     --bfile {ref_bfile} \
     --ld {snp_1} {snp_2}
 """
-    return subprocess.run(cmd, shell=True, check=False, executable="/bin/bash", capture_output=True, text=True)
+    return subprocess.run(cmd, check=False, executable="/bin/bash", capture_output=True, text=True)
 
 
 def grab_cis_mr_hits(csv_file, cochran_q_thresh: float, causal_thresh: float):
@@ -79,6 +78,28 @@ def grab_cis_mr_hits(csv_file, cochran_q_thresh: float, causal_thresh: float):
                 if ivw_fdr_q < causal_thresh and q_pval > cochran_q_thresh:
                     targets.append(protein)
     return targets
+
+
+def extract_coloc_or_pwcoco_targets(coloc_csv_file, pwcoco_csv_file, pp4_thresh: float, method: tuple[str, ...] = ("pwcoco", "coloc")):
+    targets = set()
+
+    if "coloc" in method:
+        df = pl.read_csv(coloc_csv_file, separator="\t")
+        for row in df.iter_rows(named=True):
+            protein = row["protein_id"]
+            pp4 = row["PP.H4.abf"]
+            if pp4 >= pp4_thresh:
+                targets.add(protein)
+
+    if "pwcoco" in method:
+        df = pl.read_csv(pwcoco_csv_file, separator="\t")
+        for row in df.iter_rows(named=True):
+            protein = row["protein"]
+            h4 = row["H4"]
+            if h4 >= pp4_thresh:
+                targets.add(protein)
+
+    return list(targets)
 
 
 def quick_f_statistic(beta_exposure, se_exposure):
