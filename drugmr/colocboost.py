@@ -35,5 +35,14 @@ class ColocBoost:
     @staticmethod
     def run_colocboost():
 
-        """ Python wrapper function in-charge of running coloboost.R """
+        """
+        Python wrapper function in-charge of running coloboost.R 
+        args:
+        - dict[str, df] -> whereby pheno_id: df
+        - out_dir
+        - ld_matrix for locus (overlapping SNPs across dfs???)
+        """
+
+
+        
         return

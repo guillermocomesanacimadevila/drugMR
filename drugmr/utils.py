@@ -50,12 +50,26 @@ def extract_common_snps(datasets: dict, reference: str):
 
 
 def impute_ld(ref_bfile, snp_1, snp_2):
-    cmd = f"""
-plink \
-    --bfile {ref_bfile} \
-    --ld {snp_1} {snp_2}
-"""
-    return subprocess.run(cmd, check=False, executable="/bin/bash", capture_output=True, text=True)
+    cmd = ["plink", "--bfile", ref_bfile, "--ld", snp_1, snp_2]
+    return subprocess.run(cmd, check=False, capture_output=True, text=True)
+
+
+def impute_ld_matrix(snps, out_prefix, ref_bfile):
+    # snps -> list
+    snp_list_path = f"{out_prefix}_snps.txt"
+    with open(snp_list_path, "w") as f:
+        f.write("\n".join(snps))
+
+    cmd = [
+        "plink",
+        "--bfile", ref_bfile,
+        "--extract", snp_list_path,
+        "--r", "square",
+        "--write-snplist",
+        "--out", out_prefix,
+    ]
+    subprocess.run(cmd, check=True)
+    return pl.read_csv(f"{out_prefix}.ld", separator="\t", has_header=False)
 
 
 def grab_cis_mr_hits(csv_file, cochran_q_thresh: float, causal_thresh: float):
