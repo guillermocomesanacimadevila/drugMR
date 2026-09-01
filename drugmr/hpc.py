@@ -399,6 +399,39 @@ apptainer exec --bind "{remote}:/work" \\
 """, falcon_user)
 
 
+# RUN PWCoCo
+def run_pwcoco(
+    falcon_user: str,
+    pqtl_dataset: str,
+    pheno_id: str,
+    ref_bfile: str,
+    n_cases: int,
+    n_controls: int,
+    local_results_dir: str = "results",
+    cochran_q_pval: float = 0.05,
+    wald_fdr_q: float = 0.05,
+):
+    remote, sif = get_remote_paths(falcon_user)
+
+    ssh(f"""
+set -euo pipefail
+cd "{remote}"
+
+apptainer exec --bind "{remote}:/work" \\
+  --env PYTHONPATH=. \\
+  "{sif}" \\
+  bash -c "cd /work && python bin/pwcoco_wrapper.py \\
+    --pqtl_dataset {pqtl_dataset} \\
+    --pheno_id {pheno_id} \\
+    --ref_bfile {ref_bfile} \\
+    --n_cases {n_cases} \\
+    --n_controls {n_controls} \\
+    --local_results_dir {local_results_dir} \\
+    --cochran_q_pval {cochran_q_pval} \\
+    --wald_fdr_q {wald_fdr_q}"
+""", falcon_user)
+
+
 def run_coloc_with_mediators(
     falcon_user: str,
     pqtl_dataset: str,
@@ -586,6 +619,9 @@ def phewas_safety_ukbb(
 
     top_snp_file = paths.coloc_out(pqtl_dataset, pheno_id, out_dir=str(local_results_dir))
     phewas_out = paths.phewas_ukbb_out(pqtl_dataset, pheno_id, out_dir=str(local_results_dir))
+    # UKB PheWAS is a fallback - only run for targets with zero FinnGen instrument
+    # coverage - and reads this manifest internally to build that fallback set
+    finngen_coverage_file = paths.phewas_finngen_coverage_out(pqtl_dataset, pheno_id, out_dir=str(local_results_dir))
 
     if phewas_out.exists() and phewas_out.stat().st_size > 0 and not overwrite:
         print(f"[TRACKING] UKBB PheWAS safety analysis already completed: {phewas_out}")
@@ -605,6 +641,12 @@ def phewas_safety_ukbb(
     if top_snp_file.stat().st_size == 0:
         raise RuntimeError(
             f"UKBB PheWAS cannot run because pairwise COLOC output is empty: {top_snp_file}"
+        )
+
+    if not finngen_coverage_file.exists():
+        raise FileNotFoundError(
+            f"UKBB PheWAS cannot run because the FinnGen PheWAS coverage manifest was not found: "
+            f"{finngen_coverage_file}. Run FinnGen PheWAS first."
         )
 
     phewas_out.parent.mkdir(parents=True, exist_ok=True)
@@ -761,6 +803,11 @@ def run_dashboard_local(
     pqtl_dataset: str,
     port_number: int = 5432
 ):
+    # cwd is pinned to project_root (same fix as drugmr/local.py's results()) so
+    # Streamlit reliably finds <project_root>/.streamlit/config.toml (the custom
+    # theme) regardless of the caller's own working directory, instead of
+    # silently falling back to Streamlit defaults.
+    project_root = Path(__file__).resolve().parents[1]
     cmd = f"""
 python -m streamlit run dashboard/mr_app.py -- \\
   --db_name {db_name} \\
@@ -769,7 +816,7 @@ python -m streamlit run dashboard/mr_app.py -- \\
   --pqtl_dataset {pqtl_dataset}
 """
     print(cmd)
-    subprocess.run(cmd, shell=True, check=True)
+    subprocess.run(cmd, shell=True, check=True, cwd=str(project_root))
 
 
 # CHECK OUTPUTS
@@ -917,6 +964,12 @@ def hpc(config: str, run_id: str = None):
     qc_out = str(paths.qc_out(pheno_id))
     mr_out = str(paths.mr_out(pqtl_dataset, pheno_id, out_dir))
     coloc_out = str(paths.coloc_out(pqtl_dataset, pheno_id, out_dir))
+
+    # PWCoCo (conditional coloc) - runs alongside coloc_out above, not instead of it
+    # (see project_pwcoco_wiring memory); a failure here is logged and does not halt
+    # the run, since standard COLOC is the required path and PWCoCo is a complementary
+    # annotation on top of it
+    pwcoco_out = str(paths.pwcoco_out(pqtl_dataset, pheno_id, out_dir))
 
     # change this where NetworkMR saves its final compiled output
     # NetworkMR is gated directly on its actual final output (the mediation
@@ -1092,6 +1145,32 @@ def hpc(config: str, run_id: str = None):
         step="COLOC",
         required_for="Top cis-hit compilation"
     )
+
+    # PWCoCo (conditional coloc) - complementary to standard COLOC above, not a
+    # replacement (see project_pwcoco_wiring memory): runs on the same cis-MR-passing
+    # targets and its results are joined against coloc_out downstream (dashboard
+    # coloc_support annotation), not used to gate anything in this orchestration.
+    if not check_remote_output(
+        falcon_user=falcon_user,
+        path=pwcoco_out,
+        step="PWCoCo",
+        overwrite=overwrite
+    ):
+        print("[TRACKING] Running PWCoCo...")
+        try:
+            run_pwcoco(
+                falcon_user=falcon_user,
+                pqtl_dataset=pqtl_dataset,
+                pheno_id=pheno_id,
+                ref_bfile=ref_bfile,
+                n_cases=n_cases,
+                n_controls=n_controls,
+                local_results_dir=out_dir,
+                cochran_q_pval=cochran_q_pval,
+                wald_fdr_q=wald_fdr_q,
+            )
+        except subprocess.CalledProcessError as error:
+            print(f"[CONCERN] PWCoCo run failed - continuing without it: {error}")
 
     # compile final hits
     if not check_remote_output(

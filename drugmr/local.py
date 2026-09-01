@@ -152,13 +152,22 @@ def results(
 
     print("[TRACKING] Launching Streamlit dashboard...")
 
+    # Streamlit resolves .streamlit/config.toml (the custom theme - primaryColor,
+    # background/text colors, font) relative to its OWN process working
+    # directory, not this script's location. Without an explicit cwd here, this
+    # subprocess inherits whatever cwd the CALLER (e.g. a notebook in notebooks/,
+    # which has no config.toml of its own) happened to have, so the theme
+    # silently fell back to Streamlit defaults instead of the one actually
+    # defined at <project_root>/.streamlit/config.toml. Pinning cwd=project_root
+    # fixes that, and also makes the relative dashboard_script path resolve
+    # correctly regardless of the caller's own cwd.
     subprocess.run(
         [
             sys.executable,
             "-m",
             "streamlit",
             "run",
-            str(dashboard_script),
+            str(project_root / dashboard_script),
             "--",
             "--db_name",
             db_id,
@@ -169,6 +178,7 @@ def results(
             "--pqtl_dataset",
             pqtl_dataset
         ],
+        cwd=str(project_root),
         check=True,
     )
 
@@ -265,6 +275,12 @@ def local(config: str, run_id: str = None):
     mr_instruments_out = project_root / paths.mr_instruments_out(pqtl_dataset, pheno_id, out_dir)
     coloc_out = project_root / paths.coloc_out(pqtl_dataset, pheno_id, out_dir)
 
+    # PWCoCo (conditional coloc) - runs alongside coloc_out above, not instead of it
+    # (see project_pwcoco_wiring memory); a failure here is logged as a [CONCERN] and
+    # does not halt the run, since standard COLOC is the required path and PWCoCo is
+    # a complementary annotation on top of it
+    pwcoco_out = project_root / paths.pwcoco_out(pqtl_dataset, pheno_id, out_dir)
+
     # SMR (bulk and/or single-cell) - promising target output per eQTL mode
     # bulk_eqtl_datasets is a list (eQTLGen / MetaBrain / GTEx_v10 etc. are pre-computed
     # separately under results/SMR/bulk/{dataset}/) so its per-dataset outputs are built
@@ -279,6 +295,10 @@ def local(config: str, run_id: str = None):
 
     # phewas ukbb_out
     phewas_ukbb_out = project_root / paths.phewas_ukbb_out(pqtl_dataset, pheno_id, out_dir)
+
+    # FinnGen PheWAS coverage manifest - UKB PheWAS reads this to run only on the
+    # fallback set (targets with zero retained instruments in FinnGen)
+    phewas_finngen_coverage_out = project_root / paths.phewas_finngen_coverage_out(pqtl_dataset, pheno_id, out_dir)
 
     # NetworkMR is gated directly on its actual final output (the mediation
     # estimates file coloc_with_mediators() also reads) - no separate gate literal
@@ -539,6 +559,35 @@ docker run --rm \\
 
     require_output(coloc_out, "COLOC", "Top cis-hit compilation")
 
+    # PWCoCo (conditional coloc) - complementary to standard COLOC above, not a
+    # replacement (see project_pwcoco_wiring memory): runs on the same cis-MR-passing
+    # targets and its results are joined against coloc_out downstream (dashboard
+    # coloc_support annotation), not used to gate anything in this orchestration.
+    cmd_pwcoco = f"""
+set -euo pipefail
+docker run --rm \\
+  -v "{project_root}:/work" \\
+  -w /work \\
+  -e PYTHONPATH=. \\
+  "{image_name}" \\
+  python bin/pwcoco_wrapper.py \\
+    --pqtl_dataset {pqtl_dataset} \\
+    --pheno_id {pheno_id} \\
+    --ref_bfile {ref_bfile} \\
+    --n_cases {n_cases} \\
+    --n_controls {n_controls} \\
+    --local_results_dir {out_dir} \\
+    --cochran_q_pval {cochran_q_pval} \\
+    --wald_fdr_q {wald_fdr_q}
+"""
+
+    if not check_output(pwcoco_out, "PWCoCo", overwrite):
+        print("[TRACKING] Running PWCoCo locally...")
+        try:
+            cmd_base(cmd_pwcoco)
+        except subprocess.CalledProcessError as error:
+            print(f"[CONCERN] PWCoCo run failed - continuing without it: {error}")
+
     # compile final hits
     cmd_compile_top_hits = f"""
 set -euo pipefail
@@ -700,6 +749,9 @@ docker run --rm \\
 
     require_output(coloc_out, "COLOC", "UKBB PheWAS")
     require_output(mr_instruments_out, "cis-MR instruments", "UKBB PheWAS")
+    # UKB PheWAS is a fallback - only run for targets with zero FinnGen instrument
+    # coverage - and reads this manifest internally to build that fallback set
+    require_output(phewas_finngen_coverage_out, "FinnGen PheWAS coverage manifest", "UKBB PheWAS")
 
     if not check_output(phewas_ukbb_out, "PheWAS safety analysis on UKBB", overwrite):
         print("[TRACKING] Running PheWAS (UKBB) safety analysis locally...")

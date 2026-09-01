@@ -211,6 +211,16 @@ def phewas_out(pqtl_dataset: str, pheno_id: str, out_dir: str = "results") -> Pa
 def phewas_ukbb_out(pqtl_dataset: str, pheno_id: str, out_dir: str = "results") -> Path:
     return Path(out_dir) / "PheWAS_UKBB" / pqtl_dataset / pheno_id / f"{pqtl_dataset}_{pheno_id}_PheWAS.tsv"
 
+
+def phewas_finngen_coverage_out(pqtl_dataset: str, pheno_id: str, out_dir: str = "results") -> Path:
+    """Per-target manifest of whether >=1 cis-MR instrument was found in FinnGen.
+
+    Read by bin/ukb_phewas.py to restrict UKB PheWAS to the fallback set only
+    (targets with zero retained instruments in FinnGen), matching the paper's
+    "phenome-wide MR was instead performed across UKB" fallback design.
+    """
+    return Path(out_dir) / "PheWAS-FinnGen" / pqtl_dataset / pheno_id / f"{pqtl_dataset}_{pheno_id}_PheWAS-FinnGen_coverage.tsv"
+
 def smr_raw_dir(eqtl_dataset, pheno_id: str, out_dir: str = "results") -> Path:
     """Directory for the raw `smr` binary's own output (drugmr.smr.SMR()'s
     --out prefix lives inside this dir - see smr_raw_prefix). eqtl_dataset
