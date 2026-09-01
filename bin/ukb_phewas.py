@@ -4,11 +4,14 @@ import os
 from pathlib import Path
 import polars as pl
 import requests
-from drugmr import PheWAS
+from drugmr.phewas import PheWAS
 from drugmr import paths
 from drugmr.twosamplemr import PyTwoSampleMR
 
-n_phenos = 1419
+# Bonferroni correction is applied per-protein, across however many endpoints
+# were actually tested for that protein - NOT a fixed constant (see
+# n_endpoints_tested below). Kept only as a documentation reference.
+UKB_TOPMED_TOTAL_PHENOS = 1419
 coloc_threshold = 0
 
 def grab_phewas_info(snp: str, rsid: str):
@@ -87,6 +90,54 @@ def phewas_mr_on_ukbb(pqtl_dataset: str, pheno_id: str, local_results_dir: str =
     else:
         print(f"[TRACKING] No PP.H4 column found in {coloc_file}; using every protein in the COLOC file...")
     compelling_targets = df_coloc.select(pl.col("protein").cast(pl.Utf8)).drop_nulls().unique(maintain_order=True)
+
+    # PWCoCo (conditional coloc) - complementary to standard COLOC above, not a
+    # replacement (see project_pwcoco_wiring memory): a target that colocalises
+    # under EITHER method should reach UKB PheWAS, so PWCoCo-passing proteins are
+    # unioned in below. pwcoco_out() may not exist - PWCoCo runs non-fatally in
+    # local.py/hpc.py, so a failed or not-yet-run PWCoCo step must not break this.
+    pwcoco_file = paths.pwcoco_out(pqtl_dataset, pheno_id, local_results_dir)
+    if Path(pwcoco_file).exists():
+        df_pwcoco = pl.read_csv(pwcoco_file, separator="\t")
+        if "H4" in df_pwcoco.columns and "protein" in df_pwcoco.columns:
+            pwcoco_targets = (
+                df_pwcoco
+                .filter(pl.col("H4").cast(pl.Float64, strict=False) >= coloc_threshold)
+                .select(pl.col("protein").cast(pl.Utf8))
+                .drop_nulls()
+                .unique(maintain_order=True)
+            )
+            compelling_targets = compelling_targets.vstack(pwcoco_targets).unique(maintain_order=True)
+    else:
+        print(f"[TRACKING] No PWCoCo output found at {pwcoco_file}; using standard COLOC targets only...")
+
+    # UKB PheWAS is a FALLBACK, only run for a target when NONE of its retained
+    # cis-MR instruments were available in FinnGen - it is not a second parallel
+    # PheWAS source for every compelling target. Requires bin/phewas_cis_pqtls.py
+    # to have already run and written its coverage manifest.
+    finngen_coverage_file = paths.phewas_finngen_coverage_out(pqtl_dataset, pheno_id, local_results_dir)
+    if not Path(finngen_coverage_file).exists():
+        raise FileNotFoundError(
+            f"FinnGen PheWAS coverage manifest not found: {finngen_coverage_file}. "
+            "UKB PheWAS fallback requires bin/phewas_cis_pqtls.py to run first."
+        )
+    df_finngen_coverage = pl.read_csv(finngen_coverage_file, separator="\t")
+    finngen_uncovered_targets = (
+        df_finngen_coverage
+        .filter(~pl.col("finngen_covered"))
+        .select(pl.col("protein").cast(pl.Utf8))
+        .unique(maintain_order=True)
+    )
+    n_before_fallback_filter = compelling_targets.height
+    compelling_targets = compelling_targets.join(finngen_uncovered_targets, on="protein", how="inner")
+    print(
+        f"[TRACKING] UKB PheWAS fallback targets (zero FinnGen instrument coverage): "
+        f"{compelling_targets.height}/{n_before_fallback_filter}..."
+    )
+    if compelling_targets.height == 0:
+        print("[TRACKING] Every compelling target already has FinnGen PheWAS coverage - nothing to run in UKB...")
+        return
+
     instruments_file = paths.mr_instruments_out(pqtl_dataset, pheno_id, local_results_dir)
     df_instruments = pl.read_csv(instruments_file, separator="\t")
     required_instrument_cols = [
@@ -188,32 +239,40 @@ def phewas_mr_on_ukbb(pqtl_dataset: str, pheno_id: str, local_results_dir: str =
             beta_ad_original = float(instrument_row["beta.outcome"])
             chromosome = str(instrument_row["CHR"]).lower().replace("chr", "")
             position = int(instrument_row["BP"])
-            # make A1 the AD risk-increasing allele
-            # this guarantees beta_ad > 0 relative to A1
-            if beta_ad_original > 0:
-                A1 = ad_effect_allele
-                A2 = ad_other_allele
-                beta_ad = beta_ad_original
+            # make A1 the pQTL exposure-increasing (protein abundance-increasing)
+            # allele - this guarantees beta_exposure > 0 relative to A1, matching
+            # bin/phewas_cis_pqtls.py's FinnGen convention exactly, so beta_mr is
+            # on the same axis (effect of higher protein abundance) whichever
+            # source produced it. This used to align to the AD risk allele
+            # instead, which put FinnGen and UKB beta_mr on different axes and
+            # made the additional-indication / adverse-effect classification
+            # (which compares beta_mr's sign to the primary protein->AD beta)
+            # silently wrong for UKB-sourced hits.
+            beta_exposure_original = beta_exposure
+            if beta_exposure_original > 0:
+                A1 = exposure_effect_allele
+                A2 = exposure_other_allele
+                beta_exposure = beta_exposure_original
+                exposure_A1_flipped = False
+            elif beta_exposure_original < 0:
+                A1 = exposure_other_allele
+                A2 = exposure_effect_allele
+                beta_exposure = -beta_exposure_original
+                exposure_A1_flipped = True
+            else:
+                print(f"[TRACKING] pQTL beta is zero for {rsid}...")
+                continue
+            # align AD beta to the pQTL risk allele A1
+            if ad_effect_allele == A1 and ad_other_allele == A2:
                 ad_A1_flipped = False
-            elif beta_ad_original < 0:
-                A1 = ad_other_allele
-                A2 = ad_effect_allele
+                beta_ad = beta_ad_original
+            elif ad_effect_allele == A2 and ad_other_allele == A1:
                 beta_ad = -beta_ad_original
                 ad_A1_flipped = True
             else:
-                print(f"[TRACKING] AD beta is zero for {rsid}...")
+                print(f"[TRACKING] AD alleles {ad_effect_allele}/{ad_other_allele} do not match pQTL risk alleles {A1}/{A2} for {rsid}...")
                 continue
-            # align pQTL beta to the AD risk allele A1
-            beta_exposure_original = beta_exposure
-            if exposure_effect_allele == A1 and exposure_other_allele == A2:
-                exposure_A1_flipped = False
-            elif exposure_effect_allele == A2 and exposure_other_allele == A1:
-                beta_exposure = -beta_exposure
-                exposure_A1_flipped = True
-            else:
-                print(f"[TRACKING] Exposure alleles {exposure_effect_allele}/{exposure_other_allele} do not match AD risk alleles {A1}/{A2} for {rsid}...")
-                continue
-            print(f"[TRACKING] AD risk alignment for {rsid}: A1={A1}, A2={A2}, AD beta={beta_ad}, original pQTL beta={beta_exposure_original}, A1-aligned pQTL beta={beta_exposure}, pQTL flipped={exposure_A1_flipped}...")
+            print(f"[TRACKING] pQTL risk alignment for {rsid}: A1={A1}, A2={A2}, pQTL beta={beta_exposure}, original AD beta={beta_ad_original}, A1-aligned AD beta={beta_ad}, AD flipped={ad_A1_flipped}...")
             snp, ukb_ref, ukb_alt = resolve_ukbb_variant(chromosome, position, A1, A2, rsid)
             if snp is None:
                 continue
@@ -226,7 +285,7 @@ def phewas_mr_on_ukbb(pqtl_dataset: str, pheno_id: str, local_results_dir: str =
                 print(f"[TRACKING] UKBB PheWAS query failed for {protein}: {rsid}: {error}...")
                 continue
             df_phewas.write_csv(os.path.join(temp_dir, f"{protein}_{rsid}_raw_hits.csv"))
-            # align UKBB beta directly to the AD risk allele A1
+            # align UKBB beta directly to the pQTL risk (protein-increasing) allele A1
             # PheWeb beta is relative to ALT
             if ukb_alt == A1 and ukb_ref == A2:
                 phewas_A1_flipped = False
@@ -437,10 +496,13 @@ def phewas_mr_on_ukbb(pqtl_dataset: str, pheno_id: str, local_results_dir: str =
             print(f"[TRACKING] No Wald ratio / IVW estimates generated for {protein}...")
             continue
         df_protein_results = pl.DataFrame(protein_results, infer_schema_length=None).with_columns(pl.col("p_mr").cast(pl.Float64))
-        # Bonferroni correct across all predefined UKBB PheCode outcomes for this protein
+        # Bonferroni correct across the endpoints actually tested for THIS protein
+        # (this protein's own row count here), not a fixed global constant.
+        n_endpoints_tested = df_protein_results.height
         df_protein_results = df_protein_results.with_columns(
-            pl.min_horizontal(pl.col("p_mr") * n_phenos, pl.lit(1.0)).alias("p_bonferroni"),
-            (pl.col("p_mr") < (0.05 / n_phenos)).alias("bonferroni_significant")
+            pl.lit(n_endpoints_tested).alias("n_endpoints_tested"),
+            pl.min_horizontal(pl.col("p_mr") * n_endpoints_tested, pl.lit(1.0)).alias("p_bonferroni"),
+            (pl.col("p_mr") < (0.05 / n_endpoints_tested)).alias("bonferroni_significant")
         )
         results.extend(df_protein_results.to_dicts())
     if len(results) == 0:

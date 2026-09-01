@@ -183,6 +183,23 @@ def hyprcoloc_targets(pqtl_dataset: str, pheno_id: str, eqtl_dataset: str, local
         .sort(["protein", "cell_type"])
     )
 
+    # HyPrColoc's target list is inherited from SMR's compiled output (smr_final_targets_out),
+    # which now includes PWCoCo-only targets too (extract_promising_targets() in sort_smr.py
+    # unions COLOC + PWCoCo, so they already flow into SMR and, via render_phewas_section's
+    # own union, PheWAS). HyPrColoc itself is deliberately kept COLOC-only for now (2026-08-26
+    # decision, see project_pwcoco_wiring memory) - excluded here rather than in sort_smr.py,
+    # so SMR/PheWAS keep seeing the full union and only this 1 step narrows back down.
+    coloc_res = pl.read_csv(paths.coloc_out(pqtl_dataset, pheno_id, local_results_dir), separator="\t")
+    if "protein_id" in coloc_res.columns:
+        coloc_res = coloc_res.rename({"protein_id": "protein"})
+    coloc_proteins = set(coloc_res["protein"].unique().to_list())
+
+    n_before = targets.height
+    targets = targets.filter(pl.col("protein").is_in(coloc_proteins))
+    n_dropped = n_before - targets.height
+    if n_dropped > 0:
+        print(f"[TRACKING] Excluded {n_dropped} target x cell-type/tissue row(s) with PWCoCo-only support from HyPrColoc")
+
     print(f"[TRACKING] {targets.height} target x cell-type/tissue hit(s) found for HyPrColoc in {eqtl_dataset}")
 
     results = []

@@ -69,7 +69,10 @@ def impute_ld_matrix(snps, out_prefix, ref_bfile):
         "--out", out_prefix,
     ]
     subprocess.run(cmd, check=True)
-    return pl.read_csv(f"{out_prefix}.ld", separator="\t", has_header=False)
+    ld = pl.read_csv(f"{out_prefix}.ld", separator="\t", has_header=False)
+    with open(f"{out_prefix}.snplist") as f:
+        snp_order = [line.strip() for line in f]
+    return ld, snp_order
 
 
 def grab_cis_mr_hits(csv_file, cochran_q_thresh: float, causal_thresh: float):
@@ -114,6 +117,23 @@ def extract_coloc_or_pwcoco_targets(coloc_csv_file, pwcoco_csv_file, pp4_thresh:
                 targets.add(protein)
 
     return list(targets)
+
+
+#################
+#################
+#################
+
+def extract_smr_hits(df, method: tuple[str, ...] = ("bulk", "sc")):
+    targets = []
+    return
+
+# def extract_phewas_hits():
+#     return
+
+
+#################
+#################
+#################
 
 
 def quick_f_statistic(beta_exposure, se_exposure):

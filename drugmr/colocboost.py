@@ -1,4 +1,6 @@
+import os 
 import subprocess
+import tempfile 
 import polars as pl 
 
 
@@ -33,7 +35,14 @@ class ColocBoost:
         )
 
     @staticmethod
-    def run_colocboost():
+    def run_colocboost(
+        sumstats: dict[str, pl.DataFrame],
+        ld: pl.DataFrame,
+        snp_order: list[str],
+        out_file: str,
+        r_script: str = "R/colocboost.R",
+    ) -> subprocess.CompletedProcess:
+
 
         """
         Python wrapper function in-charge of running coloboost.R 
@@ -43,6 +52,22 @@ class ColocBoost:
         - ld_matrix for locus (overlapping SNPs across dfs???)
         """
 
+        work_dir = tempfile.mkdtemp(prefix="colocboost_")
+        sumstat_paths = {trait: os.path.join(work_dir, f"{trait}.txt") for trait in sumstats}
+        ld_path = os.path.join(work_dir, "ld.txt")
 
-        
-        return
+        try:
+            for trait, df in sumstats.items():
+                if df["variant"] != snp_order:
+                    raise ValueError(f"sumstat '{trait}' is not reindexed to snp_order -> reindex before calling run()")
+                df.write_csv(sumstat_paths[trait], separator="\t")
+            ld.write_csv(ld_path, separator="\t", include_header=False)
+            cmd = ["Rscript", r_script, ld_path, out_file, *sumstat_paths.values()]
+            return subprocess.run(cmd, check=True)
+        finally:
+            for path in sumstat_paths.values():
+                if os.path.exists(path):
+                    os.unlink(path)
+                if os.path.exists(ld_path):
+                    os.unlink(ld_path)
+                os.rmdir(work_dir) 

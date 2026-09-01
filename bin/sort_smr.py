@@ -42,7 +42,7 @@ def extract_promising_targets(pqtl_dataset: str, pheno_id: str, local_results_di
 
     wald_hits = []
     ivw_hits = []
-    coloc_hits = []
+    coloc_hits = set()
 
     for row in cis_mr_df.iter_rows(named=True):
         # separate where n_instruments == 1 or > 1
@@ -58,7 +58,23 @@ def extract_promising_targets(pqtl_dataset: str, pheno_id: str, local_results_di
     for row in coloc_df.iter_rows(named=True):
         pp4 = row["PP.H4.abf"]
         if pp4 is not None and pp4 > 0.75:
-            coloc_hits.append(row["protein_id"])
+            coloc_hits.add(row["protein_id"])
+
+    # PWCoCo (conditional coloc) - complementary to standard COLOC above, not a
+    # replacement (see project_pwcoco_wiring memory): a target that colocalises
+    # under EITHER method should reach SMR, so PWCoCo-passing proteins are unioned
+    # into coloc_hits here rather than requiring standard COLOC specifically.
+    # pwcoco_out() may not exist - PWCoCo runs non-fatally in local.py/hpc.py, so a
+    # failed or not-yet-run PWCoCo step must not break SMR eligibility.
+    pwcoco_res = paths.pwcoco_out(pqtl_dataset, pheno_id, local_results_dir)
+    if Path(pwcoco_res).exists():
+        pwcoco_df = pl.read_csv(pwcoco_res, separator="\t")
+        for row in pwcoco_df.iter_rows(named=True):
+            h4 = row["H4"]
+            if h4 is not None and h4 > 0.75:
+                coloc_hits.add(row["protein"])
+    else:
+        print(f"[TRACKING] No PWCoCo output found at {pwcoco_res}; using standard COLOC hits only...")
 
     # compile final hits
     mr_hits = wald_hits + ivw_hits

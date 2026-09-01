@@ -16,10 +16,31 @@ def compile_top_cis_hits(pheno_id: str, pqtl_dataset: str, local_results_dir: st
     coloc_res = pl.read_csv(paths.coloc_out(pqtl_dataset, pheno_id, local_results_dir), separator="\t")
     if "protein_id" in coloc_res.columns:
         coloc_res = coloc_res.rename({"protein_id": "protein"})
+
+    # top_snp per protein: COLOC's own recorded value is used when available - it's
+    # actually the pQTL's own lead (lowest-P) SNP for that cis-region (bin/coloc.R:
+    # `top_snp <- protein$SNP[1]`, computed from the pQTL data alone, before COLOC
+    # itself even runs), not something standard COLOC "produces". A protein that only
+    # colocalises under PWCoCo (see project_pwcoco_wiring memory) has no coloc_out row
+    # at all and would otherwise silently disappear from target_stats_out() / the
+    # dashboard's harmonised SNP-allele-beta columns - so its lead SNP is recomputed
+    # here directly from pqtl.parquet, the exact same "sort by P, take the top row"
+    # logic coloc.R itself uses, rather than depending on either method's own output.
+    target_top_snp = {
+        row["protein"]: str(row["top_snp"])
+        for row in coloc_res.iter_rows(named=True)
+    }
+
+    pwcoco_file = paths.pwcoco_out(pqtl_dataset, pheno_id, local_results_dir)
+    if pwcoco_file.exists():
+        pwcoco_res = pl.read_csv(pwcoco_file, separator="\t")
+        pwcoco_only_proteins = set(pwcoco_res["protein"].unique().to_list()) - set(target_top_snp.keys())
+        for pwcoco_target in pwcoco_only_proteins:
+            pwcoco_pqtl = pl.read_parquet(Path(f"./dat/cis_regions/{pqtl_dataset}/{pwcoco_target}") / "pqtl.parquet")
+            target_top_snp[pwcoco_target] = str(pwcoco_pqtl.sort("P").row(0, named=True)["SNP"])
+
     top_hits = []
-    for row in coloc_res.iter_rows(named=True):
-        target = row["protein"]
-        snp_id = str(row["top_snp"]) ########## check this for the exact colname
+    for target, snp_id in target_top_snp.items():
         # dir for the gwas and pQTL
         cis_r = Path(f"./dat/cis_regions/{pqtl_dataset}/{target}")
         gwas = cis_r / "gwas.parquet"

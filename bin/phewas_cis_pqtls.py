@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 import polars as pl 
 import pandas as pd 
-from drugmr import PheWAS
+from drugmr.phewas import PheWAS
 from drugmr import paths
 # from statsmodels.stats.multitest import fdrcorrection
 from drugmr.twosamplemr import PyTwoSampleMR
@@ -13,8 +13,12 @@ from drugmr.twosamplemr import PyTwoSampleMR
 # -----------------------------------
 # THIS SCRIPT SHALL NOT BE RAN IN HPC
 # -----------------------------------
-# 2,511 ICD coded endpoints vs total 2,755 
-finngen_icd_endpoints = 2511
+# Bonferroni correction is applied per-protein, across however many endpoints
+# were actually tested for that protein (see df_protein_results.height below) -
+# NOT a fixed constant. 2,511 ICD coded endpoints vs total 2,755 in FinnGen R13
+# is kept here only as a documentation reference for the source's overall scale.
+FINNGEN_R13_TOTAL_ENDPOINTS = 2755
+FINNGEN_R13_ICD_ENDPOINTS = 2511
 # The COLOC output is used strictly to define which protein targets go into PheWAS
 # For every selected target - grab the exact SNPs which were used in cis-MR
 # Make A1 the pQTL exposure-increasing allele for every cis-MR instrument
@@ -62,6 +66,9 @@ def clean_phewas_hit(snp: str, rsid: str):
     return df
 
 
+coloc_threshold = 0
+
+
 # this script runs AFTER cis-MR + pairwise pQTL-GWAS COLOC
 def phewas_for_compelling_targets(pheno_id: str, pqtl_dataset: str, local_results_dir: str = "results"):
     # COLOC defines the targets only
@@ -77,6 +84,31 @@ def phewas_for_compelling_targets(pheno_id: str, pqtl_dataset: str, local_result
             f"Could not find protein_id or protein in COLOC file: {coloc_file}"
         )
     compelling_targets = (df_coloc.select(pl.col("protein").cast(pl.Utf8)).drop_nulls().unique(maintain_order=True))
+
+    # PWCoCo (conditional coloc) - complementary to standard COLOC above, not a
+    # replacement (see project_pwcoco_wiring memory): a target that colocalises
+    # under EITHER method should reach phenome-wide MR, so PWCoCo-passing proteins
+    # are unioned in below - mirrors bin/ukb_phewas.py's own union exactly, and
+    # matters even more now that UKB is a fallback keyed off THIS script's coverage
+    # manifest: a PWCoCo-only target absent here would never appear in that
+    # manifest and would silently get zero PheWAS coverage in either source.
+    # pwcoco_out() may not exist - PWCoCo runs non-fatally in local.py/hpc.py, so a
+    # failed or not-yet-run PWCoCo step must not break this.
+    pwcoco_file = paths.pwcoco_out(pqtl_dataset, pheno_id, local_results_dir)
+    if Path(pwcoco_file).exists():
+        df_pwcoco = pl.read_csv(pwcoco_file, separator="\t")
+        if "H4" in df_pwcoco.columns and "protein" in df_pwcoco.columns:
+            pwcoco_targets = (
+                df_pwcoco
+                .filter(pl.col("H4").cast(pl.Float64, strict=False) >= coloc_threshold)
+                .select(pl.col("protein").cast(pl.Utf8))
+                .drop_nulls()
+                .unique(maintain_order=True)
+            )
+            compelling_targets = compelling_targets.vstack(pwcoco_targets).unique(maintain_order=True)
+    else:
+        print(f"[TRACKING] No PWCoCo output found at {pwcoco_file}; using standard COLOC targets only...")
+
     # exact harmonised instruments which were used in the original cis-MR
     instruments_file = paths.mr_instruments_out(pqtl_dataset, pheno_id, local_results_dir)
     df_instruments = pl.read_csv(instruments_file, separator="\t")
@@ -625,27 +657,52 @@ def phewas_for_compelling_targets(pheno_id: str, pqtl_dataset: str, local_result
             continue
 
         df_protein_results = pl.DataFrame(protein_results)
-        # Bonferroni correct across all predefined FinnGen ICD endpoints for this protein
+        # Bonferroni correct across the endpoints actually tested for THIS protein
+        # (i.e. this protein's own row count here), not a fixed global constant -
+        # the number of endpoints with a resolvable variant + valid stats varies
+        # protein-to-protein.
+        n_endpoints_tested = df_protein_results.height
         df_protein_results = df_protein_results.with_columns([
+            pl.lit(n_endpoints_tested).alias("n_endpoints_tested"),
             pl.min_horizontal(
-                pl.col("p_mr") * finngen_icd_endpoints,
+                pl.col("p_mr") * n_endpoints_tested,
                 pl.lit(1.0)
             ).alias("p_bonferroni"),
             (
-                pl.col("p_mr") < (0.05 / finngen_icd_endpoints)
+                pl.col("p_mr") < (0.05 / n_endpoints_tested)
             ).alias("bonferroni_significant")
         ])
 
         results.extend(df_protein_results.to_dicts())
 
+    # every compelling target attempted above, regardless of whether it produced
+    # any FinnGen PheWAS rows - bin/ukb_phewas.py reads this to restrict the UKB
+    # fallback to only the targets with zero retained instruments in FinnGen
+    all_targets = compelling_targets.select("protein").to_series().to_list()
+    coverage_out_file = paths.phewas_finngen_coverage_out(pqtl_dataset, pheno_id, local_results_dir)
+    os.makedirs(coverage_out_file.parent, exist_ok=True)
+
     if len(results) == 0:
         print("[TRACKING] No PheWAS associations were generated...")
-        return
+        covered_targets = set()
+    else:
+        df_results = pl.DataFrame(results, infer_schema_length=None)
+        df_results = df_results.sort(["protein", "p_mr"])
+        df_results.write_csv(phewas_out_file, separator="\t")
+        print(f"[TRACKING] PheWAS completed: {df_results.height} associations saved...")
+        covered_targets = set(df_results["protein"].unique().to_list())
 
-    df_results = pl.DataFrame(results, infer_schema_length=None)
-    df_results = df_results.sort(["protein", "p_mr"])
-    df_results.write_csv(phewas_out_file, separator="\t")
-    print(f"[TRACKING] PheWAS completed: {df_results.height} associations saved...")
+    df_coverage = pl.DataFrame({
+        "protein": all_targets,
+        "pqtl_dataset": [pqtl_dataset] * len(all_targets),
+        "finngen_covered": [protein in covered_targets for protein in all_targets],
+    })
+    df_coverage.write_csv(coverage_out_file, separator="\t")
+    n_needing_fallback = len(all_targets) - len(covered_targets)
+    print(
+        f"[TRACKING] FinnGen PheWAS coverage manifest saved: {coverage_out_file} "
+        f"({n_needing_fallback}/{len(all_targets)} targets need UKB fallback)..."
+    )
 
 
 # pheno_id: str, pqtl_dataset: str
