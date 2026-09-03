@@ -23,6 +23,7 @@ scripts/
 plots/
 logs/
 build/
+.venv/
 work/
 outputs/
 results/
