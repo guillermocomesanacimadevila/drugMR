@@ -47,7 +47,7 @@ Each stage reads the previous stage's output, applies a threshold-like gate, and
 | 5 | NetworkMR (optional) | `bin/assort_network_mr.py` | Mediation analysis through the biomarkers in `mediator_manifest` |
 | 6 | Pairwise COLOC | `bin/coloc_targets.py` | pQTL-GWAS colocalisation; passes if `PP.H4.abf > 0.7` |
 | 7 | Top cis-hit compilation | `bin/compile_cis_hit_info.py` | Aligns the top cis-SNP per protein to the outcome risk allele |
-| 8 | SMR | `bin/sort_smr.py` | eQTL-GWAS colocalisation via SMR + HEIDI, bulk (eQTLGen / MetaBrain / GTEx v10) and single-cell (SingleBrain); passes if `q_SMR < 0.05` and `p_HEIDI > 0.01` |
+| 8 | SMR | `bin/sort_smr.py` | eQTL-GWAS colocalisation via SMR + HEIDI, bulk (MetaBrain / GTEx v10) and single-cell (SingleBrain); passes if `q_SMR < 0.05` and `p_HEIDI > 0.01` |
 | 9 | PheWAS | `bin/phewas_cis_pqtls.py`, `bin/ukb_phewas.py` | FinnGen and UK Biobank phenome-wide MR safety screen of surviving targets |
 | 10 | Results | `dm.results()` | Loads cis-MR/COLOC results into PostgreSQL and launches the Streamlit dashboard |
 
@@ -61,7 +61,7 @@ Each stage reads the previous stage's output, applies a threshold-like gate, and
 | pQTL | deCODE | Plasma (SomaScan) | `pqtl_dataset: decode` |
 | pQTL | Wu et al. | CSF | `pqtl_dataset: wu_csf` |
 | pQTL | Wingo et al. | Brain | `pqtl_dataset: wingo_brain` |
-| Bulk eQTL | eQTLGen, MetaBrain, GTEx v10 | Blood / brain (tissue-resolved) | `bulk_eqtl_datasets` |
+| Bulk eQTL | MetaBrain, GTEx v10 | Brain (tissue-resolved) | `bulk_eqtl_datasets` |
 | Single-cell eQTL | SingleBrain | Brain (cell-type-resolved: Ast, Ext, IN, MG, OD, OPC, End) | `sc_eqtl_dataset` |
 | Reference panel | 1000 Genomes (EUR, Phase 3) | N/A | `ref_bfile` |
 
@@ -83,7 +83,7 @@ drugMR/
 ├── notebooks/       # Worked examples (00_drugmr.ipynb)
 ├── assets/          # Mediator manifests and other run-adjacent bits
 ├── env/             # Dockerfile, requirements.txt
-├── modules/         # Git submodules (ukbppp_dl)
+├── tools/           # Git submodules (pwcoco)
 ├── docs/            # Pipeline DAG (docs/pipeline_dag.png), results schema (docs/RESULTS_SCHEMA.md)
 ```
 
@@ -94,10 +94,22 @@ drugMR/
 Requires **Python ≥ 3.12**, and either **Docker** (local runs) or **SLURM + Apptainer** access to an HPC cluster (Falcon).
 
 ```bash
-git clone https://github.com/guillermocomesanacimadevila/drugMR.git
+git clone --recurse-submodules https://github.com/guillermocomesanacimadevila/drugMR.git
 cd drugMR/
 pip install -e .
 ```
+
+(Already cloned without `--recurse-submodules`? Run `git submodule update --init --recursive` from inside the repo.)
+
+### Quickstart (notebook)
+
+No conda needed as the R/PLINK/GCTA/SMR/PWCoCo stack only ever runs inside the Docker image `dm.local()` pulls automatically, so the host only needs Python and Docker.
+
+```bash
+chmod +x launch.sh && bash launch.sh
+```
+
+First run creates a `.venv`, installs `drugmr` plus Jupyter (`pip install -e ".[notebook]"`), and opens `notebooks/00_drugmr.ipynb` in Jupyter Lab. Every run after that just re-activates the same `.venv` and reopens the notebook, run the same command again any time you want to reuse the pipeline.
 
 ---
 
@@ -114,7 +126,7 @@ There's no single `config.yaml` to rule them all any more, every `(pheno_id, pqt
 | `ref_bfile` | Reference panel (1000 Genomes) for cis-MR / SMR |
 | `mediators`, `mediator_manifest` | Enable mediation analysis through a manifest of biomarkers |
 | `run_smr` | Master on/off switch for the SMR step |
-| `bulk_eqtl_datasets` | Pre-computed bulk eQTL datasets to ingest (e.g. `[eQTLGen, MetaBrain, GTEx_v10]`); `[]` skips bulk SMR |
+| `bulk_eqtl_datasets` | Pre-computed bulk eQTL datasets to ingest (e.g. `[MetaBrain, GTEx_v10]`); `[]` skips bulk SMR |
 | `sc_eqtl_dataset` | Single-cell eQTL dataset to run SMR against (e.g. `SingleBrain`); empty skips single-cell SMR |
 | `maf`, `remove_mhc`, `remove_apoe` | QC filters applied to GWAS/pQTLs |
 | `overwrite` | Force every stage to rerun instead of reusing existing outputs |

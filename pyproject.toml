@@ -32,3 +32,9 @@ dependencies = [
 
 [tool.setuptools.packages.find]
 include = ["drugmr*"]
+
+[project.optional-dependencies]
+notebook = [
+    "jupyterlab>=4.0",
+    "ipykernel>=6.0"
+]
