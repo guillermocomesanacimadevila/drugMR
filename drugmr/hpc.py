@@ -2,9 +2,9 @@
 import subprocess
 from datetime import datetime
 from pathlib import Path
+
+from drugmr import paths, registry
 from drugmr.config import Config
-from drugmr import paths
-from drugmr import registry
 
 # * Notes for myself before going to Greece
 # the git clone thingy
@@ -429,6 +429,37 @@ apptainer exec --bind "{remote}:/work" \\
     --local_results_dir {local_results_dir} \\
     --cochran_q_pval {cochran_q_pval} \\
     --wald_fdr_q {wald_fdr_q}"
+""", falcon_user)
+
+
+# RUN PWCoCo (eQTL-informed) - eQTL-pQTL / eQTL-GWAS PWCoCo on every SMR-passing
+# target, then compared for shared colocalising SNPs against the pQTL-GWAS PWCoCo
+# above (see project_pwcoco_wiring memory / bin/pwcoco_qtl_wrapper.py)
+def run_pwcoco_qtl(
+    falcon_user: str,
+    pqtl_dataset: str,
+    pheno_id: str,
+    ref_bfile: str,
+    n_cases: int,
+    n_controls: int,
+    local_results_dir: str = "results",
+):
+    remote, sif = get_remote_paths(falcon_user)
+
+    ssh(f"""
+set -euo pipefail
+cd "{remote}"
+
+apptainer exec --bind "{remote}:/work" \\
+  --env PYTHONPATH=. \\
+  "{sif}" \\
+  bash -c "cd /work && python bin/pwcoco_qtl_wrapper.py \\
+    --pqtl_dataset {pqtl_dataset} \\
+    --pheno_id {pheno_id} \\
+    --ref_bfile {ref_bfile} \\
+    --n_cases {n_cases} \\
+    --n_controls {n_controls} \\
+    --local_results_dir {local_results_dir}"
 """, falcon_user)
 
 
@@ -876,6 +907,7 @@ if [ -s "{hyprcoloc_res}" ]; then
 else
     echo "[CONCERN] HyPrColoc output not found or empty (HyPrColoc may not be configured for this run)"
 fi
+
 """, falcon_user)
 
 
@@ -971,6 +1003,10 @@ def hpc(config: str, run_id: str = None):
     # annotation on top of it
     pwcoco_out = str(paths.pwcoco_out(pqtl_dataset, pheno_id, out_dir))
 
+    # PWCoCo (eQTL-informed) - eQTL-pQTL / eQTL-GWAS on SMR-passing targets, gated
+    # on the same complementary-not-required basis as pwcoco_out above
+    pwcoco_qtl_out = str(paths.pwcoco_eqtl_pqtl_out(pqtl_dataset, pheno_id, out_dir))
+
     # change this where NetworkMR saves its final compiled output
     # NetworkMR is gated directly on its actual final output (the mediation
     # estimates file coloc_with_mediators() also reads) - no separate gate literal
@@ -978,7 +1014,7 @@ def hpc(config: str, run_id: str = None):
     target_stats_out = str(paths.target_stats_out(pqtl_dataset, pheno_id, out_dir))
 
     # SMR (bulk and/or single-cell) - promising target output per eQTL mode
-    # bulk_eqtl_datasets is a list (eQTLGen / MetaBrain / GTEx_v10 etc. are pre-computed
+    # bulk_eqtl_datasets is a list (MetaBrain / GTEx_v10 etc. are pre-computed
     # separately under results/SMR/bulk/{dataset}/) so its per-dataset outputs are built
     # inside the SMR step below rather than up front here
     smr_sc_out = str(paths.smr_sc_out(pqtl_dataset, pheno_id, sc_eqtl_dataset, out_dir))
@@ -1199,7 +1235,7 @@ def hpc(config: str, run_id: str = None):
     #    configured eQTL dataset(s), alleles aligned to the AD risk allele
     if run_smr:
         if bulk_eqtl_datasets:
-            # bulk eQTL SMR (eQTLGen / MetaBrain / GTEx_v10) is pre-computed elsewhere -
+            # bulk eQTL SMR (MetaBrain / GTEx_v10) is pre-computed elsewhere -
             # bin/sort_smr.py ingests results/SMR/bulk/{dataset}/ rather than re-running SMR
             for bulk_dataset in bulk_eqtl_datasets:
                 smr_bulk_out = str(paths.smr_bulk_out(pqtl_dataset, pheno_id, bulk_dataset, out_dir))
@@ -1248,6 +1284,31 @@ def hpc(config: str, run_id: str = None):
             print("[TRACKING] No sc_eqtl_dataset specified, skipping single-cell SMR.")
     else:
         print("[TRACKING] run_smr is False, skipping SMR entirely.")
+
+    # PWCoCo (eQTL-informed) - eQTL-pQTL / eQTL-GWAS PWCoCo on every SMR-passing
+    # target, then compared for shared colocalising SNPs against the pQTL-GWAS
+    # PWCoCo above (see project_pwcoco_wiring memory) - runs only when SMR did,
+    # since it depends on smr_final_targets_out; non-fatal like PWCoCo above.
+    if run_smr:
+        if not check_remote_output(
+            falcon_user=falcon_user,
+            path=pwcoco_qtl_out,
+            step="PWCoCo (eQTL)",
+            overwrite=overwrite
+        ):
+            print("[TRACKING] Running PWCoCo (eQTL)...")
+            try:
+                run_pwcoco_qtl(
+                    falcon_user=falcon_user,
+                    pqtl_dataset=pqtl_dataset,
+                    pheno_id=pheno_id,
+                    ref_bfile=ref_bfile,
+                    n_cases=n_cases,
+                    n_controls=n_controls,
+                    local_results_dir=out_dir,
+                )
+            except subprocess.CalledProcessError as error:
+                print(f"[CONCERN] PWCoCo (eQTL) run failed - continuing without it: {error}")
 
     # HyPrColoc (bulk and/or single-cell eQTL) - run right after SMR so the
     # combined final multi-omics target table (bulk + single-cell) is complete.

@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
-import polars as pl
-import pandas as pd
-import subprocess
 import argparse
-from pathlib import Path
-import os
 import json
+import os
+import subprocess
+from pathlib import Path
+
+import pandas as pd
+import polars as pl
+
 from drugmr import paths
 
 # look at MR results based on dataset X (which == arg)

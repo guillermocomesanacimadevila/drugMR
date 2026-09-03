@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 import numpy as np
-from scipy.stats import norm 
+from scipy.stats import norm
 
 # pheno_id
 # mediator_id

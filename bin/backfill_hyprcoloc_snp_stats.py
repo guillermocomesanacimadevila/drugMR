@@ -6,7 +6,11 @@ from pathlib import Path
 import polars as pl
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from hyprcoloc_targets import CANDIDATE_SNP_STAT_COLS, load_eqtl_table, resolve_candidate_snp_stats
+from hyprcoloc_targets import (
+    CANDIDATE_SNP_STAT_COLS,
+    load_eqtl_table,
+    resolve_candidate_snp_stats,
+)
 
 # One-off backfill for HyPrColoc master tables written before attach_candidate_snp_stats
 # existed (see hyprcoloc_targets.py) - those rows carry a candidate_snp but none of its

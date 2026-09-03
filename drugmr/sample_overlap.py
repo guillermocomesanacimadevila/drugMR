@@ -1,5 +1,10 @@
 import polars as pl
-from drugmr.utils import quick_f_statistic, lambda_sample_overlap, sample_overlap_relative_bias
+
+from drugmr.utils import (
+    lambda_sample_overlap,
+    quick_f_statistic,
+    sample_overlap_relative_bias,
+)
 
 
 class SampleOverlapBias:

@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 import argparse
-import polars as pl
+import os
 import subprocess
 from pathlib import Path
-import os
+
+import polars as pl
+
 from drugmr import paths
 
 # TO DO'S

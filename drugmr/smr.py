@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
+import os
 import subprocess
 from pathlib import Path
-import os
 
 from drugmr import paths
 

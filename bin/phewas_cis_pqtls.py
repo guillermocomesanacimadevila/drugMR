@@ -1,12 +1,15 @@
 #!/usr/bin/env python3
 import argparse
-import requests
-import os 
+import os
 from pathlib import Path
-import polars as pl 
-import pandas as pd 
-from drugmr.phewas import PheWAS
+
+import pandas as pd
+import polars as pl
+import requests
+
 from drugmr import paths
+from drugmr.phewas import PheWAS
+
 # from statsmodels.stats.multitest import fdrcorrection
 from drugmr.twosamplemr import PyTwoSampleMR
 

@@ -120,6 +120,7 @@ RUN R -q -e "install.packages(c('remotes','BiocManager'), repos='https://cloud.r
     R -q -e "remotes::install_github('n-mounier/MRlap', build_vignettes=FALSE, upgrade='never')" && \
     R -q -e "remotes::install_version('RcppEigen', version='0.3.3.9.3', repos='https://cloud.r-project.org')" && \
     R -q -e "remotes::install_github('jrs95/hyprcoloc', build_vignettes=FALSE, upgrade = 'never')" && \
+    R -q -e "remotes::install_github('StatFunGen/colocboost', build_vignettes=FALSE, upgrade = 'never')" && \
     R -q -e "stopifnot(all(sapply(c('susieR','GenomicRanges','genetics.binaRies','ieugwasr','moloc','RadialMR','TwoSampleMR','MRPRESSO','MRlap','hyprcoloc'), requireNamespace, quietly=TRUE)))"
 
 ENV PATH="/opt/conda/envs/drugmr/bin:$PATH"

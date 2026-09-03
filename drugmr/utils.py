@@ -1,7 +1,9 @@
-#!/usr/bin/env python3
-import polars as pl
 import subprocess
-import numpy as np 
+from pathlib import Path
+
+import numpy as np
+import polars as pl
+
 
 # generic 3+ trait SNP matcher for multi-trait coloc-style analyses (HyPrColoc,
 # MOLOC, ...) - each df in `datasets` needs SNP / A1 / A2 / BETA / SE columns and
@@ -119,21 +121,42 @@ def extract_coloc_or_pwcoco_targets(coloc_csv_file, pwcoco_csv_file, pp4_thresh:
     return list(targets)
 
 
-#################
-#################
-#################
+def extract_smr_hits(bulk_smr_file, sc_smr_file,  p_heidi_thresh, p_smr_thresh, method: tuple[str, ...] = ("bulk", "sc")):
+    targets_and_dataset = {} # target = [dataset, ...]
 
-def extract_smr_hits(df, method: tuple[str, ...] = ("bulk", "sc")):
-    targets = []
-    return
+    if "bulk" in method:
+        df = pl.read_csv(bulk_smr_file, separator="\t")
+        for row in df.iter_rows(named=True):
+            protein = row["protein"]
+            p_smr = row["q_SMR"]
+            p_heidi = row["p_HEIDI"]
+            dataset = row["qtl_name"]
+            if p_smr <= p_smr_thresh and p_heidi >= p_heidi_thresh:
+                targets_and_dataset.setdefault(protein, []).append(dataset)
 
-# def extract_phewas_hits():
-#     return
+    if "sc" in method:
+        df = pl.read_csv(sc_smr_file, separator="\t")
+        for row in df.iter_rows(named=True):
+            protein = row["protein"]
+            p_smr = row["q_SMR"]
+            p_heidi = row["p_HEIDI"]
+            cell_type = row["cell_type"]
+            if p_smr <= p_smr_thresh and p_heidi >= p_heidi_thresh:
+                targets_and_dataset.setdefault(protein, []).append(cell_type)
+
+    return targets_and_dataset
 
 
-#################
-#################
-#################
+def find_bulk_eqtl(bulk_eqtl_dir, bulk_eqtl_dataset, eqtl_region=None,):
+    bulk_eqtl_dir = Path(bulk_eqtl_dir)
+    for dataset_dir in bulk_eqtl_dir.iterdir():
+        if dataset_dir.is_dir() and bulk_eqtl_dataset in dataset_dir.name:
+            for file_path in dataset_dir.glob("*.parquet"):
+                if eqtl_region is None:
+                    return file_path
+                elif eqtl_region in file_path.name:
+                    return file_path
+    return None
 
 
 def quick_f_statistic(beta_exposure, se_exposure):

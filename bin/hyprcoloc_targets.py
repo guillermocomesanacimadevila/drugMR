@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 import argparse
 import subprocess
-import polars as pl
 from pathlib import Path
-from drugmr import extract_common_snps
+
+import polars as pl
+
 from drugmr import paths
+from drugmr.utils import extract_common_snps
 
 # HyPrColoc for the final multi-omics targets
 # -> for every target x cell-type/tissue hit that passed cis-MR + COLOC + SMR + HEIDI
@@ -183,23 +185,15 @@ def hyprcoloc_targets(pqtl_dataset: str, pheno_id: str, eqtl_dataset: str, local
         .sort(["protein", "cell_type"])
     )
 
-    # HyPrColoc's target list is inherited from SMR's compiled output (smr_final_targets_out),
-    # which now includes PWCoCo-only targets too (extract_promising_targets() in sort_smr.py
-    # unions COLOC + PWCoCo, so they already flow into SMR and, via render_phewas_section's
-    # own union, PheWAS). HyPrColoc itself is deliberately kept COLOC-only for now (2026-08-26
-    # decision, see project_pwcoco_wiring memory) - excluded here rather than in sort_smr.py,
-    # so SMR/PheWAS keep seeing the full union and only this 1 step narrows back down.
-    coloc_res = pl.read_csv(paths.coloc_out(pqtl_dataset, pheno_id, local_results_dir), separator="\t")
-    if "protein_id" in coloc_res.columns:
-        coloc_res = coloc_res.rename({"protein_id": "protein"})
-    coloc_proteins = set(coloc_res["protein"].unique().to_list())
-
-    n_before = targets.height
-    targets = targets.filter(pl.col("protein").is_in(coloc_proteins))
-    n_dropped = n_before - targets.height
-    if n_dropped > 0:
-        print(f"[TRACKING] Excluded {n_dropped} target x cell-type/tissue row(s) with PWCoCo-only support from HyPrColoc")
-
+    # HyPrColoc's target list is inherited from SMR's compiled output (smr_final_targets_out)
+    # as-is, no further narrowing - extract_promising_targets() in sort_smr.py already unions
+    # standard COLOC + PWCoCo hits (a target reaching SMR/PheWAS/here needs EITHER method to
+    # have passed, not both), and that union is what flows through to smr_final_targets_out,
+    # so HyPrColoc now runs on both COLOC-only and PWCoCo-only targets, not standard-COLOC-only
+    # (2026-09-02 decision, reversing the 2026-08-26 COLOC-only restriction - see
+    # project_pwcoco_wiring memory). A protein supported by BOTH methods still gets exactly 1
+    # row here (targets is already deduped on protein x cell_type x probeID x data_type), so
+    # it is not run twice.
     print(f"[TRACKING] {targets.height} target x cell-type/tissue hit(s) found for HyPrColoc in {eqtl_dataset}")
 
     results = []

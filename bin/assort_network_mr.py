@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 import argparse
-import polars as pl
-from pathlib import Path
-import subprocess
-from drugmr import NetworkMR
-from drugmr import paths
 import os
+import subprocess
+from pathlib import Path
+
+import polars as pl
+
+from drugmr import NetworkMR, paths
 
 # what do we need to run it for CI/CD testing
 # AD GWAS (pheno_id)

@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-import polars as pl 
-import numpy as np 
-from scipy.stats import norm 
+import numpy as np
+import polars as pl
+from scipy.stats import norm
+
 
 class PyTwoSampleMR:
 

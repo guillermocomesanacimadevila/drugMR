@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
-import polars as pl
-import os
 import argparse
+import os
 from pathlib import Path
+
+import polars as pl
+
 from drugmr import paths
 
 # grab .parquet files from pQTLs

@@ -277,3 +277,35 @@ def synthesis_target_stats_out(pheno_id: str, root: str = "synthesis") -> Path:
 
 def synthesis_manifest_path(pheno_id: str, root: str = "synthesis") -> Path:
     return synthesis_dir(pheno_id, root) / "manifest.json"
+
+
+def pwcoco_qtl_raw_dir(combo: str, pqtl_dataset: str, out_dir: str = "results") -> Path:
+    """Per-(protein, eqtl_source) PWCoCo --out prefix dir for the eQTL-informed combos
+    (combo: "eqtl_pqtl" or "eqtl_gwas") bin/pwcoco_qtl_wrapper.py runs on SMR-passing
+    targets - complements pwcoco_raw_dir() above (the pQTL-GWAS PWCoCo)."""
+    return Path(out_dir) / "pwcoco_qtl" / combo / pqtl_dataset
+
+
+def pwcoco_qtl_raw_prefix(combo: str, pqtl_dataset: str, protein: str, eqtl_source: str, out_dir: str = "results") -> Path:
+    return pwcoco_qtl_raw_dir(combo, pqtl_dataset, out_dir) / f"{protein}_{eqtl_source}"
+
+
+def pwcoco_eqtl_pqtl_out(pqtl_dataset: str, pheno_id: str, out_dir: str = "results") -> Path:
+    """Aggregated eQTL-pQTL PWCoCo results (1 row per PWCoCo output row - unconditioned
+    plus any conditioned rows - across every SMR-passing protein x eqtl_source pair)."""
+    return Path(out_dir) / "pwcoco_qtl" / pqtl_dataset / f"{pqtl_dataset}_{pheno_id}_all_pwcoco_eqtl_pqtl.tsv"
+
+
+def pwcoco_eqtl_gwas_out(pqtl_dataset: str, pheno_id: str, out_dir: str = "results") -> Path:
+    """Same shape as pwcoco_eqtl_pqtl_out() above, for the eQTL-GWAS combo."""
+    return Path(out_dir) / "pwcoco_qtl" / pqtl_dataset / f"{pqtl_dataset}_{pheno_id}_all_pwcoco_eqtl_gwas.tsv"
+
+
+def pwcoco_qtl_shared_out(pqtl_dataset: str, pheno_id: str, out_dir: str = "results") -> Path:
+    """Per-protein shared-SNP table across the 3 PWCoCo combos (pQTL-GWAS from
+    pwcoco_out() above, eQTL-pQTL, eQTL-GWAS) - which SNPs colocalise (H4 above
+    threshold) in ALL 3 combos simultaneously, with each combo's own H4 for that
+    SNP. Co-equal to HyPrColoc (same "1 causal variant across pQTL/eQTL/GWAS"
+    question, tested via conditioning instead of HyPrColoc's single-cluster
+    assumption), not a downstream refinement of it."""
+    return Path(out_dir) / "pwcoco_qtl" / pqtl_dataset / f"{pqtl_dataset}_{pheno_id}_pwcoco_shared_snps.tsv"

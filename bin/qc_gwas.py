@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 
 import argparse
-import polars as pl 
-import os 
+import os
 import sys
 from pathlib import Path
-from liftover import ChainFile
 
+import polars as pl
+from liftover import ChainFile
 
 # include a liftover to GRCh38 - or keep GRCh38 if == same
 

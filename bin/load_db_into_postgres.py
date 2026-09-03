@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-from sqlalchemy import create_engine, text
-import polars as pl 
-import subprocess
 import argparse
+import subprocess
 from pathlib import Path
+
+import polars as pl
+from sqlalchemy import create_engine, text
 
 # create db drugmr
 # psql drugmr -c ""

@@ -2,10 +2,12 @@
 import argparse
 import os
 from pathlib import Path
+
 import polars as pl
 import requests
-from drugmr.phewas import PheWAS
+
 from drugmr import paths
+from drugmr.phewas import PheWAS
 from drugmr.twosamplemr import PyTwoSampleMR
 
 # Bonferroni correction is applied per-protein, across however many endpoints

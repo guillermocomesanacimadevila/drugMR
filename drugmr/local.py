@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-import sys
 import subprocess
+import sys
 from datetime import datetime
 from pathlib import Path
+
+from drugmr import paths, registry
 from drugmr.config import Config
-from drugmr import paths
-from drugmr import registry
 
 # LOCAL RESULTS / DASHBOARD STUFF
 # Need to create local running functions including a pulling docker from container function
@@ -281,8 +281,12 @@ def local(config: str, run_id: str = None):
     # a complementary annotation on top of it
     pwcoco_out = project_root / paths.pwcoco_out(pqtl_dataset, pheno_id, out_dir)
 
+    # PWCoCo (eQTL-informed) - eQTL-pQTL / eQTL-GWAS on SMR-passing targets, gated
+    # on the same complementary-not-required basis as pwcoco_out above
+    pwcoco_qtl_out = project_root / paths.pwcoco_eqtl_pqtl_out(pqtl_dataset, pheno_id, out_dir)
+
     # SMR (bulk and/or single-cell) - promising target output per eQTL mode
-    # bulk_eqtl_datasets is a list (eQTLGen / MetaBrain / GTEx_v10 etc. are pre-computed
+    # bulk_eqtl_datasets is a list (MetaBrain / GTEx_v10 etc. are pre-computed
     # separately under results/SMR/bulk/{dataset}/) so its per-dataset outputs are built
     # inside the SMR step below rather than up front here
     smr_sc_out = project_root / paths.smr_sc_out(pqtl_dataset, pheno_id, sc_eqtl_dataset, out_dir)
@@ -617,7 +621,7 @@ docker run --rm \
     #    configured eQTL dataset(s), alleles aligned to the AD risk allele
     if run_smr:
         if bulk_eqtl_datasets:
-            # bulk eQTL SMR (eQTLGen / MetaBrain / GTEx_v10) is pre-computed elsewhere -
+            # bulk eQTL SMR (MetaBrain / GTEx_v10) is pre-computed elsewhere -
             # bin/sort_smr.py ingests results/SMR/bulk/{dataset}/ rather than re-running SMR
             for bulk_dataset in bulk_eqtl_datasets:
                 smr_bulk_out = project_root / paths.smr_bulk_out(pqtl_dataset, pheno_id, bulk_dataset, out_dir)
@@ -672,6 +676,34 @@ docker run --rm \\
             print("[TRACKING] No sc_eqtl_dataset specified, skipping single-cell SMR.")
     else:
         print("[TRACKING] run_smr is False, skipping SMR entirely.")
+
+    # PWCoCo (eQTL-informed) - eQTL-pQTL / eQTL-GWAS PWCoCo on every SMR-passing
+    # target, then compared for shared colocalising SNPs against the pQTL-GWAS
+    # PWCoCo above (see project_pwcoco_wiring memory) - runs only when SMR did,
+    # since it depends on smr_final_targets_out; non-fatal like PWCoCo above.
+    if run_smr:
+        cmd_pwcoco_qtl = f"""
+set -euo pipefail
+docker run --rm \\
+  -v "{project_root}:/work" \\
+  -w /work \\
+  -e PYTHONPATH=. \\
+  "{image_name}" \\
+  python bin/pwcoco_qtl_wrapper.py \\
+    --pqtl_dataset {pqtl_dataset} \\
+    --pheno_id {pheno_id} \\
+    --ref_bfile {ref_bfile} \\
+    --n_cases {n_cases} \\
+    --n_controls {n_controls} \\
+    --local_results_dir {out_dir}
+"""
+
+        if not check_output(pwcoco_qtl_out, "PWCoCo (eQTL)", overwrite):
+            print("[TRACKING] Running PWCoCo (eQTL) locally...")
+            try:
+                cmd_base(cmd_pwcoco_qtl)
+            except subprocess.CalledProcessError as error:
+                print(f"[CONCERN] PWCoCo (eQTL) run failed - continuing without it: {error}")
 
     # HyPrColoc module (bulk and/or single-cell eQTL) - run right after SMR so
     # the combined final multi-omics target table (bulk + single-cell) is complete.
