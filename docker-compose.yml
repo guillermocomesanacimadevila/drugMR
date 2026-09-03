@@ -1,0 +1,21 @@
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: drugmr_user
+      POSTGRES_PASSWORD: drugmr_ukdri # just a random password (if you're seeing this you must know that this pipeline would not be deplpyed anywhere!!!)
+      POSTGRES_DB: drugmr
+    ports:
+      - "5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./sql/schema.sql:/docker-entrypoint-initdb.d/schema.sql ######## Need to design a SQL database
+
+volumes:
+  pgdata:
+
+
+# key commands
+# docker compose up -d 
+# ** Once running on Jupyter notebook
+# docker exec -it drugmr-posgres-1 psql -U drugmr_user -d drugmr -c "\dt+"
