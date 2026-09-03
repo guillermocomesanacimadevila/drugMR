@@ -32,33 +32,49 @@ Order top to bottom is priority. Sections split by when to tackle them, not by t
 - pull the shared bits into one sourced helper `.R` file
 - orchestration logic stays in `local.py` / `hpc.py`, not `drugmr/__init__.py`
 
+### 5. HPC: submit one job per run, not subprocess calls scattered across hpc.py
+- right now `hpc.py` fires off `subprocess.run(cmd, shell=True, ...)` stage by stage, straight from python, talking to SLURM directly inline
+- instead: a single baseline submission script in `bin/` (something like `bin/submit_job.sh`) that `hpc.py` calls once per run. one run = one job, not a scatter of ad hoc subprocess calls
+- take a `project_id` as a required param on submission, so every job on Falcon is attributable and traceable back to a run, instead of anonymous sbatch calls
+- worth doing at the same time as item 6 below (shell=True cleanup), since this is exactly the code that needs it
+
+### 6. generic QTL ingestion: stop hardcoding pQTL/eQTL datasets
+- right now the pipeline only knows about 4 named pQTL cohorts (ukb_ppp, decode, wu_csf, wingo_brain) and a handful of named eQTL panels (MetaBrain, GTEx_v10, SingleBrain), each with its own ingestion code under `scripts/<cohort>/`
+- goal: let a user bring any QTL dataset, as long as it's structured as parquet
+  - pQTL dataset = one or more parquet files
+  - eQTL dataset = one or a series of parquet files (one per tissue / cell type)
+- user declares their own column names (snp/beta/se/p/a1/a2/chr/pos, same idea as the GWAS column mapping already in `params/schema.json`)
+- build this as a **qtl manifest csv** under `assets/`, one row per dataset, that the user fills in themselves: dataset name, file path(s), column name mapping
+- pipeline reads the manifest and handles any dataset generically from there, no more writing a new per-cohort script under `scripts/` every time someone wants to bring their own QTL data
+
 ---
 
 ## Parked (come back to this later)
 
-### 5. CI, properly this time
+### 7. CI, properly this time
 - **git workflow**: still pushing straight to `main`, no PR flow, no branch protection. this is the actual root cause behind commits getting silently clobbered on a force-push, not something `ci.yml` alone fixes
 - **ci.yml**: only runs `pytest`. none of the R scripts get touched at all (`cis_mr.R`, `coloc.R`, `hyprcoloc.R`, `moloc.R`), despite that being where the FRQ/MAF bug and the GRCh37/38 build mismatches actually lived
 - two tiers to do this properly:
   - cheap: parse-check every `bin/*.R` script and confirm required packages load, run inside the existing `ghcr.io/guillermocomesanacimadevila/drugmr` image, no fixture data needed
   - real: toy fixture datasets (small per-protein pQTL slice, small GWAS slice, small plink bfile subset) so the R scripts actually run end to end in CI, not just parse
 
-### 6. remove shell=True from subprocess.run()
+### 8. remove shell=True from subprocess.run()
 - 13 call sites total: mostly `drugmr/local.py` and `drugmr/hpc.py`, plus `bin/coloc_targets.py`, `bin/load_db_into_postgres.py`, `bin/assort_network_mr.py`, `drugmr/smr.py`
 - nothing here takes untrusted input right now so it's not an active exploit, but it's still silently trusting string-built shell commands and should get cleaned up
+- do this together with item 5, since the hpc.py rewrite touches the exact same lines
 
-### 7. output format
+### 9. output format
 - runs/ + registry.json + params/ restructure is done (2026-08-11): `dat/derived/` for shared preprocessing, `runs/<run_id>/` per run with `manifest.json` + `registry.json`, `synthesis/` for cross-dataset rollups, `params/` schema-validated with a `gates:` block replacing the old hardcoded thresholds. dashboard reads through the registry now, not path-guessing
 - what never got done in that pass: outputs are still `.tsv`, not `.parquet`/`.gz`
 
-### 8. upload dat/ref onto Dropbox or Zenodo
+### 10. upload dat/ref onto Dropbox or Zenodo
 - reference data doesn't belong committed to the repo and right now it only exists locally
 
 ---
 
 ## Skip, or revisit only if it actually becomes painful
 
-### 9. workflow engine (Nextflow or Snakemake)
+### 11. workflow engine (Nextflow or Snakemake)
 - original plan here was Nextflow, still nothing Nextflow-shaped anywhere in the repo
 - `local.py` / `hpc.py` already give you a chunk of what a workflow engine buys: output-existence checks before rerunning a stage, and the `.running.tsv` incremental-save pattern in `cis_mr.R` is basically a poor man's DAG cache
 - if this ever does get picked up: snakemake over nextflow. it's python native, and its wildcard system maps almost directly onto the `results/{stage}/{pqtl_dataset}/...` naming already in use. rules can just `shell:` call the existing `bin/*.R` / `bin/*.py` scripts unmodified
