@@ -18,7 +18,7 @@ SELECT
     smr.b_gwas, smr.b_eqtl, smr.b_smr, smr.p_smr, smr.p_heidi,
     hc.posterior_prob AS hyprcoloc_pp, hc.candidate_snp
 FROM cis_mr_results mr
-JOIN coloc_results c ON c.run_id = mr.run_id AND c.protein_id = mr.protein
+JOIN coloc_results c ON c.run_id = mr.run_id AND c.protein = mr.protein
 JOIN smr_results smr ON smr.run_id = mr.run_id AND smr.protein = mr.protein
 LEFT JOIN hyprcoloc_results hc
     ON hc.run_id = mr.run_id AND hc.protein = mr.protein AND hc.eqtl_dataset = smr.eqtl_dataset;
@@ -137,6 +137,7 @@ CREATE TABLE pwcoco_eqtl_pqtl_results (
     protein VARCHAR NOT NULL,
     pqtl_dataset VARCHAR NOT NULL,
     eqtl_dataset VARCHAR NOT NULL,
+    cell_type VARCHAR,
     snp1 VARCHAR,
     snp2 VARCHAR,
     nsnps INTEGER,
@@ -156,6 +157,7 @@ CREATE TABLE pwcoco_eqtl_gwas_results (
     pqtl_dataset VARCHAR NOT NULL,
     outcome_trait VARCHAR NOT NULL,
     eqtl_dataset VARCHAR NOT NULL,
+    cell_type VARCHAR,
     snp1 VARCHAR,
     snp2 VARCHAR,
     nsnps INTEGER,
@@ -260,25 +262,25 @@ CREATE TABLE finngen_phewas_safety (
     a2 VARCHAR,
     ad_effect_allele_original VARCHAR,
     ad_other_allele_original VARCHAR,
-    beta_ad_original DOUBLE PRECISION,
-    beta_ad DOUBLE PRECISION,
-    ad_a1_flipped BOOLEAN,
+    beta_ad_original VARCHAR,
+    beta_ad VARCHAR,
+    ad_a1_flipped VARCHAR,
     exposure_effect_allele VARCHAR,
     exposure_other_allele VARCHAR,
     finngen_ref VARCHAR,
     finngen_alt VARCHAR,
-    beta_exposure_original DOUBLE PRECISION,
-    beta_exposure DOUBLE PRECISION,
-    exposure_a1_flipped BOOLEAN,
-    se_exposure DOUBLE PRECISION,
-    p_exposure DOUBLE PRECISION,
-    phewas_a1_flipped BOOLEAN,
+    beta_exposure_original VARCHAR,
+    beta_exposure VARCHAR,
+    exposure_a1_flipped VARCHAR,
+    se_exposure VARCHAR,
+    p_exposure VARCHAR,
+    phewas_a1_flipped VARCHAR,
     beta_mr DOUBLE PRECISION,
     se_mr DOUBLE PRECISION,
     p_mr DOUBLE PRECISION,
-    beta_phewas DOUBLE PRECISION,
-    se_phewas DOUBLE PRECISION,
-    p_phewas DOUBLE PRECISION,
+    beta_phewas VARCHAR,
+    se_phewas VARCHAR,
+    p_phewas VARCHAR,
     phenocode VARCHAR,
     phenostring VARCHAR,
     category VARCHAR,
@@ -307,25 +309,25 @@ CREATE TABLE ukb_phewas_safety (
     a2 VARCHAR,
     ad_effect_allele_original VARCHAR,
     ad_other_allele_original VARCHAR,
-    beta_ad_original DOUBLE PRECISION,
-    beta_ad DOUBLE PRECISION,
-    ad_a1_flipped BOOLEAN,
+    beta_ad_original VARCHAR,
+    beta_ad VARCHAR,
+    ad_a1_flipped VARCHAR,
     exposure_effect_allele VARCHAR,
     exposure_other_allele VARCHAR,
     ukb_ref VARCHAR,
     ukb_alt VARCHAR,
-    beta_exposure_original DOUBLE PRECISION,
-    beta_exposure DOUBLE PRECISION,
-    exposure_a1_flipped BOOLEAN,
-    se_exposure DOUBLE PRECISION,
-    p_exposure DOUBLE PRECISION,
-    phewas_a1_flipped BOOLEAN,
+    beta_exposure_original VARCHAR,
+    beta_exposure VARCHAR,
+    exposure_a1_flipped VARCHAR,
+    se_exposure VARCHAR,
+    p_exposure VARCHAR,
+    phewas_a1_flipped VARCHAR,
     beta_mr DOUBLE PRECISION,
     se_mr DOUBLE PRECISION,
     p_mr DOUBLE PRECISION,
-    beta_phewas DOUBLE PRECISION,
-    se_phewas DOUBLE PRECISION,
-    p_phewas DOUBLE PRECISION,
+    beta_phewas VARCHAR,
+    se_phewas VARCHAR,
+    p_phewas VARCHAR,
     phenocode VARCHAR,
     phenostring VARCHAR,
     category VARCHAR,
@@ -353,3 +355,106 @@ CREATE TABLE target_stats (
 );
 
 CREATE INDEX idx_target_stats_run ON target_stats (run_id);
+
+
+/*
+FROM HERE ONWARDS -> 
+- TABLES SPECIFIC TO NETWORKMR X -> M -> Y
+*/
+
+-- 1. NetworkMR mediation estimates (protein x mediator x outcome)
+CREATE TABLE network_mr_results (
+    run_id VARCHAR NOT NULL REFERENCES runs(run_id),
+    protein VARCHAR NOT NULL,
+    mediator VARCHAR NOT NULL,
+    pqtl_dataset VARCHAR NOT NULL,
+    x_m_ivw_beta DOUBLE PRECISION,
+    x_m_ivw_se DOUBLE PRECISION,
+    x_m_ivw_fdr_q DOUBLE PRECISION,
+    x_y_ivw_beta DOUBLE PRECISION,
+    x_y_ivw_se DOUBLE PRECISION,
+    x_y_ivw_fdr_q DOUBLE PRECISION,
+    m_y_method VARCHAR,
+    m_y_n_instruments INTEGER,
+    m_y_beta DOUBLE PRECISION,
+    m_y_se DOUBLE PRECISION,
+    m_y_pval DOUBLE PRECISION,
+    beta_total DOUBLE PRECISION,
+    se_total DOUBLE PRECISION,
+    beta_indirect DOUBLE PRECISION,
+    se_indirect DOUBLE PRECISION,
+    ci_low_indirect DOUBLE PRECISION,
+    ci_high_indirect DOUBLE PRECISION,
+    z_indirect DOUBLE PRECISION,
+    p_indirect DOUBLE PRECISION,
+    beta_direct DOUBLE PRECISION,
+    se_direct DOUBLE PRECISION,
+    ci_low_direct DOUBLE PRECISION,
+    ci_high_direct DOUBLE PRECISION,
+    z_direct DOUBLE PRECISION,
+    p_direct DOUBLE PRECISION,
+    prop_mediated DOUBLE PRECISION,
+    percent_mediated DOUBLE PRECISION,
+    se_prop_mediated DOUBLE PRECISION,
+    ci_low_prop_mediated DOUBLE PRECISION,
+    ci_high_prop_mediated DOUBLE PRECISION,
+    z_prop_mediated DOUBLE PRECISION,
+    p_prop_mediated DOUBLE PRECISION,
+    consistent_direction BOOLEAN
+);
+
+CREATE INDEX idx_network_mr_run ON network_mr_results (run_id);
+
+-- 2. Pairwise protein x mediator COLOC (coloc_with_mediators(), already
+CREATE TABLE coloc_mediator_results (
+    run_id VARCHAR NOT NULL REFERENCES runs(run_id),
+    protein VARCHAR NOT NULL,
+    pqtl_dataset VARCHAR NOT NULL,
+    outcome_trait VARCHAR NOT NULL,  
+    top_snp VARCHAR,
+    nsnps INTEGER,
+    pp_h0_abf DOUBLE PRECISION,
+    pp_h1_abf DOUBLE PRECISION,
+    pp_h2_abf DOUBLE PRECISION,
+    pp_h3_abf DOUBLE PRECISION,
+    pp_h4_abf DOUBLE PRECISION,
+    coloc_pass BOOLEAN,
+    n_pqtl_snps INTEGER,
+    n_gwas_snps INTEGER,
+    n_cases INTEGER,     
+    n_controls INTEGER,   
+    n_gwas INTEGER,
+    s_gwas DOUBLE PRECISION,
+    pp4_threshold DOUBLE PRECISION
+);
+
+CREATE INDEX idx_coloc_mediator_run ON coloc_mediator_results (run_id);
+
+-- 3. 3-trait (pQTL / mediator / outcome GWAS) HyPrColoc, run alongside MOLOC
+-- on the same protein x mediator candidates as coloc_mediator_results above
+CREATE TABLE hyprcoloc_mediator_results (
+    run_id VARCHAR NOT NULL REFERENCES runs(run_id),
+    protein VARCHAR NOT NULL,
+    pqtl_dataset VARCHAR NOT NULL,
+    outcome_trait VARCHAR NOT NULL,
+    mediator VARCHAR NOT NULL,
+    cell_type VARCHAR,
+    iteration INTEGER,
+    traits VARCHAR,
+    posterior_prob DOUBLE PRECISION,
+    regional_prob DOUBLE PRECISION,
+    candidate_snp VARCHAR,
+    posterior_explained_by_snp DOUBLE PRECISION,
+    dropped_trait VARCHAR,
+    n_snps INTEGER,
+    a1 VARCHAR,
+    a2 VARCHAR,
+    gwas_beta DOUBLE PRECISION,
+    gwas_p DOUBLE PRECISION,
+    pqtl_beta DOUBLE PRECISION,
+    pqtl_p DOUBLE PRECISION,
+    eqtl_beta DOUBLE PRECISION,
+    eqtl_p DOUBLE PRECISION
+);
+
+CREATE INDEX idx_hyprcoloc_mediator_run ON hyprcoloc_mediator_results (run_id);
