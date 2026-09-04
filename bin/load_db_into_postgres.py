@@ -2,13 +2,14 @@ import argparse
 import json
 from pathlib import Path
 
+import pandas as pd
 import polars as pl
 from sqlalchemy import text
 
 from drugmr import paths
 from drugmr.db import get_engine
 
-""" Simple script to load data from TSVs onto respective SQL table """
+""" Simple objects to load data from TSVs onto respective SQL table """
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
@@ -24,6 +25,24 @@ VALID_TABLES = [
     "ukb_phewas_safety",
     "target_stats"
 ]
+
+
+class PostgresReader:
+
+    """ Class to accumulate SQL queries for dashboard """
+
+    def __init__(self, run_id: str, db_id: str = None):
+        self.run_id = run_id
+        self.engine = get_engine(db_id=db_id)
+
+    def get_table(self, table: str) -> pd.DataFrame:
+        if table not in VALID_TABLES:
+            raise ValueError(f"Unknown table '{table}' - expected one of {VALID_TABLES}")
+        return pd.read_sql(
+            text(f"SELECT * FROM {table} WHERE run_id = :run_id"),
+            self.engine,
+            params={"run_id": self.run_id},
+        )
 
 
 class PostgresLoader:
