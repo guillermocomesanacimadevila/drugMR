@@ -23,7 +23,7 @@ pqtl_file    <- args[5]
 n_cases      <- as.numeric(args[6])
 n_controls   <- as.numeric(args[7])
 # results_dir mirrors drugmr/paths.py's out_dir (e.g. "runs/<run_id>/results") -
-# must match what coloc_targets.py's pairwise_coloc()/coloc_with_mediators() read back
+# must match what coloc_targets.py's pairwise_coloc() reads back
 results_dir  <- ifelse(length(args) >= 8, args[8], "results")
 
 exposure_def <- "quant"

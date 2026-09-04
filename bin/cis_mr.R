@@ -151,7 +151,7 @@ mr_function <- function(pqtl_dataset, pqtl_dir, pheno_id, pheno_gwas, ref_bfile,
       print(paste0("[TRACKING] Processing ", protein))
       pqtl_file <- file.path(i, "pqtl.parquet")
       gwas_file <- file.path(i, "gwas.parquet")
-      
+
       if (!file.exists(pqtl_file)) {
         print(paste0("[CONCERN] Missing pqtl.parquet for ", protein))
         pb$tick(tokens = list(protein = protein))
@@ -565,6 +565,20 @@ mr_function <- function(pqtl_dataset, pqtl_dir, pheno_id, pheno_gwas, ref_bfile,
   # OR detectable with 80% power at alpha = 0.05 given the primary SE.
   # without this a null is uninterpretable - "no effect" vs "no power".
   # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  # skip_absent above means IVW_beta/Wald_beta (etc.) only exist as columns if
+  # at least one protein in THIS batch actually used that method - true almost
+  # always for the full ~2,900-protein X -> Y run (guaranteed some Wald-ratio
+  # protein by sheer volume), but not guaranteed for a small pre-filtered batch
+  # (e.g. NetworkMR's X -> M leg, just a handful of proteins) where every protein
+  # could land on n_IV >= 2 and never trigger Wald ratio at all - backfill any
+  # missing one as NA so the fifelse() calls below don't reference a genuinely
+  # absent column
+  for (col in c("IVW_beta", "IVW_se", "IVW_pval", "Wald_beta", "Wald_se", "Wald_pval")) {
+    if (!col %in% names(all_results)) {
+      all_results[, (col) := NA_real_]
+    }
+  }
+
   all_results[, primary_beta := fifelse(!is.na(IVW_beta), IVW_beta, Wald_beta)]
   all_results[, primary_se := fifelse(!is.na(IVW_se), IVW_se, Wald_se)]
   all_results[, primary_pval := fifelse(!is.na(IVW_pval), IVW_pval, Wald_pval)]

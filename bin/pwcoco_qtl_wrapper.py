@@ -71,7 +71,7 @@ def pwcoco_qtl_wrapper(
         dataset = row["eqtl_dataset"]
         qtl_name = row["qtl_name"]
         cell_type = row["cell_type"]
-        probe = row["probeID"]
+        probe = row["probe_id"]
 
         # cis regions
         dir = f"./dat/cis_regions/{pqtl_dataset}/{p}"
@@ -146,7 +146,7 @@ def pwcoco_qtl_wrapper(
         )
         if Path(f"{out_eg}.coloc").exists():
             eqtl_gwas_rows.append(
-                pl.read_csv(f"{out_eg}.coloc", separator="\t").with_columns(pl.lit(p).alias("protein"), pl.lit(dataset).alias("eqtl_dataset"), pl.lit(cell_type).alias("cell_type"))
+                pl.read_csv(f"{out_eg}.coloc", separator="\t").with_columns(pl.lit(p).alias("protein"), pl.lit(dataset).alias("eqtl_dataset"), pl.lit(cell_type).alias("cell_type"), pl.lit(pheno_id).alias("outcome_trait"))
             )
 
     # single-cell hits
@@ -154,7 +154,7 @@ def pwcoco_qtl_wrapper(
         p = row["protein"]
         dataset = row["eqtl_dataset"]
         cell_type = row["cell_type"]
-        probe = row["probeID"]
+        probe = row["probe_id"]
 
         dir = f"./dat/cis_regions/{pqtl_dataset}/{p}"
         dir = Path(dir)
@@ -207,7 +207,7 @@ def pwcoco_qtl_wrapper(
         )
         if Path(f"{out_eg}.coloc").exists():
             eqtl_gwas_rows.append(
-                pl.read_csv(f"{out_eg}.coloc", separator="\t").with_columns(pl.lit(p).alias("protein"), pl.lit(dataset).alias("eqtl_dataset"), pl.lit(cell_type).alias("cell_type"))
+                pl.read_csv(f"{out_eg}.coloc", separator="\t").with_columns(pl.lit(p).alias("protein"), pl.lit(dataset).alias("eqtl_dataset"), pl.lit(cell_type).alias("cell_type"), pl.lit(pheno_id).alias("outcome_trait"))
             )
 
     eqtl_pqtl_df = pl.concat(eqtl_pqtl_rows, how="diagonal_relaxed") if eqtl_pqtl_rows else pl.DataFrame()
@@ -216,11 +216,13 @@ def pwcoco_qtl_wrapper(
     ep_out = pwcoco_eqtl_pqtl_out(pqtl_dataset, pheno_id, out_dir)
     ep_out.parent.mkdir(parents=True, exist_ok=True)
     if eqtl_pqtl_df.height > 0:
+        eqtl_pqtl_df = eqtl_pqtl_df.drop([c for c in ("Dataset1", "Dataset2") if c in eqtl_pqtl_df.columns])
         eqtl_pqtl_df.write_csv(ep_out, separator="\t")
 
     eg_out = pwcoco_eqtl_gwas_out(pqtl_dataset, pheno_id, out_dir)
     eg_out.parent.mkdir(parents=True, exist_ok=True)
     if eqtl_gwas_df.height > 0:
+        eqtl_gwas_df = eqtl_gwas_df.drop([c for c in ("Dataset1", "Dataset2") if c in eqtl_gwas_df.columns])
         eqtl_gwas_df.write_csv(eg_out, separator="\t")
 
     # triangulation across all 3 combos (pQTL-GWAS from pwcoco_out(), eQTL-pQTL,

@@ -87,7 +87,8 @@ def results(
     db_id: str = "drugmr",
     dashboard_script: str = "dashboard/mr_app.py",
     db_script: str = "bin/load_db_into_postgres.py",
-    port_number: int = 5432,
+    write_secrets_script: str = "bin/write_streamlit_secrets.py",
+    port_number: int = 5433,
 ):
     project_root = Path(__file__).resolve().parents[1]
     cfg = Config(project_root / config)
@@ -106,9 +107,23 @@ def results(
     coloc_res = project_root / paths.coloc_out(pqtl_dataset, pheno_id, out_dir)
     db_script = project_root / db_script
     dashboard_script = project_root / dashboard_script
+    write_secrets_script = project_root / write_secrets_script
 
     require_output(mr_res, "cis-MR", "PostgreSQL loading")
     require_output(coloc_res, "COLOC", "PostgreSQL loading")
+
+    print("[TRACKING] Starting PostgreSQL (docker compose)...")
+    subprocess.run(
+        ["docker", "compose", "up", "-d"],
+        cwd=str(project_root),
+        check=True,
+    )
+
+    print("[TRACKING] Writing Streamlit secrets...")
+    subprocess.run(
+        [sys.executable, str(write_secrets_script)],
+        check=True,
+    )
 
     print("[TRACKING] Loading MR results into PostgreSQL...")
 
@@ -120,10 +135,10 @@ def results(
             str(mr_res),
             "--db_id",
             db_id,
+            "--run_id",
+            run_id,
             "--pqtl_dataset",
             pqtl_dataset,
-            "--pheno_id",
-            pheno_id,
             "--table",
             "cis_mr_results",
         ],
@@ -140,10 +155,10 @@ def results(
             str(coloc_res),
             "--db_id",
             db_id,
+            "--run_id",
+            run_id,
             "--pqtl_dataset",
             pqtl_dataset,
-            "--pheno_id",
-            pheno_id,
             "--table",
             "coloc_results",
         ],
@@ -223,8 +238,6 @@ def local(config: str, run_id: str = None):
     maf = getattr(cfg, "maf", 0.01)
     info_threshold = getattr(cfg, "info_threshold", None)
     info_col = getattr(cfg, "info_col", None)
-    mediators = getattr(cfg, "mediators", False)
-    mediator_manifest = getattr(cfg, "mediator_manifest", "")
     remove_mhc = getattr(cfg, "remove_mhc", True)
     remove_apoe = getattr(cfg, "remove_apoe", False)
     overwrite = getattr(cfg, "overwrite", False)
@@ -242,7 +255,6 @@ def local(config: str, run_id: str = None):
     egger_intercept_pval_min = cfg.gate("cis_mr", "egger_intercept_pval_min", 0)
     min_instruments_for_ivw = cfg.gate("cis_mr", "min_instruments_for_ivw", 3)
     pp4_threshold = cfg.gate("coloc", "pp4_threshold", 0.7)
-    m_y_pval_threshold = cfg.gate("network_mr", "m_y_pval_threshold", 0.05)
 
 
     # set projectDir()
@@ -303,10 +315,6 @@ def local(config: str, run_id: str = None):
     # FinnGen PheWAS coverage manifest - UKB PheWAS reads this to run only on the
     # fallback set (targets with zero retained instruments in FinnGen)
     phewas_finngen_coverage_out = project_root / paths.phewas_finngen_coverage_out(pqtl_dataset, pheno_id, out_dir)
-
-    # NetworkMR is gated directly on its actual final output (the mediation
-    # estimates file coloc_with_mediators() also reads) - no separate gate literal
-    network_mr_out = project_root / paths.network_mr_mediation_estimates_out(pqtl_dataset, pheno_id, out_dir)
 
     def check_docker():
         print("[TRACKING] Checking Docker...")
@@ -387,35 +395,6 @@ docker run --rm \\
 
     require_output(qc_out, "GWAS QC", "cis-region preparation")
 
-    # mediators stuff
-    if mediators:
-        print("[TRACKING] QCing mediators locally via Docker...")
-
-        mediator_args = f"--mediator-manifest {mediator_manifest}"
-        if remove_mhc:
-            mediator_args += " --remove_mhc"
-        if remove_apoe:
-            mediator_args += " --remove_apoe"
-
-        cmd_m_qc = f"""
-set -euo pipefail
-docker run --rm \\
-  -v "{project_root}:/work" \\
-  -w /work \\
-  -e PYTHONPATH=. \\
-  "{image_name}" \\
-  python bin/arrange_mediators.py \\
-    --mediators \\
-    {mediator_args} \\
-    --maf {maf}
-"""
-        # mediator preparation does not currently have one definite output file
-        # so this reruns where mediators == True
-        cmd_base(cmd_m_qc)
-
-    else:
-        print("[TRACKING] No mediators specified, running drugMR without them then!")
-
     # cis-region module
     cmd_cis = f"""
 set -euo pipefail
@@ -474,65 +453,8 @@ docker run --rm \\
 
     require_output(mr_out, "cis-MR", "COLOC")
 
-    # networkMR (HERE)
-    if mediators:
-        require_output(mr_out, "cis-MR", "NetworkMR")
-
-        cmd_network_mr = f"""
-set -euo pipefail
-docker run --rm \\
-  -v "{project_root}:/work" \\
-  -w /work \\
-  -e PYTHONPATH=. \\
-  "{image_name}" \\
-  python bin/assort_network_mr.py \\
-    --pheno_id {pheno_id} \\
-    --pheno_gwas {paths.qc_out(pheno_id)} \\
-    --ref_bfile {ref_bfile} \\
-    --pqtl_dataset {pqtl_dataset} \\
-    --pqtl_dir dat/cis_regions/{pqtl_dataset} \\
-    --run_genomewide_mr \\
-    --run_cis_mr_X_M \\
-    --run_network_mr \\
-    --local_results_dir {out_dir} \\
-    --ivw_fdr_q {ivw_fdr_q} \\
-    --egger_intercept_pval_min {egger_intercept_pval_min} \\
-    --cochran_q_pval {cochran_q_pval} \\
-    --m_y_pval_threshold {m_y_pval_threshold}
-"""
-
-        if not check_output(network_mr_out, "NetworkMR", overwrite):
-            print("[TRACKING] Running NetworkMR with mediators!")
-            cmd_base(cmd_network_mr)
-    else:
-        print("[TRACKING] No mediators specified, skipping NetworkMR.")
-
-
     # coloc target module
-    # ******** RE-DO -> AD if mediators:
-    # cmd_coloc with mediators
-    cmd_coloc_with_mediators = f"""
-set -euo pipefail
-docker run --rm \\
-  -v "{project_root}:/work" \\
-  -w /work \\
-  -e PYTHONPATH=. \\
-  "{image_name}" \\
-  python bin/coloc_targets.py \\
-    --pqtl_dataset {pqtl_dataset} \\
-    --local_results_dir {out_dir} \\
-    --pqtl_dir dat/cis_regions/{pqtl_dataset} \\
-    --pheno_id {pheno_id} \\
-    --n_cases {n_cases} \\
-    --n_controls {n_controls} \\
-    --mediators \\
-    --mediator_manifest {mediator_manifest} \\
-    --ivw_fdr_q {ivw_fdr_q} \\
-    --pp4_threshold {pp4_threshold}
-"""
-
-    # without mediators
-    cmd_coloc_without_mediators = f"""
+    cmd_coloc = f"""
 set -euo pipefail
 docker run --rm \\
   -v "{project_root}:/work" \\
@@ -555,11 +477,7 @@ docker run --rm \\
 
     if not check_output(coloc_out, "COLOC", overwrite):
         print("[TRACKING] Running COLOC locally...")
-
-        if mediators:
-            cmd_base(cmd_coloc_with_mediators)
-        else:
-            cmd_base(cmd_coloc_without_mediators)
+        cmd_base(cmd_coloc)
 
     require_output(coloc_out, "COLOC", "Top cis-hit compilation")
 

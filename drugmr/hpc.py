@@ -238,41 +238,6 @@ bash -c "cd /work && python bin/qc_gwas.py \\
 """, falcon_user)
 
 
-# mediators
-def run_mediator_qc(
-    falcon_user: str,
-    mediator_manifest: str,
-    maf: float = 0.01,
-    remove_mhc: bool = True,
-    remove_apoe: bool = False,
-    overwrite: bool = True,
-):
-    remote, sif = get_remote_paths(falcon_user)
-
-    flag_args = ""
-    if remove_mhc:
-        flag_args += " --remove_mhc"
-    if remove_apoe:
-        flag_args += " --remove_apoe"
-    if overwrite:
-        flag_args += " --overwrite"
-
-    ssh(f"""
-set -euo pipefail
-cd "{remote}"
-
-apptainer exec --bind "{remote}:/work" \\
-  --env PYTHONPATH=. \\
-  "{sif}" \\
-bash -c "cd /work && python bin/arrange_mediators.py \\
-  --mediators \\
-  --mediator-manifest {mediator_manifest} \\
-  --maf {maf} \\
-  {flag_args}"
-""", falcon_user)
-
-
-
 # *********** Extract cis-regions from pQTLs
 def prep_cis_regions(
     falcon_user: str,
@@ -322,47 +287,8 @@ bash -c "cd /work && Rscript bin/cis_mr.R \\
   {out_dir}"
 """, falcon_user)
 
-def run_network_mr(
-    falcon_user: str,
-    pheno_id: str,
-    pheno_gwas: str,
-    ref_bfile: str,
-    pqtl_dataset: str,
-    pqtl_dir: str,
-    local_results_dir: str = "results",
-    ivw_fdr_q: float = 0.05,
-    egger_intercept_pval_min: float = 0,
-    cochran_q_pval: float = 0.05,
-    m_y_pval_threshold: float = 0.05,
-):
-    remote, sif = get_remote_paths(falcon_user)
-
-    ssh(f"""
-set -euo pipefail
-cd "{remote}"
-
-apptainer exec --bind "{remote}:/work" \\
-  --env PYTHONPATH=. \\
-  "{sif}" \\
-  python bin/assort_network_mr.py \\
-    --pheno_id {pheno_id} \\
-    --pheno_gwas {pheno_gwas} \\
-    --ref_bfile {ref_bfile} \\
-    --pqtl_dataset {pqtl_dataset} \\
-    --pqtl_dir {pqtl_dir} \\
-    --run_genomewide_mr \\
-    --run_cis_mr_X_M \\
-    --run_network_mr \\
-    --local_results_dir {local_results_dir} \\
-    --ivw_fdr_q {ivw_fdr_q} \\
-    --egger_intercept_pval_min {egger_intercept_pval_min} \\
-    --cochran_q_pval {cochran_q_pval} \\
-    --m_y_pval_threshold {m_y_pval_threshold}
-""", falcon_user)
-
-
 # RUN COLOC
-def run_coloc_without_mediators(
+def run_coloc(
     falcon_user: str,
     pqtl_dataset: str,
     pheno_id: str,
@@ -462,41 +388,6 @@ apptainer exec --bind "{remote}:/work" \\
     --local_results_dir {local_results_dir}"
 """, falcon_user)
 
-
-def run_coloc_with_mediators(
-    falcon_user: str,
-    pqtl_dataset: str,
-    pheno_id: str,
-    n_cases: int,
-    n_controls: int,
-    mediators: bool = False,
-    mediator_manifest: str = "",
-    local_results_dir: str = "results",
-    ivw_fdr_q: float = 0.05,
-    pp4_threshold: float = 0.7,
-):
-
-    remote, sif = get_remote_paths(falcon_user)
-
-    ssh(f"""
-set -euo pipefail
-cd "{remote}"
-
-apptainer exec --bind "{remote}:/work" \\
-  --env PYTHONPATH=. \\
-  "{sif}" \\
-  bash -c "cd /work && python bin/coloc_targets.py \\
-    --pqtl_dataset {pqtl_dataset} \\
-    --local_results_dir {local_results_dir} \\
-    --pqtl_dir dat/cis_regions/{pqtl_dataset} \\
-    --pheno_id {pheno_id} \\
-    --n_cases {n_cases} \\
-    --n_controls {n_controls} \\
-    --mediators \\
-    --mediator_manifest {mediator_manifest} \\
-    --ivw_fdr_q {ivw_fdr_q} \\
-    --pp4_threshold {pp4_threshold}"
-""", falcon_user)
 
 # RUN SMR (bulk or single-cell, depending on eqtl_mode)
 # named run_smr_step (not run_smr) to avoid clashing with the run_smr config flag in hpc()
@@ -713,6 +604,7 @@ python bin/ukb_phewas.py \\
 
 def load_postgres(
     falcon_user: str,
+    run_id: str,
     pqtl_dataset: str,
     pheno_id: str,
     db_id: str = "drugmr",
@@ -730,16 +622,16 @@ apptainer exec --bind "{remote}:/work" "{sif}" \\
 bash -c "cd /work && python bin/load_db_into_postgres.py \\
   --results_file {mr_res} \\
   --db_id {db_id} \\
+  --run_id {run_id} \\
   --pqtl_dataset {pqtl_dataset} \\
-  --pheno_id {pheno_id} \\
   --table cis_mr_results"
 
 apptainer exec --bind "{remote}:/work" "{sif}" \\
 bash -c "cd /work && python bin/load_db_into_postgres.py \\
   --results_file {coloc_res} \\
   --db_id {db_id} \\
+  --run_id {run_id} \\
   --pqtl_dataset {pqtl_dataset} \\
-  --pheno_id {pheno_id} \\
   --table coloc_results"
 """, falcon_user)
 
@@ -832,7 +724,7 @@ def run_dashboard_local(
     db_name: str,
     phenotype: str,
     pqtl_dataset: str,
-    port_number: int = 5432
+    port_number: int = 5433
 ):
     # cwd is pinned to project_root (same fix as drugmr/local.py's results()) so
     # Streamlit reliably finds <project_root>/.streamlit/config.toml (the custom
@@ -942,8 +834,6 @@ def hpc(config: str, run_id: str = None):
     genome_build = cfg.genome_build
     target_build = cfg.target_build
     maf = getattr(cfg, "maf", 0.01)
-    mediators = getattr(cfg, "mediators", False)
-    mediator_manifest = getattr(cfg, "mediator_manifest", "")
     info_threshold = getattr(cfg, "info_threshold", None)
     info_col = getattr(cfg, "info_col", None)
     remove_mhc = getattr(cfg, "remove_mhc", True)
@@ -961,7 +851,6 @@ def hpc(config: str, run_id: str = None):
     egger_intercept_pval_min = cfg.gate("cis_mr", "egger_intercept_pval_min", 0)
     min_instruments_for_ivw = cfg.gate("cis_mr", "min_instruments_for_ivw", 3)
     pp4_threshold = cfg.gate("coloc", "pp4_threshold", 0.7)
-    m_y_pval_threshold = cfg.gate("network_mr", "m_y_pval_threshold", 0.05)
 
     print("[TRACKING] Preparing Falcon repo...")
     clone_repo(falcon_user)
@@ -1007,10 +896,6 @@ def hpc(config: str, run_id: str = None):
     # on the same complementary-not-required basis as pwcoco_out above
     pwcoco_qtl_out = str(paths.pwcoco_eqtl_pqtl_out(pqtl_dataset, pheno_id, out_dir))
 
-    # change this where NetworkMR saves its final compiled output
-    # NetworkMR is gated directly on its actual final output (the mediation
-    # estimates file coloc_with_mediators() also reads) - no separate gate literal
-    network_mr_out = str(paths.network_mr_mediation_estimates_out(pqtl_dataset, pheno_id, out_dir))
     target_stats_out = str(paths.target_stats_out(pqtl_dataset, pheno_id, out_dir))
 
     # SMR (bulk and/or single-cell) - promising target output per eQTL mode
@@ -1058,19 +943,6 @@ def hpc(config: str, run_id: str = None):
         required_for="cis-region preparation"
     )
 
-    if mediators:
-        print("[TRACKING] Running mediator QC...")
-        run_mediator_qc(
-            falcon_user=falcon_user,
-            mediator_manifest=mediator_manifest,
-            maf=maf,
-            remove_mhc=remove_mhc,
-            remove_apoe=remove_apoe,
-            overwrite=overwrite,
-        )
-    else:
-        print("[TRACKING] No mediators specificed, running drugMR without them then!")
-
     if not check_remote_cis_regions(
         falcon_user=falcon_user,
         pqtl_dataset=pqtl_dataset,
@@ -1108,37 +980,6 @@ def hpc(config: str, run_id: str = None):
         required_for="COLOC"
     )
 
-    if mediators:
-        require_remote_output(
-            falcon_user=falcon_user,
-            path=mr_out,
-            step="cis-MR",
-            required_for="NetworkMR"
-        )
-
-        if not check_remote_output(
-            falcon_user=falcon_user,
-            path=network_mr_out,
-            step="NetworkMR",
-            overwrite=overwrite
-        ):
-            print("[TRACKING] Running NetworkMR with mediators...")
-            run_network_mr(
-                falcon_user=falcon_user,
-                pheno_id=pheno_id,
-                pheno_gwas=qc_out,
-                ref_bfile=ref_bfile,
-                pqtl_dataset=pqtl_dataset,
-                pqtl_dir=f"dat/cis_regions/{pqtl_dataset}",
-                local_results_dir=out_dir,
-                ivw_fdr_q=ivw_fdr_q,
-                egger_intercept_pval_min=egger_intercept_pval_min,
-                cochran_q_pval=cochran_q_pval,
-                m_y_pval_threshold=m_y_pval_threshold,
-            )
-    else:
-        print("[TRACKING] No mediators specified, skipping NetworkMR.")
-
     if not check_remote_output(
         falcon_user=falcon_user,
         path=coloc_out,
@@ -1146,34 +987,19 @@ def hpc(config: str, run_id: str = None):
         overwrite=overwrite
     ):
         print("[TRACKING] Running COLOC...")
-
-        if mediators:
-            run_coloc_with_mediators(
-                falcon_user=falcon_user,
-                pqtl_dataset=pqtl_dataset,
-                pheno_id=pheno_id,
-                n_cases=n_cases,
-                n_controls=n_controls,
-                mediators=mediators,
-                mediator_manifest=mediator_manifest,
-                local_results_dir=out_dir,
-                ivw_fdr_q=ivw_fdr_q,
-                pp4_threshold=pp4_threshold
-            )
-        else:
-            run_coloc_without_mediators(
-                falcon_user=falcon_user,
-                pqtl_dataset=pqtl_dataset,
-                pheno_id=pheno_id,
-                n_cases=n_cases,
-                n_controls=n_controls,
-                local_results_dir=out_dir,
-                wald_fdr_q=wald_fdr_q,
-                ivw_fdr_q=ivw_fdr_q,
-                cochran_q_pval=cochran_q_pval,
-                egger_intercept_pval_min=egger_intercept_pval_min,
-                min_instruments_for_ivw=min_instruments_for_ivw
-            )
+        run_coloc(
+            falcon_user=falcon_user,
+            pqtl_dataset=pqtl_dataset,
+            pheno_id=pheno_id,
+            n_cases=n_cases,
+            n_controls=n_controls,
+            local_results_dir=out_dir,
+            wald_fdr_q=wald_fdr_q,
+            ivw_fdr_q=ivw_fdr_q,
+            cochran_q_pval=cochran_q_pval,
+            egger_intercept_pval_min=egger_intercept_pval_min,
+            min_instruments_for_ivw=min_instruments_for_ivw
+        )
 
     require_remote_output(
         falcon_user=falcon_user,

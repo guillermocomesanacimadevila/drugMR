@@ -95,13 +95,14 @@ def compile_top_cis_hits(pheno_id: str, pqtl_dataset: str, local_results_dir: st
         top_hits.append({
             "protein": target,
             "SNP": snp_id,
-            "A1": a1,                  
-            "A2": a2,                  
-            "FRQ": a1_frq,             
-            "GWAS_BETA": gwas_beta,    
+            "A1": a1,
+            "A2": a2,
+            "FRQ": a1_frq,
+            "GWAS_BETA": gwas_beta,
             "GWAS_P": gwas_p,
-            "pQTL_BETA": pqtl_beta,    
+            "pQTL_BETA": pqtl_beta,
             "pQTL_P": pqtl_p,
+            "outcome_trait": pheno_id,
         })
 
     top_hits = pl.DataFrame(top_hits)

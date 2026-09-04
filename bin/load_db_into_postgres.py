@@ -90,7 +90,11 @@ class PostgresLoader:
         if table not in VALID_TABLES:
             raise ValueError(f"Unknown table '{table}' - expected one of {VALID_TABLES}")
 
-        df = pl.read_csv(Path(results_file), separator="\t")
+        # infer_schema_length=None scans every row before guessing dtypes - some
+        # PheWAS columns (e.g. beta_ad_original) are scalar for single-instrument
+        # rows but a comma-joined list for multi-instrument ones, and a partial
+        # scan can guess float from early rows then choke on a later list value
+        df = pl.read_csv(Path(results_file), separator="\t", infer_schema_length=None)
         df.columns = [c.lower().replace(".", "_") for c in df.columns]
         df = df.with_columns(
             pl.lit(self.run_id).alias("run_id"),

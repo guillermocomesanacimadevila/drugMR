@@ -80,7 +80,8 @@ def run_pwcoco(ref_bfile: str, n_cases: int, n_controls: int, pqtl_dataset: str,
         coloc_file = Path(f"{out_prefix}.coloc")
         if coloc_file.exists():
             result = pl.read_csv(coloc_file, separator="\t").with_columns(
-                pl.lit(target).alias("protein")
+                pl.lit(target).alias("protein"),
+                pl.lit(pheno_id).alias("outcome_trait"),
             )
             results.append(result)
         else:
@@ -88,7 +89,9 @@ def run_pwcoco(ref_bfile: str, n_cases: int, n_controls: int, pqtl_dataset: str,
 
     master_file = pwcoco_out(pqtl_dataset, pheno_id, local_results_dir)
     master_file.parent.mkdir(parents=True, exist_ok=True)
-    pl.concat(results, how="diagonal_relaxed").write_csv(master_file, separator="\t")
+    master_df = pl.concat(results, how="diagonal_relaxed")
+    master_df = master_df.drop([c for c in ("Dataset1", "Dataset2") if c in master_df.columns])
+    master_df.write_csv(master_file, separator="\t")
     print(f"[DONE] Saved master PWCoCo table: {master_file}")
 
 

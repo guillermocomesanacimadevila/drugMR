@@ -667,6 +667,27 @@ def compile_multi_omics_targets(pheno_id: str, pqtl_dataset: str, eqtl_dataset: 
         print(f"[CONCERN] No drug targets passed cis-MR (pQTLs) + COLOC + {eqtl_dataset} eQTL SMR")
         return []
 
+    # match sql/schema.sql's smr_results column names - the SMR tool's own output
+    # uses these exact spellings (probeID, topSNP, ...) and plain lowercasing
+    # doesn't produce the schema's snake_case names for them. Applied to each side
+    # before the upsert concat below (rather than once after) so a freshly-computed
+    # frame (raw names) and an existing_df read back from an already-migrated file
+    # (already-renamed names) don't collide into duplicate half-populated columns.
+    def rename_to_schema(frame):
+        rename_map = {
+            "probeID": "probe_id",
+            "ProbeChr": "probe_chr",
+            "topSNP": "top_snp",
+            "topSNP_chr": "top_snp_chr",
+            "topSNP_bp": "top_snp_bp",
+            "start": "start_bp",
+            "end": "end_bp",
+        }
+        rename_map = {k: v for k, v in rename_map.items() if k in frame.columns}
+        return frame.rename(rename_map) if rename_map else frame
+
+    final_targets_df = rename_to_schema(final_targets_df)
+
     # canonical combined output (bulk + single-cell hits together) that the dashboard reads
     # upsert: drop any stale rows for this eqtl_dataset, then append the fresh ones,
     # so bulk and single-cell runs (in either order) compose instead of overwriting each other
@@ -674,7 +695,7 @@ def compile_multi_omics_targets(pheno_id: str, pqtl_dataset: str, eqtl_dataset: 
     os.makedirs(combined_file.parent, exist_ok=True)
 
     if combined_file.exists() and combined_file.stat().st_size > 0:
-        existing_df = read_smr_tsv(combined_file)
+        existing_df = rename_to_schema(read_smr_tsv(combined_file))
         existing_df = existing_df.filter(pl.col("eqtl_dataset") != eqtl_dataset)
         combined_df = pl.concat([existing_df, final_targets_df], how="diagonal_relaxed")
     else:

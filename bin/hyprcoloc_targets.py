@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 import argparse
 import subprocess
 from pathlib import Path
@@ -180,7 +179,7 @@ def hyprcoloc_targets(pqtl_dataset: str, pheno_id: str, eqtl_dataset: str, local
     targets = (
         targets
         .filter(pl.col("eqtl_dataset") == eqtl_dataset)
-        .select(["protein", "cell_type", "probeID", "data_type"])
+        .select(["protein", "cell_type", "probe_id", "data_type"])
         .unique()
         .sort(["protein", "cell_type"])
     )
@@ -201,7 +200,7 @@ def hyprcoloc_targets(pqtl_dataset: str, pheno_id: str, eqtl_dataset: str, local
     for row in targets.iter_rows(named=True):
         protein = row["protein"]
         cell_type = row["cell_type"]
-        probe_id = row["probeID"]
+        probe_id = row["probe_id"]
         data_type = row["data_type"]
         cis_region = Path(f"./dat/cis_regions/{pqtl_dataset}/{protein}")
         gwas_file = cis_region / "gwas.parquet"
@@ -306,6 +305,7 @@ def hyprcoloc_targets(pqtl_dataset: str, pheno_id: str, eqtl_dataset: str, local
 
     master.write_csv(master_file, separator="\t")
     print(f"[DONE] Saved master HyPrColoc table: {master_file}")
+
 
 
 def main():

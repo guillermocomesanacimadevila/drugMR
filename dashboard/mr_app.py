@@ -16,6 +16,7 @@ from liftover import ChainFile
 from plotly.subplots import make_subplots
 
 from drugmr import paths, registry
+from bin.load_db_into_postgres import PostgresLoader, PostgresReader
 
 # shared plotting conventions so charts look consistent across tabs rather than each
 # px.* call picking its own default palette
@@ -147,23 +148,6 @@ def layout_sankey_columns(column_indices: list, node_values: list, n_nodes: int,
 # KEY CHANGES DOWN THE LINE WITH MORE PQTL DATASETS
 # -> CHANGE THE DASHBOARD FUNCT TO ADD MORE PQTL DATASETS
 # biomarker meta analysis: https://pmc.ncbi.nlm.nih.gov/articles/instance/12136742/pdf/nihpp-rs6597595v1.pdf
-
-def create_streamlit_ammenities(db_name: str, port_number: str):
-    streamlit_dir = Path(".streamlit")
-    streamlit_dir.mkdir(parents=True, exist_ok=True)
-
-    secrets = f"""[connections.postgresql]
-dialect = "postgresql"
-host = "localhost"
-port = "{port_number}"
-database = "{db_name}"
-username = ""
-password = ""
-"""
-
-    # create local streamlit ammenities
-    (streamlit_dir / "secrets.toml").write_text(secrets, encoding="utf-8")
-
 
 def retention(current: int, previous: int):
     return 0.0 if previous == 0 else 100 * current / previous
@@ -2147,18 +2131,7 @@ def dashboard(db_name: str, port_number: str, phenotype: str, pqtl_dataset: str)
         unsafe_allow_html=True,
     )
 
-    try:
-        conn = st.connection(
-            "postgresql",
-            type="sql",
-            url=f"postgresql://localhost:{port_number}/{db_name}"
-        )
-    except Exception as error:
-        st.error("The PostgreSQL connection could not be initialised.")
-        st.exception(error)
-        st.stop()
-
-    # pQTL dataset selection schema 
+    # pQTL dataset selection schema
     # CLI pQTL dataset is used as the default dashboard selection
     dataset_names = {
         "ukb_ppp": "UKB-PPP",
@@ -2243,9 +2216,10 @@ def dashboard(db_name: str, port_number: str, phenotype: str, pqtl_dataset: str)
                 st.caption("No run history (legacy path)")
 
         if selected_run != "latest":
-            _, dataset_result_files[pqtl_dataset] = resolve_dataset_files(
+            run_id_used, dataset_result_files[pqtl_dataset] = resolve_dataset_files(
                 project_dir, phenotype, pqtl_dataset, run_id=selected_run
             )
+            dataset_run_ids[pqtl_dataset] = run_id_used
 
         with dataset_info_col:
             st.metric("pQTL sample size", f"{dataset_n:,}")
@@ -2263,6 +2237,46 @@ def dashboard(db_name: str, port_number: str, phenotype: str, pqtl_dataset: str)
     pwcoco_file = dataset_result_files[pqtl_dataset]["pwcoco"]
     pwcoco_eqtl_pqtl_file = dataset_result_files[pqtl_dataset]["pwcoco_eqtl_pqtl"]
     pwcoco_eqtl_gwas_file = dataset_result_files[pqtl_dataset]["pwcoco_eqtl_gwas"]
+
+    # push this run's result files straight into PostgreSQL (schema-matching
+    # since bin/coloc_targets.py, bin/sort_smr.py, bin/pwcoco_wrapper.py,
+    # bin/pwcoco_qtl_wrapper.py and bin/compile_cis_hit_info.py all emit
+    # sql/schema.sql-shaped columns now) - scoped to this dataset's actual
+    # run_id, not the dashboard's own in-memory transforms further below
+    run_id = dataset_run_ids[pqtl_dataset]
+
+    postgres_tables = [
+        ("cis_mr_results", mr_file, True),
+        ("coloc_results", coloc_file, True),
+        ("finngen_phewas_safety", finngen_phewas_file, False),
+        ("ukb_phewas_safety", ukb_phewas_file, False),
+        ("target_stats", target_info_file, False),
+        ("smr_results", smr_file, False),
+        ("hyprcoloc_results", hyprcoloc_file, False),
+        ("pwcoco_results", pwcoco_file, False),
+        ("pwcoco_eqtl_pqtl_results", pwcoco_eqtl_pqtl_file, False),
+        ("pwcoco_eqtl_gwas_results", pwcoco_eqtl_gwas_file, False),
+    ]
+
+    loader = PostgresLoader(run_id=run_id, db_id=db_name)
+    postgres_table_available = {}
+
+    for table, file_path, required in postgres_tables:
+        if file_path is None or not file_path.exists():
+            postgres_table_available[table] = False
+            continue
+        try:
+            loader.load_table(results_file=file_path, pqtl_dataset=pqtl_dataset, table=table)
+            postgres_table_available[table] = True
+        except Exception as error:
+            postgres_table_available[table] = False
+            if required:
+                st.error(f"The {table} dashboard table could not be refreshed.")
+                st.exception(error)
+                st.stop()
+            else:
+                st.warning(f"The {table} dashboard table could not be refreshed.")
+                st.exception(error)
 
     # load local result files into PostgreSQL for the dashboard
     mr = load_required_tsv(mr_file, "cis-MR")
@@ -2323,33 +2337,8 @@ def dashboard(db_name: str, port_number: str, phenotype: str, pqtl_dataset: str)
         coloc["pqtl_dataset"] = pqtl_dataset
 
 
-    # refresh dashboard tables
-    try:
-        mr.to_sql(mr_table, conn.engine, if_exists="replace", index=False)
-        coloc.to_sql(coloc_table, conn.engine, if_exists="replace", index=False)
-    except Exception as error:
-        st.error("The cis-MR or COLOC dashboard table could not be refreshed.")
-        st.exception(error)
-        st.stop()
-
-    finngen_phewas_available = not finngen_phewas.empty
-    ukb_phewas_available = not ukb_phewas.empty
-
-    if finngen_phewas_available:
-        try:
-            finngen_phewas.to_sql(finngen_phewas_table, conn.engine, if_exists="replace", index=False)
-        except Exception as error:
-            st.warning("The FinnGen PheWAS dashboard table could not be refreshed.")
-            st.exception(error)
-            finngen_phewas_available = False
-
-    if ukb_phewas_available:
-        try:
-            ukb_phewas.to_sql(ukb_phewas_table, conn.engine, if_exists="replace", index=False)
-        except Exception as error:
-            st.warning("The UKB PheWAS dashboard table could not be refreshed.")
-            st.exception(error)
-            ukb_phewas_available = False
+    finngen_phewas_available = postgres_table_available["finngen_phewas_safety"]
+    ukb_phewas_available = postgres_table_available["ukb_phewas_safety"]
 
     # values captured here (this is where mr/coloc/etc. hold the freshly-loaded
     # TSV row counts, before later stages filter/transform them) - actual
@@ -2372,16 +2361,17 @@ def dashboard(db_name: str, port_number: str, phenotype: str, pqtl_dataset: str)
     }
 
     # load MR + COLOC results
-    mr = conn.query(f"SELECT * FROM {mr_table};", ttl=0)
-    coloc = conn.query(f"SELECT * FROM {coloc_table};", ttl=0)
+    reader = PostgresReader(run_id=run_id, db_id=db_name)
+    mr = reader.get_table(mr_table)
+    coloc = reader.get_table(coloc_table)
 
     if finngen_phewas_available:
-        finngen_phewas = prepare_phewas(conn.query(f"SELECT * FROM {finngen_phewas_table};", ttl=0))
+        finngen_phewas = prepare_phewas(reader.get_table(finngen_phewas_table))
     else:
         finngen_phewas = pd.DataFrame()
 
     if ukb_phewas_available:
-        ukb_phewas = prepare_phewas(conn.query(f"SELECT * FROM {ukb_phewas_table};", ttl=0))
+        ukb_phewas = prepare_phewas(reader.get_table(ukb_phewas_table))
     else:
         ukb_phewas = pd.DataFrame()
 
@@ -4543,7 +4533,6 @@ def main():
     p.add_argument("--phenotype", required=True, type=str)
     p.add_argument("--pqtl_dataset", required=True, type=str)
     args = p.parse_args()
-    create_streamlit_ammenities(args.db_name, args.port_number)
     dashboard(
         db_name=args.db_name,
         port_number=args.port_number,

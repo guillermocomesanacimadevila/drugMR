@@ -22,13 +22,14 @@ computed by callers as `run_results_dir(run_id)` instead of a bare
 the registry.json/manifest.json read/write logic (deliberately kept out
 of this module, which stays pure path arithmetic with no I/O).
 
-Phase 5 (network_mr + synthesis/): the standalone `network_mr_out()` gate
-(which never matched what assort_network_mr.py actually wrote) is retired -
-`drugmr/local.py`/`drugmr/hpc.py` now gate NetworkMR directly on
-`network_mr_mediation_estimates_out()`, the function that's actually written
-to. M_Y (mediator -> outcome, pheno-scoped only) moved to Tier 1
-(`network_mr_m_y_*`); X_M and mediation_estimates (per pqtl_dataset) stay
-Tier 2 (`network_mr_x_m_*`, `network_mr_mediation_estimates_out`).
+NetworkMR (mediator/biomarker mediation analysis - protein -> mediator ->
+outcome, plus its MOLOC/HyPrColoc-mediator colocalisation branches) was
+removed from the active pipeline and archived to analysis/networkmr/ - real
+bugs found in it (cis_mr.R silently ignoring the mediator outcome and
+re-running protein -> AD instead, coloc.R hardcoding the mediator's trait
+type as case-control, several stale-glob/idempotency issues) made it not
+worth keeping wired in until revisited properly. See analysis/networkmr/
+for the archived code if this is ever picked back up.
 
 Known pre-existing mismatch preserved as-is (not fixed by this module):
   - `dat/bulk-eQTL` (singular) vs `dat/bulk-eQTLs` (plural, only in
@@ -43,16 +44,6 @@ def qc_out(pheno_id: str) -> Path:
     run's out_dir, since it's reused across every pqtl_dataset run for this
     pheno_id rather than regenerated per run."""
     return Path("dat") / "derived" / pheno_id / "qc_gwas" / f"{pheno_id}.tsv"
-
-
-def qc_mediator_dir() -> Path:
-    """Tier-1 shared mediator QC directory - flat, one file per mediator,
-    not scoped to pheno_id or pqtl_dataset (mediators are dataset-level)."""
-    return Path("dat") / "derived" / "mediators" / "qc_gwas"
-
-
-def qc_mediator_out(mediator_id: str) -> Path:
-    return qc_mediator_dir() / f"{mediator_id}.tsv"
 
 
 def mr_out(pqtl_dataset: str, pheno_id: str, out_dir: str = "results") -> Path:
@@ -87,18 +78,6 @@ def coloc_sensitivity_out(pqtl_dataset: str, pheno_id: str, out_dir: str = "resu
     return Path(out_dir) / "coloc" / pqtl_dataset / f"{pqtl_dataset}_{pheno_id}_all_coloc_sensitivity.tsv"
 
 
-def coloc_mediator_out(pqtl_dataset: str, pheno_id: str, out_dir: str = "results") -> Path:
-    """Protein x mediator COLOC results from coloc_with_mediators() (bin/coloc_targets.py) -
-    the M-side pairs used to build the moloc.json candidate list, kept separate
-    from coloc_out()'s protein x outcome (Y) pairs since it's a different pairing."""
-    return Path(out_dir) / "coloc" / pqtl_dataset / f"{pqtl_dataset}_{pheno_id}_all_coloc_mediators.tsv"
-
-
-def coloc_mediator_sensitivity_out(pqtl_dataset: str, pheno_id: str, out_dir: str = "results") -> Path:
-    """Prior sensitivity check on top of coloc_mediator_out() - see coloc_sensitivity_out()."""
-    return Path(out_dir) / "coloc" / pqtl_dataset / f"{pqtl_dataset}_{pheno_id}_all_coloc_mediators_sensitivity.tsv"
-
-
 def pwcoco_raw_dir(pqtl_dataset: str, pheno_id: str, out_dir: str = "results") -> Path:
     """Per-protein PWCoCo --out prefix lives inside this dir. PWCoCo appends
     rather than overwrites its .coloc/.cojo output, so each protein needs its
@@ -119,39 +98,6 @@ def pwcoco_out(pqtl_dataset: str, pheno_id: str, out_dir: str = "results") -> Pa
     coloc_support concordance join between the two can be a plain merge on
     (pqtl_dataset, pheno_id, protein)."""
     return Path(out_dir) / "pwcoco" / pqtl_dataset / f"{pqtl_dataset}_{pheno_id}_all_pwcoco.tsv"
-
-
-def network_mr_m_y_dir(pheno_id: str) -> Path:
-    """Tier-1: mediator -> outcome genome-wide MR. Shared across every
-    pqtl_dataset run for this pheno_id (run_genomewide_mr() takes no
-    pqtl_dataset at all), so this lives under dat/derived/ like qc_out."""
-    return Path("dat") / "derived" / pheno_id / "network_mr" / "M_Y"
-
-
-def network_mr_m_y_out(pheno_id: str) -> Path:
-    return network_mr_m_y_dir(pheno_id) / f"{pheno_id}_mediator_genomewide_MR.tsv"
-
-
-def network_mr_x_m_dir(pqtl_dataset: str, out_dir: str = "results") -> Path:
-    """Tier-2: protein -> mediator cis-MR, one directory per pqtl_dataset run."""
-    return Path(out_dir) / "network_mr" / "X_M" / pqtl_dataset
-
-
-def network_mr_x_m_out(pqtl_dataset: str, mediator_id: str, out_dir: str = "results") -> Path:
-    return network_mr_x_m_dir(pqtl_dataset, out_dir) / f"{pqtl_dataset}_{mediator_id}_all_MR.tsv"
-
-
-def network_mr_mediation_estimates_out(pqtl_dataset: str, pheno_id: str, out_dir: str = "results") -> Path:
-    """What bin/assort_network_mr.py's perform_network_mr() and
-    bin/coloc_targets.py's coloc_with_mediators() both read/write - the final
-    NetworkMR-package output, also what the orchestrator gates NetworkMR on."""
-    return (
-        Path(out_dir)
-        / "network_mr"
-        / "mediation_estimates"
-        / pqtl_dataset
-        / f"{pqtl_dataset}_{pheno_id}_networkMR.tsv"
-    )
 
 
 def target_stats_out(pqtl_dataset: str, pheno_id: str, out_dir: str = "results") -> Path:

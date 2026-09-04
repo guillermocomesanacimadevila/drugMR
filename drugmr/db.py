@@ -1,8 +1,8 @@
 import tomllib
 from pathlib import Path
+
 from sqlalchemy import create_engine
 from sqlalchemy.engine import Engine
-
 
 SECRETS_PATH = Path(__file__).resolve().parents[1] / ".streamlit" / "secrets.toml"
 
