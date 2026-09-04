@@ -1,4 +1,4 @@
-# drugMR
+![drugMR logo](docs/drugmr_logo.png)
 
 **A multi-fluid, multi-omics pipeline for genetically-anchored drug target discovery**
 
