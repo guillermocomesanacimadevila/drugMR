@@ -278,7 +278,7 @@ If you use drugMR in your work, please cite it. See [`CITATION.cff`](CITATION.cf
 
 ## Authors
 
-**Guillermo Comesaña Cimadevila**<sup>1,2</sup>, **Marie-Joe Dib**<sup>3</sup>, **Dervis Salih**<sup>4</sup>, **Nicholas J. Bray**<sup>2</sup>, **Emily Simmonds**<sup>1</sup>, **Valentina Escott-Price**<sup>1,2</sup>
+**Guillermo Comesaña Cimadevila**<sup>1,2</sup>, **Christian Pepler**<sup>2</sup>, **Marie-Joe Dib**<sup>3</sup>, **Dervis Salih**<sup>4</sup>, **Nicholas J. Bray**<sup>2</sup>, **Emily Simmonds**<sup>1</sup>, **Valentina Escott-Price**<sup>1,2</sup>
 
 <sup>1</sup> UK Dementia Research Institute at Cardiff University, Cardiff, UK
 <sup>2</sup> MRC Centre for Neuropsychiatric Genetics and Genomics, Cardiff University, Cardiff, UK
