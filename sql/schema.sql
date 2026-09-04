@@ -84,7 +84,7 @@ CREATE INDEX idx_cis_mr_run ON cis_mr_results (run_id); -- to index cis_mr resul
 -- Table 3: pairwise Bayesian COLOC (pQTL-GWAS)
 CREATE TABLE coloc_results (
     run_id VARCHAR NOT NULL REFERENCES runs(run_id),
-    protein_id VARCHAR NOT NULL,
+    protein VARCHAR NOT NULL,
     pqtl_dataset VARCHAR NOT NULL,
     outcome_trait VARCHAR NOT NULL,
     top_snp VARCHAR,
