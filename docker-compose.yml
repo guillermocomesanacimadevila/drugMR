@@ -2,18 +2,17 @@ services:
   postgres:
     image: postgres:16
     environment:
-      POSTGRES_USER: drugmr_user
-      POSTGRES_PASSWORD: drugmr_ukdri # just a random password (if you're seeing this you must know that this pipeline would not be deplpyed anywhere!!!)
-      POSTGRES_DB: drugmr
+      POSTGRES_USER: $(POSTGRES_USER)
+      POSTGRES_PASSWORD: $(POSTGRES_PASSWORD) # just a random password (if you're seeing this you must know that this pipeline would not be deplpyed anywhere!!!)
+      POSTGRES_DB: $(POSTGRES_DB)
     ports:
-      - "5433:5432"
+      - "${POSTGRES_PORT}:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
-      - ./sql/schema.sql:/docker-entrypoint-initdb.d/schema.sql ######## Need to design a SQL database
+      - ./sql/schema.sql:/docker-entrypoint-initdb.d/schema.sql
 
 volumes:
   pgdata:
-
 
 # key commands
 # docker compose up -d 
