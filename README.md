@@ -1,6 +1,6 @@
 ![drugMR logo](docs/drugmr_logo.png)
 
-**A multi-fluid, multi-omics pipeline for genetically-anchored drug target discovery**
+**drugMR: A multi-omics pipeline for genetically-anchored drug target discovery**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-blue)](pyproject.toml)
