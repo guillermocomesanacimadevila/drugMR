@@ -1,4 +1,0 @@
-pheno_id,sumstats,snp_col,a1_col,a2_col,chr_col,pos_col,beta_col,se_col,p_col,af_col,info_col,info_threshold,genome_build,target_build,n_total
-AB42,./dat/gwas/mediators/AB42.tsv,SNP,A1,A2,CHR,BP,BETA,SE,P,FRQ,,,GRCh38,GRCh38,18948
-flTau,./dat/gwas/mediators/flTau.tsv,SNP,A1,A2,CHR,BP,BETA,SE,P,FRQ,,,GRCh38,GRCh38,18948
-pTau181,./dat/gwas/mediators/pTau181.tsv,SNP,A1,A2,CHR,BP,BETA,SE,P,FRQ,,,GRCh38,GRCh38,18948

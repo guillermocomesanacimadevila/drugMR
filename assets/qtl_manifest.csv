@@ -1,0 +1,5 @@
+dataset,path,key_col,build,n_col,sample_size,snp_col,a1_col,a2_col,beta_col,se_col,p_col,chr_col,pos_col,eaf_col
+ukb_ppp,dat/pqtl/ukb_ppp/*.parquet,,GRCh38,,54219,SNP,A1,A2,BETA,SE,P,CHR,BP,FRQ
+decode,dat/pqtl/deCODE/*.parquet,,GRCh38,,35559,SNP,A1,A2,BETA,SE,P,CHR,BP,MAF
+wu_csf,dat/pqtl/wu_csf/*.parquet,,GRCh38,,3506,SNP,A1,A2,BETA,SE,P,CHR,BP,FRQ
+wingo_brain,dat/pqtl/wingo_brain/*.parquet,,GRCh38,,1013,SNP,A1,A2,BETA,SE,P,CHR,BP,FRQ
