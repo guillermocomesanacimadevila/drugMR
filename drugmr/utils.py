@@ -1,6 +1,7 @@
 import subprocess
 from pathlib import Path
 
+import liftover
 import numpy as np
 import polars as pl
 
@@ -178,3 +179,59 @@ def sample_overlap_relative_bias(lambda_funct, f_statistic):
     percent = raw * 100
     return percent
 
+
+def extract_gene_coordinates(
+        gene_id: str,
+        ref: pl.DataFrame,
+        genome_build: str = "hg38"
+    ):
+
+    # current gencode == v50 so...
+
+    # liftover converter
+    converter = liftover.get_lifter("hg38", "hg19", one_based=True)
+
+    start = 0
+    end = 0
+    chr = 0
+    orientation = ""
+
+    if genome_build == "hg38":
+        for row in ref.iter_rows(named=True):
+            if gene_id == row["Symbol"] or gene_id in (row["Synonyms"] or "").split(","):
+                start = int(row["Begin"])
+                end = int(row["End"])
+                chr = int(row["Chromosome"])
+                orientation = str(row["Orientation"])
+                break
+        else:
+            raise ValueError(f"Gene '{gene_id}' not found in reference")
+
+        accum_dict = {
+            "ORIENTATION": orientation,
+            "CHR": chr,
+            "START": start,
+            "END": end
+        }
+        df = pl.DataFrame(accum_dict)
+        return df
+
+    if genome_build == "hg19":
+        for row in ref.iter_rows(named=True):
+            if gene_id == row["Symbol"] or gene_id in (row["Synonyms"] or "").split(","):
+                chr = str(row["Chromosome"])
+                start = converter[chr][int(row["Begin"])][0][1]
+                end = converter[chr][int(row["End"])][0][1]
+                orientation = str(row["Orientation"])
+                break
+        else:
+            raise ValueError(f"Gene '{gene_id}' not found in reference")
+
+        accum_dict = {
+            "ORIENTATION": orientation,
+            "CHR": chr,
+            "START": start,
+            "END": end
+        }
+        df = pl.DataFrame(accum_dict)
+        return df
