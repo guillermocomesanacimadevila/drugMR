@@ -1,9 +1,51 @@
-#!/usr/bin/env python3
 import os
 import subprocess
 from pathlib import Path
 
 from drugmr import paths
+
+
+
+class SMRUtils:
+
+
+    """
+    Take single parquet or a sum of parquets within a dir (/*.parquet)
+    and transform to ESD/BESD/EPI format for later intake during eQTL-informed workflows
+    * Stuff to bare in mind *
+    - bulk vs single-cell
+    - multiple regions within 1 dataset (e.g. GTEx)
+    """
+
+    def __init__(self):
+        pass
+
+    @staticmethod
+    def harmonise_qtl():
+        return
+
+    @staticmethod
+    def transform_to_esd():
+        return
+
+    @staticmethod
+    def transform_to_flist():
+        return
+
+    @staticmethod
+    def transform_to_besd():
+
+        cmd = [
+            "smr"
+        ]
+        return
+
+    @staticmethod
+    def run_smr():
+        return
+
+
+
 
 
 def SMR(
@@ -34,17 +76,16 @@ def SMR(
     out_file = paths.smr_raw_prefix(eqtl_dataset, pheno_id, out_dir)
     print(f"[TRACKING] Running SMR on {pheno_id} using {eqtl_dataset}")
 
-    cmd_smr = f"""
-set -euo pipefail
-smr \
-  --bfile {ref_bfile} \
-  --gwas-summary {sumstats} \
-  --beqtl-summary {beqtl_summary} \
-  --maf {maf} \
-  --peqtl-smr {peqtl_smr} \
-  --peqtl-heidi {peqtl_heidi} \
-  --thread-num {thread_num} \
-  --out {out_file}
-"""
+    cmd_smr = [
+        "smr",
+        "--bfile", str(ref_bfile),
+        "--gwas-summary", str(sumstats),
+        "--beqtl-summary", str(beqtl_summary),
+        "--maf", str(maf),
+        "--peqtl-smr", str(peqtl_smr),
+        "--peqtl-heidi", str(peqtl_heidi),
+        "--thread-num", str(thread_num),
+        "--out", str(out_file),
+    ]
 
-    subprocess.run(cmd_smr, shell=True, check=True, executable="/bin/bash")
+    subprocess.run(cmd_smr, check=True)

@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import shutil
 import subprocess
 import sys
 from datetime import datetime
@@ -13,11 +14,14 @@ from drugmr.config import Config
 # PostgreSQL db pulling and dashboard == jupyter (with .toml in ./)
 # Goal == have a flagging variable (local/hpc)
 
-def cmd_base(cmd):
+def cmd_base(cmd: list):
     """
-    Baseline function for parsing and running CLI-based .py scripts
+    Baseline function for parsing and running CLI-based .py scripts.
+    cmd is an argv list (no shell) - interpolated values (image names,
+    dataset/config values from params/*.yaml) are passed as literal argv
+    elements rather than parsed as shell syntax.
     """
-    return subprocess.run(cmd, shell=True, check=True, executable="/bin/bash")
+    return subprocess.run(cmd, check=True)
 
 def check_output(path: Path, step: str, overwrite: bool = False):
     # run step if overwrite == True
@@ -317,77 +321,72 @@ def local(config: str, run_id: str = None):
     phewas_finngen_coverage_out = project_root / paths.phewas_finngen_coverage_out(pqtl_dataset, pheno_id, out_dir)
 
     def check_docker():
+        # genuinely multi-statement (if/else, command availability checks) -
+        # written directly in Python instead of a shell script string, so
+        # image_name/image_uri (from params/*.yaml) never pass through a shell
         print("[TRACKING] Checking Docker...")
-        cmd = f"""
-set -euo pipefail
+        if shutil.which("docker") is None:
+            print("[ERROR] Mate, install Docker before you run this locally.")
+            sys.exit(1)
 
-if ! command -v docker >/dev/null 2>&1; then
-    echo "[ERROR] Mate, install Docker before you run this locally."
-    exit 1
-fi
+        if subprocess.run(["docker", "info"], capture_output=True).returncode != 0:
+            print("[ERROR] Mate, Docker is installed but it is not running.")
+            print("[HINT] Open Docker Desktop and try again.")
+            sys.exit(1)
 
-if ! docker info >/dev/null 2>&1; then
-    echo "[ERROR] Mate, Docker is installed but it is not running."
-    echo "[HINT] Open Docker Desktop and try again."
-    exit 1
-fi
+        print("[TRACKING] Docker is installed and running.")
 
-echo "[TRACKING] Docker is installed and running."
-
-if docker image inspect "{image_name}" >/dev/null 2>&1; then
-    echo "[TRACKING] drugMR Docker image already exists locally."
-else
-    echo "[TRACKING] drugMR Docker image not found locally."
-    echo "[TRACKING] Pulling drugMR image from GHCR..."
-    docker pull "{image_uri}"
-fi
-        """
-        cmd_base(cmd)
+        inspect = subprocess.run(["docker", "image", "inspect", image_name], capture_output=True)
+        if inspect.returncode == 0:
+            print("[TRACKING] drugMR Docker image already exists locally.")
+        else:
+            print("[TRACKING] drugMR Docker image not found locally.")
+            print("[TRACKING] Pulling drugMR image from GHCR...")
+            subprocess.run(["docker", "pull", image_uri], check=True)
 
     # call check docker function
     check_docker()
 
-    info_args = ""
+    info_args = []
     if info_col is not None:
-        info_args += f" --info-col {info_col}"
+        info_args += ["--info-col", str(info_col)]
     if info_threshold is not None:
-        info_args += f" --info-threshold {info_threshold}"
+        info_args += ["--info-threshold", str(info_threshold)]
 
-    flag_args = ""
+    flag_args = []
     if remove_mhc:
-        flag_args += " --remove_mhc"
+        flag_args.append("--remove_mhc")
     if remove_apoe:
-        flag_args += " --remove_apoe"
+        flag_args.append("--remove_apoe")
 
     # running individual modules
-    cmd_qc = f"""
-set -euo pipefail 
-docker run --rm \\
-  -v "{project_root}:/work" \\
-  -w /work \\
-  "{image_name}" \\
-  python bin/qc_gwas.py \\
-    --pheno-id {pheno_id} \\
-    --sumstats {sumstats} \\
-    --out-dir {paths.qc_out(pheno_id).parent} \\
-    --maf {maf} \\
-    --snp-col {snp_col} \\
-    --a1-col {a1_col} \\
-    --a2-col {a2_col} \\
-    --beta-col {beta_col} \\
-    --se-col {se_col} \\
-    --p-col {p_col} \\
-    --pos-col {pos_col} \\
-    --chr-col {chr_col} \\
-    --af_col {af_col} \\
-    --genome_build {genome_build} \\
-    --target_build {target_build} \\
-    --n_cases {n_cases} \\
-    --n_controls {n_controls} \\
-    --falcon-user local \\
-    {info_args} \\
-    {flag_args}
-"""
+    cmd_qc = [
+        "docker", "run", "--rm",
+        "-v", f"{project_root}:/work",
+        "-w", "/work",
+        image_name,
+        "python", "bin/qc_gwas.py",
+        "--pheno-id", pheno_id,
+        "--sumstats", str(sumstats),
+        "--out-dir", str(paths.qc_out(pheno_id).parent),
+        "--maf", str(maf),
+        "--snp-col", snp_col,
+        "--a1-col", a1_col,
+        "--a2-col", a2_col,
+        "--beta-col", beta_col,
+        "--se-col", se_col,
+        "--p-col", p_col,
+        "--pos-col", pos_col,
+        "--chr-col", chr_col,
+        "--af_col", af_col,
+        "--genome_build", genome_build,
+        "--target_build", target_build,
+        "--n_cases", str(n_cases),
+        "--n_controls", str(n_controls),
+        "--falcon-user", "local",
+        *info_args,
+        *flag_args,
+    ]
 
     if not check_output(qc_out, "GWAS QC", overwrite):
         print("[TRACKING] Running GWAS QC locally via Docker...")
@@ -396,19 +395,18 @@ docker run --rm \\
     require_output(qc_out, "GWAS QC", "cis-region preparation")
 
     # cis-region module
-    cmd_cis = f"""
-set -euo pipefail
-docker run --rm \\
-  --platform linux/amd64 \\
-  -v "{project_root}:/work" \\
-  -w /work \\
-  -e PYTHONPATH=. \\
-  "{image_name}" \\
-  python bin/prep_cis_regions.py \\
-    --pqtl_dataset {pqtl_dataset} \\
-    --pheno_id {pheno_id} \\
-    --pqtl_dir {pqtl_dir}
-"""
+    cmd_cis = [
+        "docker", "run", "--rm",
+        "--platform", "linux/amd64",
+        "-v", f"{project_root}:/work",
+        "-w", "/work",
+        "-e", "PYTHONPATH=.",
+        image_name,
+        "python", "bin/prep_cis_regions.py",
+        "--pqtl_dataset", pqtl_dataset,
+        "--pheno_id", pheno_id,
+        "--pqtl_dir", str(pqtl_dir),
+    ]
 
     if not check_cis_regions(cis_dir, overwrite):
         print("[TRACKING] Preparing cis-regions locally...")
@@ -431,21 +429,20 @@ docker run --rm \\
             f"Example loci: {sorted(incomplete_loci)[:10]}"
         )
 
-    # cis-MR module 
-    cmd_mr = f"""
-set -euo pipefail
-docker run --rm \\
-  -v "{project_root}:/work" \\
-  -w /work \\
-  "{image_name}" \\
-  Rscript bin/cis_mr.R \\
-    {pqtl_dataset} \\
-    dat/cis_regions/{pqtl_dataset} \\
-    {pheno_id} \\
-    {paths.qc_out(pheno_id)} \\
-    {ref_bfile} \\
-    {out_dir}
-"""
+    # cis-MR module
+    cmd_mr = [
+        "docker", "run", "--rm",
+        "-v", f"{project_root}:/work",
+        "-w", "/work",
+        image_name,
+        "Rscript", "bin/cis_mr.R",
+        pqtl_dataset,
+        f"dat/cis_regions/{pqtl_dataset}",
+        pheno_id,
+        str(paths.qc_out(pheno_id)),
+        str(ref_bfile),
+        out_dir,
+    ]
 
     if not check_output(mr_out, "cis-MR", overwrite):
         print("[TRACKING] Running cis-MR locally via Docker...")
@@ -454,26 +451,25 @@ docker run --rm \\
     require_output(mr_out, "cis-MR", "COLOC")
 
     # coloc target module
-    cmd_coloc = f"""
-set -euo pipefail
-docker run --rm \\
-  -v "{project_root}:/work" \\
-  -w /work \\
-  -e PYTHONPATH=. \\
-  "{image_name}" \\
-  python bin/coloc_targets.py \\
-    --pqtl_dataset {pqtl_dataset} \\
-    --local_results_dir {out_dir} \\
-    --pqtl_dir dat/cis_regions/{pqtl_dataset} \\
-    --pheno_id {pheno_id} \\
-    --n_cases {n_cases} \\
-    --n_controls {n_controls} \\
-    --wald_fdr_q {wald_fdr_q} \\
-    --ivw_fdr_q {ivw_fdr_q} \\
-    --cochran_q_pval {cochran_q_pval} \\
-    --egger_intercept_pval_min {egger_intercept_pval_min} \\
-    --min_instruments_for_ivw {min_instruments_for_ivw}
-"""
+    cmd_coloc = [
+        "docker", "run", "--rm",
+        "-v", f"{project_root}:/work",
+        "-w", "/work",
+        "-e", "PYTHONPATH=.",
+        image_name,
+        "python", "bin/coloc_targets.py",
+        "--pqtl_dataset", pqtl_dataset,
+        "--local_results_dir", out_dir,
+        "--pqtl_dir", f"dat/cis_regions/{pqtl_dataset}",
+        "--pheno_id", pheno_id,
+        "--n_cases", str(n_cases),
+        "--n_controls", str(n_controls),
+        "--wald_fdr_q", str(wald_fdr_q),
+        "--ivw_fdr_q", str(ivw_fdr_q),
+        "--cochran_q_pval", str(cochran_q_pval),
+        "--egger_intercept_pval_min", str(egger_intercept_pval_min),
+        "--min_instruments_for_ivw", str(min_instruments_for_ivw),
+    ]
 
     if not check_output(coloc_out, "COLOC", overwrite):
         print("[TRACKING] Running COLOC locally...")
@@ -485,23 +481,22 @@ docker run --rm \\
     # replacement (see project_pwcoco_wiring memory): runs on the same cis-MR-passing
     # targets and its results are joined against coloc_out downstream (dashboard
     # coloc_support annotation), not used to gate anything in this orchestration.
-    cmd_pwcoco = f"""
-set -euo pipefail
-docker run --rm \\
-  -v "{project_root}:/work" \\
-  -w /work \\
-  -e PYTHONPATH=. \\
-  "{image_name}" \\
-  python bin/pwcoco_wrapper.py \\
-    --pqtl_dataset {pqtl_dataset} \\
-    --pheno_id {pheno_id} \\
-    --ref_bfile {ref_bfile} \\
-    --n_cases {n_cases} \\
-    --n_controls {n_controls} \\
-    --local_results_dir {out_dir} \\
-    --cochran_q_pval {cochran_q_pval} \\
-    --wald_fdr_q {wald_fdr_q}
-"""
+    cmd_pwcoco = [
+        "docker", "run", "--rm",
+        "-v", f"{project_root}:/work",
+        "-w", "/work",
+        "-e", "PYTHONPATH=.",
+        image_name,
+        "python", "bin/pwcoco_wrapper.py",
+        "--pqtl_dataset", pqtl_dataset,
+        "--pheno_id", pheno_id,
+        "--ref_bfile", str(ref_bfile),
+        "--n_cases", str(n_cases),
+        "--n_controls", str(n_controls),
+        "--local_results_dir", out_dir,
+        "--cochran_q_pval", str(cochran_q_pval),
+        "--wald_fdr_q", str(wald_fdr_q),
+    ]
 
     if not check_output(pwcoco_out, "PWCoCo", overwrite):
         print("[TRACKING] Running PWCoCo locally...")
@@ -511,18 +506,17 @@ docker run --rm \\
             print(f"[CONCERN] PWCoCo run failed - continuing without it: {error}")
 
     # compile final hits
-    cmd_compile_top_hits = f"""
-set -euo pipefail
-docker run --rm \
-  -v "{project_root}:/work" \
-  -w /work \
-  -e PYTHONPATH=/work \
-  "{image_name}" \
-  python bin/compile_cis_hit_info.py \
-    --pheno_id {pheno_id} \
-    --pqtl_dataset {pqtl_dataset} \
-    --local_results_dir {out_dir}
-"""
+    cmd_compile_top_hits = [
+        "docker", "run", "--rm",
+        "-v", f"{project_root}:/work",
+        "-w", "/work",
+        "-e", "PYTHONPATH=/work",
+        image_name,
+        "python", "bin/compile_cis_hit_info.py",
+        "--pheno_id", pheno_id,
+        "--pqtl_dataset", pqtl_dataset,
+        "--local_results_dir", out_dir,
+    ]
 
     if not check_output(target_stats_out, "Top cis-hit compilation", overwrite):
         print("[TRACKING] Compiling harmonised top cis-hit table...")
@@ -544,23 +538,22 @@ docker run --rm \
             for bulk_dataset in bulk_eqtl_datasets:
                 smr_bulk_out = project_root / paths.smr_bulk_out(pqtl_dataset, pheno_id, bulk_dataset, out_dir)
 
-                cmd_smr_bulk = f"""
-set -euo pipefail
-docker run --rm \\
-  -v "{project_root}:/work" \\
-  -w /work \\
-  -e PYTHONPATH=. \\
-  "{image_name}" \\
-  python bin/sort_smr.py \\
-    --pheno_id {pheno_id} \\
-    --sumstats {paths.qc_out(pheno_id)} \\
-    --pqtl_dataset {pqtl_dataset} \\
-    --eqtl_dataset {bulk_dataset} \\
-    --eqtl_mode bulk \\
-    --ref_bfile {ref_bfile} \\
-    --maf {maf} \\
-    --local_results_dir {out_dir}
-"""
+                cmd_smr_bulk = [
+                    "docker", "run", "--rm",
+                    "-v", f"{project_root}:/work",
+                    "-w", "/work",
+                    "-e", "PYTHONPATH=.",
+                    image_name,
+                    "python", "bin/sort_smr.py",
+                    "--pheno_id", pheno_id,
+                    "--sumstats", str(paths.qc_out(pheno_id)),
+                    "--pqtl_dataset", pqtl_dataset,
+                    "--eqtl_dataset", bulk_dataset,
+                    "--eqtl_mode", "bulk",
+                    "--ref_bfile", str(ref_bfile),
+                    "--maf", str(maf),
+                    "--local_results_dir", out_dir,
+                ]
 
                 if not check_output(smr_bulk_out, f"Bulk SMR ({bulk_dataset})", overwrite):
                     print(f"[TRACKING] Ingesting pre-computed bulk eQTL SMR for {bulk_dataset} via Docker...")
@@ -569,23 +562,22 @@ docker run --rm \\
             print("[TRACKING] No bulk_eqtl_datasets specified, skipping bulk SMR.")
 
         if sc_eqtl_dataset:
-            cmd_smr_sc = f"""
-set -euo pipefail
-docker run --rm \\
-  -v "{project_root}:/work" \\
-  -w /work \\
-  -e PYTHONPATH=. \\
-  "{image_name}" \\
-  python bin/sort_smr.py \\
-    --pheno_id {pheno_id} \\
-    --sumstats {paths.qc_out(pheno_id)} \\
-    --pqtl_dataset {pqtl_dataset} \\
-    --eqtl_dataset {sc_eqtl_dataset} \\
-    --eqtl_mode single_cell \\
-    --ref_bfile {ref_bfile} \\
-    --maf {maf} \\
-    --local_results_dir {out_dir}
-"""
+            cmd_smr_sc = [
+                "docker", "run", "--rm",
+                "-v", f"{project_root}:/work",
+                "-w", "/work",
+                "-e", "PYTHONPATH=.",
+                image_name,
+                "python", "bin/sort_smr.py",
+                "--pheno_id", pheno_id,
+                "--sumstats", str(paths.qc_out(pheno_id)),
+                "--pqtl_dataset", pqtl_dataset,
+                "--eqtl_dataset", sc_eqtl_dataset,
+                "--eqtl_mode", "single_cell",
+                "--ref_bfile", str(ref_bfile),
+                "--maf", str(maf),
+                "--local_results_dir", out_dir,
+            ]
 
             if not check_output(smr_sc_out, "Single-cell SMR", overwrite):
                 print("[TRACKING] Running single-cell eQTL SMR locally via Docker...")
@@ -600,21 +592,20 @@ docker run --rm \\
     # PWCoCo above (see project_pwcoco_wiring memory) - runs only when SMR did,
     # since it depends on smr_final_targets_out; non-fatal like PWCoCo above.
     if run_smr:
-        cmd_pwcoco_qtl = f"""
-set -euo pipefail
-docker run --rm \\
-  -v "{project_root}:/work" \\
-  -w /work \\
-  -e PYTHONPATH=. \\
-  "{image_name}" \\
-  python bin/pwcoco_qtl_wrapper.py \\
-    --pqtl_dataset {pqtl_dataset} \\
-    --pheno_id {pheno_id} \\
-    --ref_bfile {ref_bfile} \\
-    --n_cases {n_cases} \\
-    --n_controls {n_controls} \\
-    --local_results_dir {out_dir}
-"""
+        cmd_pwcoco_qtl = [
+            "docker", "run", "--rm",
+            "-v", f"{project_root}:/work",
+            "-w", "/work",
+            "-e", "PYTHONPATH=.",
+            image_name,
+            "python", "bin/pwcoco_qtl_wrapper.py",
+            "--pqtl_dataset", pqtl_dataset,
+            "--pheno_id", pheno_id,
+            "--ref_bfile", str(ref_bfile),
+            "--n_cases", str(n_cases),
+            "--n_controls", str(n_controls),
+            "--local_results_dir", out_dir,
+        ]
 
         if not check_output(pwcoco_qtl_out, "PWCoCo (eQTL)", overwrite):
             print("[TRACKING] Running PWCoCo (eQTL) locally...")
@@ -637,19 +628,18 @@ docker run --rm \\
         for hc_dataset in hyprcoloc_eqtl_datasets:
             hc_dataset_out = project_root / paths.hyprcoloc_dataset_out(pqtl_dataset, hc_dataset, pheno_id, out_dir)
 
-            cmd_hyprcoloc = f"""
-set -euo pipefail
-docker run --rm \\
-  -v "{project_root}:/work" \\
-  -w /work \\
-  -e PYTHONPATH=. \\
-  "{image_name}" \\
-  python bin/hyprcoloc_targets.py \\
-    --pqtl_dataset {pqtl_dataset} \\
-    --pheno_id {pheno_id} \\
-    --eqtl_dataset {hc_dataset} \\
-    --local_results_dir {out_dir}
-"""
+            cmd_hyprcoloc = [
+                "docker", "run", "--rm",
+                "-v", f"{project_root}:/work",
+                "-w", "/work",
+                "-e", "PYTHONPATH=.",
+                image_name,
+                "python", "bin/hyprcoloc_targets.py",
+                "--pqtl_dataset", pqtl_dataset,
+                "--pheno_id", pheno_id,
+                "--eqtl_dataset", hc_dataset,
+                "--local_results_dir", out_dir,
+            ]
 
             if not check_output(hc_dataset_out, f"HyPrColoc ({hc_dataset})", overwrite):
                 print(f"[TRACKING] Running HyPrColoc for {hc_dataset} locally via Docker...")
@@ -658,18 +648,17 @@ docker run --rm \\
         print("[TRACKING] No bulk_eqtl_datasets or sc_eqtl_dataset specified (or run_smr is False), skipping HyPrColoc.")
 
     # PheWAS stuff (for FinnGen)
-    cmd_phewas = f"""
-set -euo pipefail 
-docker run --rm \\
-  -v "{project_root}:/work" \\
-  -w /work \\
-  -e PYTHONPATH=. \\
-  "{image_name}" \\
-  python bin/phewas_cis_pqtls.py \\
-    --pheno_id {pheno_id} \\
-    --pqtl_dataset {pqtl_dataset} \\
-    --local_results_dir {out_dir}
-"""
+    cmd_phewas = [
+        "docker", "run", "--rm",
+        "-v", f"{project_root}:/work",
+        "-w", "/work",
+        "-e", "PYTHONPATH=.",
+        image_name,
+        "python", "bin/phewas_cis_pqtls.py",
+        "--pheno_id", pheno_id,
+        "--pqtl_dataset", pqtl_dataset,
+        "--local_results_dir", out_dir,
+    ]
 
     # PheWAS depends on the pairwise COLOC results + cis-MR instruments
     require_output(coloc_out, "COLOC", "FinnGen PheWAS")
@@ -684,18 +673,17 @@ docker run --rm \\
 
 
     # PheWAS (for UKBB)
-    cmd_phewas_ukbb = f"""
-set -euo pipefail 
-docker run --rm \\
-  -v "{project_root}:/work" \\
-  -w /work \\
-  -e PYTHONPATH=. \\
-  "{image_name}" \\
-  python bin/ukb_phewas.py \\
-    --pheno_id {pheno_id} \\
-    --pqtl_dataset {pqtl_dataset} \\
-    --local_results_dir {out_dir}
-"""
+    cmd_phewas_ukbb = [
+        "docker", "run", "--rm",
+        "-v", f"{project_root}:/work",
+        "-w", "/work",
+        "-e", "PYTHONPATH=.",
+        image_name,
+        "python", "bin/ukb_phewas.py",
+        "--pheno_id", pheno_id,
+        "--pqtl_dataset", pqtl_dataset,
+        "--local_results_dir", out_dir,
+    ]
 
     require_output(coloc_out, "COLOC", "UKBB PheWAS")
     require_output(mr_instruments_out, "cis-MR instruments", "UKBB PheWAS")

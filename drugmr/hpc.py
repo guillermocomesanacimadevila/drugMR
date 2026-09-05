@@ -16,14 +16,23 @@ from drugmr.config import Config
 # then just script running stuff - for each part as a sequence with an main() in sequence as well (with appropaite ifs as checks and prints)
 
 def ssh(cmd: str, falcon_user: str, allowed_returncodes: tuple = (0,)):
-    full_cmd = f"ssh {falcon_user}@falconlogin.cf.ac.uk '{cmd}'"
-    result = subprocess.run(full_cmd, shell=True, executable="/bin/bash", capture_output=True, text=True)
+    # cmd is passed as its own argv element, not embedded in a locally-shell-parsed
+    # string - no local shell involved, so nothing in cmd (built from interpolated
+    # pheno_id/pqtl_dataset/paths elsewhere in this module) can break out of local
+    # quoting. ssh itself still hands cmd to the REMOTE host's shell to interpret,
+    # which is inherent to how ssh runs a command - that's expected, not a shell=True
+    # concern (cmd is our own multi-line bash script, not untrusted external input).
+    result = subprocess.run(
+        ["ssh", f"{falcon_user}@falconlogin.cf.ac.uk", cmd],
+        capture_output=True,
+        text=True,
+    )
     if result.stdout:
         print(result.stdout)
     if result.returncode not in allowed_returncodes:
         print("[ERROR] Falcon command failed.")
         print(result.stderr)
-        raise subprocess.CalledProcessError(result.returncode, full_cmd)
+        raise subprocess.CalledProcessError(result.returncode, cmd)
     return result
 
 def get_remote_paths(falcon_user: str):
@@ -512,18 +521,16 @@ def phewas_safety_finngen(
 
     phewas_out.parent.mkdir(parents=True, exist_ok=True)
 
-    cmd = f"""
-set -euo pipefail
-cd "{project_root}"
-python bin/phewas_cis_pqtls.py \\
-  --pheno_id {pheno_id} \\
-  --pqtl_dataset {pqtl_dataset} \\
-  --local_results_dir {local_results_dir}
-"""
+    cmd = [
+        "python", "bin/phewas_cis_pqtls.py",
+        "--pheno_id", pheno_id,
+        "--pqtl_dataset", pqtl_dataset,
+        "--local_results_dir", str(local_results_dir),
+    ]
 
     print(f"[TRACKING] FinnGen PheWAS pairwise COLOC input found: {top_snp_file}")
     print("[TRACKING] Running FinnGen PheWAS safety analysis locally...")
-    subprocess.run(cmd, shell=True, check=True, executable="/bin/bash")
+    subprocess.run(cmd, check=True, cwd=str(project_root))
     print(f"[TRACKING] FinnGen PheWAS safety results found: {phewas_out}")
 
 
@@ -573,18 +580,16 @@ def phewas_safety_ukbb(
 
     phewas_out.parent.mkdir(parents=True, exist_ok=True)
 
-    cmd = f"""
-set -euo pipefail
-cd "{project_root}"
-python bin/ukb_phewas.py \\
-  --pheno_id {pheno_id} \\
-  --pqtl_dataset {pqtl_dataset} \\
-  --local_results_dir {local_results_dir}
-"""
+    cmd = [
+        "python", "bin/ukb_phewas.py",
+        "--pheno_id", pheno_id,
+        "--pqtl_dataset", pqtl_dataset,
+        "--local_results_dir", str(local_results_dir),
+    ]
 
     print(f"[TRACKING] UKBB PheWAS pairwise COLOC input found: {top_snp_file}")
     print("[TRACKING] Running UKBB PheWAS safety analysis locally...")
-    subprocess.run(cmd, shell=True, check=True, executable="/bin/bash")
+    subprocess.run(cmd, check=True, cwd=str(project_root))
     print(f"[TRACKING] UKBB PheWAS safety results found: {phewas_out}")
 
 
@@ -673,9 +678,9 @@ def pull_results_local(
         if local_file.exists() and overwrite:
             print(f"[TRACKING] {local_file} already exists locally. Overwriting...")
 
-        cmd = f"scp {falcon_user}@falconlogin.cf.ac.uk:{remote_file} {local_file}"
+        cmd = ["scp", f"{falcon_user}@falconlogin.cf.ac.uk:{remote_file}", str(local_file)]
         print(cmd)
-        subprocess.run(cmd, shell=True, check=True)
+        subprocess.run(cmd, check=True)
         print(f"[DONE] Pulled results into {local_file}")
 
     # SMR is optional (bulk and/or single-cell, gated by run_smr) so only pull it
@@ -691,9 +696,9 @@ def pull_results_local(
         )
 
         if remote_smr_check:
-            cmd = f"scp {falcon_user}@falconlogin.cf.ac.uk:{remote_smr} {local_smr}"
+            cmd = ["scp", f"{falcon_user}@falconlogin.cf.ac.uk:{remote_smr}", str(local_smr)]
             print(cmd)
-            subprocess.run(cmd, shell=True, check=True)
+            subprocess.run(cmd, check=True)
             print(f"[DONE] Pulled results into {local_smr}")
         else:
             print("[TRACKING] No remote SMR output found - skipping SMR pull.")
@@ -711,9 +716,9 @@ def pull_results_local(
         )
 
         if remote_hyprcoloc_check:
-            cmd = f"scp {falcon_user}@falconlogin.cf.ac.uk:{remote_hyprcoloc} {local_hyprcoloc}"
+            cmd = ["scp", f"{falcon_user}@falconlogin.cf.ac.uk:{remote_hyprcoloc}", str(local_hyprcoloc)]
             print(cmd)
-            subprocess.run(cmd, shell=True, check=True)
+            subprocess.run(cmd, check=True)
             print(f"[DONE] Pulled results into {local_hyprcoloc}")
         else:
             print("[TRACKING] No remote HyPrColoc output found - skipping HyPrColoc pull.")
@@ -731,15 +736,15 @@ def run_dashboard_local(
     # theme) regardless of the caller's own working directory, instead of
     # silently falling back to Streamlit defaults.
     project_root = Path(__file__).resolve().parents[1]
-    cmd = f"""
-python -m streamlit run dashboard/mr_app.py -- \\
-  --db_name {db_name} \\
-  --port_number {port_number} \\
-  --phenotype {phenotype} \\
-  --pqtl_dataset {pqtl_dataset}
-"""
+    cmd = [
+        "python", "-m", "streamlit", "run", "dashboard/mr_app.py", "--",
+        "--db_name", str(db_name),
+        "--port_number", str(port_number),
+        "--phenotype", phenotype,
+        "--pqtl_dataset", pqtl_dataset,
+    ]
     print(cmd)
-    subprocess.run(cmd, shell=True, check=True, cwd=str(project_root))
+    subprocess.run(cmd, check=True, cwd=str(project_root))
 
 
 # CHECK OUTPUTS

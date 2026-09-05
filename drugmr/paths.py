@@ -31,6 +31,32 @@ type as case-control, several stale-glob/idempotency issues) made it not
 worth keeping wired in until revisited properly. See analysis/networkmr/
 for the archived code if this is ever picked back up.
 
+Phase 4 (2026-09-04): stage dirs below are normalised to one casing
+convention (snake_case) and consistently named for what they are, not what
+dataset/trait produced them - `run_id` (the run's own directory name) already
+encodes both `pqtl_dataset` and `pheno_id`, so repeating them inside
+results/ or work/ is redundant (a run is always exactly 1 dataset x 1
+trait). `pqtl_dataset`/`pheno_id` stay as parameters on every function below
+for call-site stability - many callers already have them in scope for other
+reasons (filtering, logging, upstream lookups) - they're just no longer
+embedded in the returned Path. `pwcoco` and `pwcoco_qtl` are consolidated
+into one `pwcoco/` stage with `cis_pqtl/`, `eqtl_pqtl/`, `eqtl_gwas/`,
+`summary/` children - they're the same tool run against different trait
+pairs, not different stages. Per-locus PWCoCo output is grouped one
+directory per protein (or protein_eqtlsource) instead of a flat dump of
+hundreds of files. `bin/coloc.R`, `bin/hyprcoloc.R`, `bin/cis_mr.R` compute
+matching `out_dir` values independently (see their own comments) and must
+stay in lock-step with the functions below. `work_dir_for_results_dir()`
+gives every stage's scratch/intermediate output (deleted before the
+pipeline finishes, never a final artifact) the same run-scoping, without
+needing `run_id` itself threaded through every bin/*.py call site.
+`smr_raw_dir`/`smr_raw_prefix`/`smr_bulk_dir` and everything under
+`synthesis/` are UNCHANGED - they're a dataset-independent raw-SMR cache
+shared across every pqtl_dataset, not part of a run's results/ tree.
+`runs/*/results/network_mr/` and `runs/*/results/colocboost/` from before
+those stages were removed were archived to `runs/<run_id>/_archived_<stage>/`
+by `analysis/migrate_results_schema.py`, not migrated into this schema.
+
 Known pre-existing mismatch preserved as-is (not fixed by this module):
   - `dat/bulk-eQTL` (singular) vs `dat/bulk-eQTLs` (plural, only in
     `scripts/GTEx_v10/eqtl_gtex_eqtl.py`) is a separate, untouched
@@ -47,26 +73,22 @@ def qc_out(pheno_id: str) -> Path:
 
 
 def mr_out(pqtl_dataset: str, pheno_id: str, out_dir: str = "results") -> Path:
-    return Path(out_dir) / "cis-MR" / f"{pqtl_dataset}_{pheno_id}_all_MR.tsv"
+    return Path(out_dir) / "cis_mr" / "mr.tsv"
 
 
 def mr_instruments_out(pqtl_dataset: str, pheno_id: str, out_dir: str = "results") -> Path:
-    return (
-        Path(out_dir)
-        / "cis-MR"
-        / "instruments"
-        / f"{pqtl_dataset}_{pheno_id}_all_MR_instruments.tsv"
-    )
+    return Path(out_dir) / "cis_mr" / "instruments" / "mr_instruments.tsv"
 
 
 def coloc_out(pqtl_dataset: str, pheno_id: str, out_dir: str = "results") -> Path:
-    return Path(out_dir) / "coloc" / pqtl_dataset / f"{pqtl_dataset}_{pheno_id}_all_coloc.tsv"
+    return Path(out_dir) / "coloc" / "coloc.tsv"
 
 
 def coloc_susie_out(pqtl_dataset: str, pheno_id: str, out_dir: str = "results") -> Path:
     """SuSiE-based sensitivity check on top of coloc_out() - informational only,
-    nothing downstream gates on this file (see bin/coloc_susie.py)."""
-    return Path(out_dir) / "coloc_susie" / pqtl_dataset / f"{pqtl_dataset}_{pheno_id}_all_coloc_susie.tsv"
+    nothing downstream gates on this file. Currently dead code: no producer
+    exists (there is no bin/coloc_susie.py/R) - kept for schema consistency."""
+    return Path(out_dir) / "coloc" / "coloc_susie.tsv"
 
 
 def coloc_sensitivity_out(pqtl_dataset: str, pheno_id: str, out_dir: str = "results") -> Path:
@@ -75,7 +97,7 @@ def coloc_sensitivity_out(pqtl_dataset: str, pheno_id: str, out_dir: str = "resu
     list. Informational only, nothing downstream gates on this file. Lives
     alongside coloc_out() (not its own top-level dir) since bin/coloc.R writes
     both the primary and sensitivity TSV for a protein into the same out_dir."""
-    return Path(out_dir) / "coloc" / pqtl_dataset / f"{pqtl_dataset}_{pheno_id}_all_coloc_sensitivity.tsv"
+    return Path(out_dir) / "coloc" / "coloc_sensitivity.tsv"
 
 
 def pwcoco_raw_dir(pqtl_dataset: str, pheno_id: str, out_dir: str = "results") -> Path:
@@ -84,11 +106,14 @@ def pwcoco_raw_dir(pqtl_dataset: str, pheno_id: str, out_dir: str = "results") -
     own unique prefix - this dir gives bin/pwcoco_targets.py somewhere to put
     per-protein raw PWCoCo output before it's parsed/aggregated into
     pwcoco_out() below."""
-    return Path(out_dir) / "pwcoco" / pqtl_dataset / pheno_id
+    return Path(out_dir) / "pwcoco" / "cis_pqtl"
 
 
 def pwcoco_raw_prefix(pqtl_dataset: str, pheno_id: str, protein: str, out_dir: str = "results") -> Path:
-    return pwcoco_raw_dir(pqtl_dataset, pheno_id, out_dir) / protein
+    # nested 1 extra level (protein/protein) so every file PWCoCo appends to
+    # this prefix (.coloc, .sumstats*.included/.badfreq, per-rsID .cojo) lands
+    # in its own directory instead of a flat dump shared by every protein
+    return pwcoco_raw_dir(pqtl_dataset, pheno_id, out_dir) / protein / protein
 
 
 def pwcoco_out(pqtl_dataset: str, pheno_id: str, out_dir: str = "results") -> Path:
@@ -97,65 +122,46 @@ def pwcoco_out(pqtl_dataset: str, pheno_id: str, out_dir: str = "results") -> Pa
     per-protein .coloc files into. Same shape/naming as coloc_out() so the
     coloc_support concordance join between the two can be a plain merge on
     (pqtl_dataset, pheno_id, protein)."""
-    return Path(out_dir) / "pwcoco" / pqtl_dataset / f"{pqtl_dataset}_{pheno_id}_all_pwcoco.tsv"
+    return Path(out_dir) / "pwcoco" / "summary" / "pwcoco.tsv"
 
 
 def target_stats_out(pqtl_dataset: str, pheno_id: str, out_dir: str = "results") -> Path:
-    return (
-        Path(out_dir)
-        / "target_stats"
-        / pqtl_dataset
-        / pheno_id
-        / f"{pqtl_dataset}_{pheno_id}_top_cis_hits.tsv"
-    )
+    return Path(out_dir) / "target_stats" / "top_cis_hits.tsv"
 
 
 def smr_bulk_out(pqtl_dataset: str, pheno_id: str, bulk_dataset: str, out_dir: str = "results") -> Path:
-    return (
-        Path(out_dir)
-        / "SMR"
-        / "bulk"
-        / bulk_dataset
-        / pheno_id
-        / f"{pqtl_dataset}_{pheno_id}_promising_targets_SMR.tsv"
-    )
+    return Path(out_dir) / "smr" / "bulk" / bulk_dataset / "promising_targets.tsv"
 
 
 def smr_sc_out(pqtl_dataset: str, pheno_id: str, sc_eqtl_dataset: str, out_dir: str = "results") -> Path:
-    return (
-        Path(out_dir)
-        / "SMR"
-        / "sc"
-        / sc_eqtl_dataset
-        / pheno_id
-        / f"{pqtl_dataset}_{pheno_id}_promising_targets_SMR.tsv"
-    )
+    return Path(out_dir) / "smr" / "sc" / sc_eqtl_dataset / "promising_targets.tsv"
 
 
 def smr_final_targets_out(pqtl_dataset: str, pheno_id: str, out_dir: str = "results") -> Path:
-    return Path(out_dir) / "SMR" / f"{pqtl_dataset}_{pheno_id}_final_multi_omics_targets.tsv"
+    return Path(out_dir) / "smr" / "final_multi_omics_targets.tsv"
 
 
 def smr_bulk_dir(bulk_dataset: str, out_dir: str = "results") -> Path:
     """Dataset-level bulk SMR dir (not yet scoped to pheno_id) - used to rglob for
-    pre-existing .smr files regardless of their exact sub-nesting convention."""
+    pre-existing .smr files regardless of their exact sub-nesting convention.
+    UNCHANGED - synthesis/ tier, dataset-independent (see module docstring)."""
     return Path(out_dir) / "SMR" / "bulk" / bulk_dataset
 
 
 def hyprcoloc_out(pqtl_dataset: str, pheno_id: str, out_dir: str = "results") -> Path:
-    return Path(out_dir) / "hyprcoloc" / f"{pqtl_dataset}_{pheno_id}_all_hyprcoloc.tsv"
+    return Path(out_dir) / "hyprcoloc" / "hyprcoloc.tsv"
 
 
 def hyprcoloc_dataset_out(pqtl_dataset: str, hc_dataset: str, pheno_id: str, out_dir: str = "results") -> Path:
-    return Path(out_dir) / "hyprcoloc" / pqtl_dataset / hc_dataset / f"{pheno_id}_hyprcoloc.tsv"
+    return Path(out_dir) / "hyprcoloc" / "by_eqtl_source" / hc_dataset / "hyprcoloc.tsv"
 
 
 def phewas_out(pqtl_dataset: str, pheno_id: str, out_dir: str = "results") -> Path:
-    return Path(out_dir) / "PheWAS-FinnGen" / pqtl_dataset / pheno_id / f"{pqtl_dataset}_{pheno_id}_PheWAS-FinnGen.tsv"
+    return Path(out_dir) / "phewas" / "finngen" / "phewas.tsv"
 
 
 def phewas_ukbb_out(pqtl_dataset: str, pheno_id: str, out_dir: str = "results") -> Path:
-    return Path(out_dir) / "PheWAS_UKBB" / pqtl_dataset / pheno_id / f"{pqtl_dataset}_{pheno_id}_PheWAS.tsv"
+    return Path(out_dir) / "phewas" / "ukbb" / "phewas.tsv"
 
 
 def phewas_finngen_coverage_out(pqtl_dataset: str, pheno_id: str, out_dir: str = "results") -> Path:
@@ -165,12 +171,14 @@ def phewas_finngen_coverage_out(pqtl_dataset: str, pheno_id: str, out_dir: str =
     (targets with zero retained instruments in FinnGen), matching the paper's
     "phenome-wide MR was instead performed across UKB" fallback design.
     """
-    return Path(out_dir) / "PheWAS-FinnGen" / pqtl_dataset / pheno_id / f"{pqtl_dataset}_{pheno_id}_PheWAS-FinnGen_coverage.tsv"
+    return Path(out_dir) / "phewas" / "finngen" / "phewas_coverage.tsv"
+
 
 def smr_raw_dir(eqtl_dataset, pheno_id: str, out_dir: str = "results") -> Path:
     """Directory for the raw `smr` binary's own output (drugmr.smr.SMR()'s
     --out prefix lives inside this dir - see smr_raw_prefix). eqtl_dataset
-    may be a compound relative path (e.g. "bulk_raw/GTEx_v10/label/chr1")."""
+    may be a compound relative path (e.g. "bulk_raw/GTEx_v10/label/chr1").
+    UNCHANGED - synthesis/ tier, dataset-independent (see module docstring)."""
     return Path(out_dir) / "SMR" / Path(eqtl_dataset) / pheno_id
 
 
@@ -193,6 +201,17 @@ def run_results_dir(run_id: str, root: str = "runs") -> Path:
 
 def run_work_dir(run_id: str, root: str = "runs") -> Path:
     return run_dir(run_id, root) / "work"
+
+
+def work_dir_for_results_dir(local_results_dir) -> Path:
+    """Sibling run-scoped work/ dir for a given run's results dir. Every
+    bin/*.py step already receives `local_results_dir` (== run_results_dir(run_id)
+    == runs/<run_id>/results), so this derives runs/<run_id>/work from it without
+    needing run_id threaded through as a separate CLI arg. Scratch/intermediate
+    output that gets deleted before the step finishes (trio parquets, raw PheWAS
+    hit dumps, the SMR .ma GWAS reformat) belongs under here, one subdir per
+    stage - never under results/, which is final-artifacts-only."""
+    return Path(local_results_dir).parent / "work"
 
 
 def run_logs_dir(run_id: str, root: str = "runs") -> Path:
@@ -228,23 +247,26 @@ def synthesis_manifest_path(pheno_id: str, root: str = "synthesis") -> Path:
 def pwcoco_qtl_raw_dir(combo: str, pqtl_dataset: str, out_dir: str = "results") -> Path:
     """Per-(protein, eqtl_source) PWCoCo --out prefix dir for the eQTL-informed combos
     (combo: "eqtl_pqtl" or "eqtl_gwas") bin/pwcoco_qtl_wrapper.py runs on SMR-passing
-    targets - complements pwcoco_raw_dir() above (the pQTL-GWAS PWCoCo)."""
-    return Path(out_dir) / "pwcoco_qtl" / combo / pqtl_dataset
+    targets - complements pwcoco_raw_dir() above (the pQTL-GWAS PWCoCo). Sibling of
+    cis_pqtl/ under the same pwcoco/ stage - same tool, different trait pairs."""
+    return Path(out_dir) / "pwcoco" / combo
 
 
 def pwcoco_qtl_raw_prefix(combo: str, pqtl_dataset: str, protein: str, eqtl_source: str, out_dir: str = "results") -> Path:
-    return pwcoco_qtl_raw_dir(combo, pqtl_dataset, out_dir) / f"{protein}_{eqtl_source}"
+    # nested 1 extra level, same reasoning as pwcoco_raw_prefix() above
+    name = f"{protein}_{eqtl_source}"
+    return pwcoco_qtl_raw_dir(combo, pqtl_dataset, out_dir) / name / name
 
 
 def pwcoco_eqtl_pqtl_out(pqtl_dataset: str, pheno_id: str, out_dir: str = "results") -> Path:
     """Aggregated eQTL-pQTL PWCoCo results (1 row per PWCoCo output row - unconditioned
     plus any conditioned rows - across every SMR-passing protein x eqtl_source pair)."""
-    return Path(out_dir) / "pwcoco_qtl" / pqtl_dataset / f"{pqtl_dataset}_{pheno_id}_all_pwcoco_eqtl_pqtl.tsv"
+    return Path(out_dir) / "pwcoco" / "summary" / "pwcoco_eqtl_pqtl.tsv"
 
 
 def pwcoco_eqtl_gwas_out(pqtl_dataset: str, pheno_id: str, out_dir: str = "results") -> Path:
     """Same shape as pwcoco_eqtl_pqtl_out() above, for the eQTL-GWAS combo."""
-    return Path(out_dir) / "pwcoco_qtl" / pqtl_dataset / f"{pqtl_dataset}_{pheno_id}_all_pwcoco_eqtl_gwas.tsv"
+    return Path(out_dir) / "pwcoco" / "summary" / "pwcoco_eqtl_gwas.tsv"
 
 
 def pwcoco_qtl_shared_out(pqtl_dataset: str, pheno_id: str, out_dir: str = "results") -> Path:
@@ -254,4 +276,4 @@ def pwcoco_qtl_shared_out(pqtl_dataset: str, pheno_id: str, out_dir: str = "resu
     SNP. Co-equal to HyPrColoc (same "1 causal variant across pQTL/eQTL/GWAS"
     question, tested via conditioning instead of HyPrColoc's single-cluster
     assumption), not a downstream refinement of it."""
-    return Path(out_dir) / "pwcoco_qtl" / pqtl_dataset / f"{pqtl_dataset}_{pheno_id}_pwcoco_shared_snps.tsv"
+    return Path(out_dir) / "pwcoco" / "summary" / "pwcoco_shared_snps.tsv"
