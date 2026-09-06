@@ -198,14 +198,22 @@ def extract_gene_coordinates(
 
     if genome_build == "hg38":
         for row in ref.iter_rows(named=True):
-            if gene_id == row["Symbol"] or gene_id in (row["Synonyms"] or "").split(","):
+            if gene_id == row["Symbol"]:
                 start = int(row["Begin"])
                 end = int(row["End"])
                 chr = int(row["Chromosome"])
                 orientation = str(row["Orientation"])
                 break
         else:
-            raise ValueError(f"Gene '{gene_id}' not found in reference")
+            for row in ref.iter_rows(named=True):
+                if gene_id in (row["Synonyms"] or "").split(","):
+                    start = int(row["Begin"])
+                    end = int(row["End"])
+                    chr = int(row["Chromosome"])
+                    orientation = str(row["Orientation"])
+                    break
+            else:
+                raise ValueError(f"Gene '{gene_id}' not found in reference")
 
         accum_dict = {
             "ORIENTATION": orientation,
@@ -218,14 +226,22 @@ def extract_gene_coordinates(
 
     if genome_build == "hg19":
         for row in ref.iter_rows(named=True):
-            if gene_id == row["Symbol"] or gene_id in (row["Synonyms"] or "").split(","):
+            if gene_id == row["Symbol"]:
                 chr = str(row["Chromosome"])
                 start = converter[chr][int(row["Begin"])][0][1]
                 end = converter[chr][int(row["End"])][0][1]
                 orientation = str(row["Orientation"])
                 break
         else:
-            raise ValueError(f"Gene '{gene_id}' not found in reference")
+            for row in ref.iter_rows(named=True):
+                if gene_id in (row["Synonyms"] or "").split(","):
+                    chr = str(row["Chromosome"])
+                    start = converter[chr][int(row["Begin"])][0][1]
+                    end = converter[chr][int(row["End"])][0][1]
+                    orientation = str(row["Orientation"])
+                    break
+            else:
+                raise ValueError(f"Gene '{gene_id}' not found in reference")
 
         accum_dict = {
             "ORIENTATION": orientation,
@@ -235,3 +251,42 @@ def extract_gene_coordinates(
         }
         df = pl.DataFrame(accum_dict)
         return df
+
+
+
+#################################
+#################################
+#################################
+# THIS SHIT NEEDS FIXING TO ENSURE 
+# THAT SMR READY FILES FOR QTL DATASET X 
+# ARE ACCOUNTED FOR!!!!
+
+
+
+def needs_chr_split_etl(df: pl.DataFrame, chr_col: str) -> bool:
+    return df[chr_col].n_unique() > 1
+
+
+def detect_qtl_split(manifest_path: Path) -> dict:
+    manifest_path = Path(manifest_path)
+    literal_parts = []
+    for part in manifest_path.parts:
+        if any(ch in part for ch in "*?["):
+            break
+        literal_parts.append(part)
+    search_dir = Path(*literal_parts) if literal_parts else Path(".")
+
+    if search_dir.is_file():
+        search_dir = search_dir.parent
+
+    if not search_dir.is_dir():
+        return {}
+
+    prefixes = {}
+    for besd_file in search_dir.rglob("*.besd"):
+        prefix = Path(str(besd_file)[: -len(".besd")])
+        if Path(f"{prefix}.esi").exists() and Path(f"{prefix}.epi").exists():
+            label = str(prefix.relative_to(search_dir))
+            prefixes[label] = prefix
+
+    return prefixes

@@ -3,3 +3,6 @@ ukb_ppp,dat/pqtl/ukb_ppp/*.parquet,,GRCh38,,54219,SNP,A1,A2,BETA,SE,P,CHR,BP,FRQ
 decode,dat/pqtl/deCODE/*.parquet,,GRCh38,,35559,SNP,A1,A2,BETA,SE,P,CHR,BP,MAF
 wu_csf,dat/pqtl/wu_csf/*.parquet,,GRCh38,,3506,SNP,A1,A2,BETA,SE,P,CHR,BP,FRQ
 wingo_brain,dat/pqtl/wingo_brain/*.parquet,,GRCh38,,1013,SNP,A1,A2,BETA,SE,P,CHR,BP,FRQ
+metabrain,dat/bulk-eQTL/MetaBrain/BrainMeta_cis_eQTL.parquet,Gene,GRCh37,N,,SNP,A1,A2,b,SE,p,Chr,BP,Freq
+gtex_v10,dat/bulk-eQTL/GTEx_v10/*/*.parquet,Gene,GRCh38,N,,SNP,A1,A2,b,SE,p,Chr,BP,Freq
+singlebrain,dat/sc-eQTL/SingleBrain/*.parquet,GENE,GRCh38,N,,SNP,A1,A2,BETA,SE,P,CHR,BP,FRQ
