@@ -5,7 +5,6 @@ import liftover
 import numpy as np
 import polars as pl
 
-
 # generic 3+ trait SNP matcher for multi-trait coloc-style analyses (HyPrColoc,
 # MOLOC, ...) - each df in `datasets` needs SNP / A1 / A2 / BETA / SE columns and
 # 1 row per SNP already (dedup by whatever the caller's significance criterion is,
@@ -13,6 +12,16 @@ import polars as pl
 # `reference`'s A1/A2 (BETA flipped where A1/A2 are swapped, SNP dropped where
 # neither allele pairing resolves), then all datasets are reduced to the SNPs
 # shared across the lot. Returns {name: df[SNP, BETA, SE]}, row-aligned by SNP.
+
+def quick_qc(sumstats: pl.DataFrame, a1_col: str, a2_col: str):
+    bases = ["A", "C", "T", "G"]
+    a1 = pl.col(a1_col).str.to_uppercase()
+    a2 = pl.col(a2_col).str.to_uppercase()
+    ok_len = (a1.str.len_chars() == 1) & (a2.str.len_chars() == 1)
+    ok_bases = a1.is_in(bases) & a2.is_in(bases)
+    df = (sumstats.drop_nulls().filter(ok_len & ok_bases))
+    return df
+
 def extract_common_snps(datasets: dict, reference: str):
 
     if reference not in datasets:
