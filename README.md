@@ -40,7 +40,7 @@ drugMR takes an outcome GWAS and a panel of protein QTLs and returns a ranked, s
 
 Each stage reads the previous stage's output, applies a threshold-like gate, and writes only the survivors forward. The thresholds below are the defaults, but every one of them lives in the `gates:` block of your params file, so you can loosen or tighten them without touching a line of code. Completed stages are cached per-run under `runs/<run_id>/results/` and reused unless `overwrite: true`.
 
-![drugMR pipeline DAG](docs/pipeline_dag.png)
+![drugMR pipeline DAG](docs/pipeline.png)
 
 
 | # | Stage | Script | Gate to next stage |
