@@ -20,12 +20,14 @@ analysis/*
 containers/
 jupyter/
 scripts/
+.env/
 plots/
 logs/
 build/
 .venv/
 work/
 outputs/
+scripts/
 results/
 runs/
 synthesis/
