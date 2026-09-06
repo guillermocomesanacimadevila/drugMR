@@ -22,6 +22,13 @@ def quick_qc(sumstats: pl.DataFrame, a1_col: str, a2_col: str):
     df = (sumstats.drop_nulls().filter(ok_len & ok_bases))
     return df
 
+
+def check_n_in_qtl(df: pl.DataFrame, n_total) -> pl.DataFrame:
+    if "N" not in df.columns:
+        df = df.with_columns(pl.lit(n_total).alias("N"))
+    return df
+
+
 def extract_common_snps(datasets: dict, reference: str):
 
     if reference not in datasets:
@@ -205,6 +212,8 @@ def extract_gene_coordinates(
     chr = 0
     orientation = ""
 
+    ensembl_id = None
+
     if genome_build == "hg38":
         for row in ref.iter_rows(named=True):
             if gene_id == row["Symbol"]:
@@ -212,6 +221,7 @@ def extract_gene_coordinates(
                 end = int(row["End"])
                 chr = int(row["Chromosome"])
                 orientation = str(row["Orientation"])
+                ensembl_id = row["Ensembl_ID"]
                 break
         else:
             for row in ref.iter_rows(named=True):
@@ -220,6 +230,7 @@ def extract_gene_coordinates(
                     end = int(row["End"])
                     chr = int(row["Chromosome"])
                     orientation = str(row["Orientation"])
+                    ensembl_id = row["Ensembl_ID"]
                     break
             else:
                 raise ValueError(f"Gene '{gene_id}' not found in reference")
@@ -228,7 +239,8 @@ def extract_gene_coordinates(
             "ORIENTATION": orientation,
             "CHR": chr,
             "START": start,
-            "END": end
+            "END": end,
+            "ENSEMBL_ID": ensembl_id,
         }
         df = pl.DataFrame(accum_dict)
         return df
@@ -240,6 +252,7 @@ def extract_gene_coordinates(
                 start = converter[chr][int(row["Begin"])][0][1]
                 end = converter[chr][int(row["End"])][0][1]
                 orientation = str(row["Orientation"])
+                ensembl_id = row["Ensembl_ID"]
                 break
         else:
             for row in ref.iter_rows(named=True):
@@ -248,6 +261,7 @@ def extract_gene_coordinates(
                     start = converter[chr][int(row["Begin"])][0][1]
                     end = converter[chr][int(row["End"])][0][1]
                     orientation = str(row["Orientation"])
+                    ensembl_id = row["Ensembl_ID"]
                     break
             else:
                 raise ValueError(f"Gene '{gene_id}' not found in reference")
@@ -256,7 +270,8 @@ def extract_gene_coordinates(
             "ORIENTATION": orientation,
             "CHR": chr,
             "START": start,
-            "END": end
+            "END": end,
+            "ENSEMBL_ID": ensembl_id,
         }
         df = pl.DataFrame(accum_dict)
         return df
@@ -285,7 +300,10 @@ def detect_qtl_split(manifest_path: Path) -> dict:
         literal_parts.append(part)
     search_dir = Path(*literal_parts) if literal_parts else Path(".")
 
-    if search_dir.is_file():
+    # a fully-literal path (no wildcard) is either an existing raw-data file, or
+    # a target parquet that hasn't been built yet - either way, if it isn't
+    # itself a directory, its parent is what we actually want to search
+    if not search_dir.is_dir():
         search_dir = search_dir.parent
 
     if not search_dir.is_dir():
