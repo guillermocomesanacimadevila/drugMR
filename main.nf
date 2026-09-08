@@ -2,9 +2,12 @@
 nextflow.enable.dsl = 2
 
 // nextflow run main.nf -params-file tests/nf/params.qc_test.yaml
+// nextflow run main.nf -params-file tests/nf/params.qc_test.yaml --manifest_path tests/dat/qtl_manifest_toy.csv
 
-include { TEST_QC } from './tests/nf/qc_test'
+include { QC_GWAS } from './subworkflows/qc_gwas/main.nf'
+include { PREP_CIS_REGIONS } from './subworkflows/prep_cis_regions/main.nf'
 
 workflow {
-    TEST_QC()
+    QC_GWAS()
+    PREP_CIS_REGIONS(QC_GWAS.out.qc_tsv)
 }

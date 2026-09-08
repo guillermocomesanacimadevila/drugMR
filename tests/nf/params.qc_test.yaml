@@ -1,7 +1,9 @@
 out_dir: tests/nf/results
+manifest_path: tests/dat/qtl_manifest_toy.csv
 
 inputs:
   - pheno_id: AD
+    pqtl_dataset: ukb_ppp
     sumstats: tests/dat/AD_chr22.tsv
     maf: 0.01
     snp_col: SNP
