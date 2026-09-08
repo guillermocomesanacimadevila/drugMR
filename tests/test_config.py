@@ -1,6 +1,6 @@
 from pathlib import Path
 
-import pytest # fix this in pyproject
+import pytest  # fix this in pyproject
 import yaml
 from jsonschema import ValidationError
 

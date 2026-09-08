@@ -1,0 +1,21 @@
+out_dir: tests/nf/results
+
+inputs:
+  - pheno_id: AD
+    sumstats: tests/dat/AD_chr22.tsv
+    maf: 0.01
+    snp_col: SNP
+    a1_col: A1
+    a2_col: A2
+    beta_col: BETA
+    se_col: SE
+    p_col: P
+    pos_col: BP
+    chr_col: CHR
+    af_col: FRQ
+    genome_build: GRCh38
+    target_build: GRCh38
+    n_cases: 128681
+    n_controls: 849833
+    remove_mhc: true
+    remove_apoe: false
