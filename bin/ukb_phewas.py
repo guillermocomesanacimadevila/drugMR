@@ -79,7 +79,7 @@ def resolve_ukbb_variant(chromosome: str, position: int, A1: str, A2: str, rsid:
     return None, None, None
 
 
-def phewas_mr_on_ukbb(pqtl_dataset: str, pheno_id: str, local_results_dir: str = "results"):
+def phewas_mr_on_ukbb(pqtl_dataset: str, pheno_id: str, local_results_dir: str = "results", cis_regions_dir: str | None = None):
     coloc_file = paths.coloc_out(pqtl_dataset, pheno_id, local_results_dir)
     df_coloc = pl.read_csv(coloc_file, separator="\t")
     if "protein_id" in df_coloc.columns:
@@ -199,7 +199,8 @@ def phewas_mr_on_ukbb(pqtl_dataset: str, pheno_id: str, local_results_dir: str =
             print(f"[TRACKING] No retained cis-MR instruments for {protein}...")
             continue
         # recover pos and chr
-        pqtl_file = Path(f"./dat/cis_regions/{pqtl_dataset}/{protein}/pqtl.parquet")
+        protein_dir = Path(cis_regions_dir) / protein if cis_regions_dir else Path(f"./dat/cis_regions/{pqtl_dataset}/{protein}")
+        pqtl_file = protein_dir / "pqtl.parquet"
         if not pqtl_file.exists():
             print(f"[TRACKING] Missing pQTL file for {protein}: {pqtl_file}...")
             continue
@@ -521,8 +522,9 @@ def main():
     p.add_argument("--pheno_id", required=True)
     p.add_argument("--pqtl_dataset", required=True)
     p.add_argument("--local_results_dir", default="results")
+    p.add_argument("--cis_regions_dir", default=None)
     args = p.parse_args()
-    phewas_mr_on_ukbb(pheno_id=args.pheno_id, pqtl_dataset=args.pqtl_dataset, local_results_dir=args.local_results_dir)
+    phewas_mr_on_ukbb(pheno_id=args.pheno_id, pqtl_dataset=args.pqtl_dataset, local_results_dir=args.local_results_dir, cis_regions_dir=args.cis_regions_dir)
 
 
 if __name__ == "__main__":

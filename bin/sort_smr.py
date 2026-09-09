@@ -613,19 +613,32 @@ def ingest_bulk_smr(pqtl_dataset: str, eqtl_dataset: str, pheno_id: str, local_r
         print(f"[CONCERN] No pre-computed bulk SMR results found for the promising {pqtl_dataset} targets")
 
 
-def compile_multi_omics_targets(pheno_id: str, pqtl_dataset: str, eqtl_dataset: str, eqtl_mode: str, local_results_dir: str = "results"):
-    # single-cell results live under results/SMR/sc/..., bulk under results/SMR/bulk/...
-    targets_path = (
-        paths.smr_sc_out(pqtl_dataset, pheno_id, eqtl_dataset, local_results_dir)
-        if eqtl_mode == "single_cell"
-        else paths.smr_bulk_out(pqtl_dataset, pheno_id, eqtl_dataset, local_results_dir)
-    )
-    df = read_smr_tsv(targets_path)
+# match sql/schema.sql's smr_results column names - the SMR tool's own output
+# uses these exact spellings (probeID, topSNP, ...) and plain lowercasing
+# doesn't produce the schema's snake_case names for them. Applied to each side
+# before the upsert concat in compile_multi_omics_targets() (rather than once
+# after) so a freshly-computed frame (raw names) and an existing_df read back
+# from an already-migrated file (already-renamed names) don't collide into
+# duplicate half-populated columns.
+def rename_smr_to_schema(frame: pl.DataFrame) -> pl.DataFrame:
+    rename_map = {
+        "probeID": "probe_id",
+        "ProbeChr": "probe_chr",
+        "topSNP": "top_snp",
+        "topSNP_chr": "top_snp_chr",
+        "topSNP_bp": "top_snp_bp",
+        "start": "start_bp",
+        "end": "end_bp",
+    }
+    rename_map = {k: v for k, v in rename_map.items() if k in frame.columns}
+    return frame.rename(rename_map) if rename_map else frame
 
-    # HEIDI CUT OFF = 0.01
-    # SMR CUT OFF = 0.05
-    # q_SMR - P_HEIDI
 
+# shared by compile_multi_omics_targets() (per-call upsert, local.py/hpc.py) and
+# merge_multi_omics_targets_batch() (fan-in, Nextflow) - HEIDI CUT OFF = 0.01,
+# SMR CUT OFF = 0.05. Extracted so both call sites apply the identical gate
+# rather than risking the two drifting apart.
+def filter_smr_targets(df: pl.DataFrame, eqtl_dataset: str) -> pl.DataFrame:
     heidi_col = "P_HEIDI"
     if "p_HEIDI" in df.columns:
         heidi_col = "p_HEIDI"
@@ -643,28 +656,23 @@ def compile_multi_omics_targets(pheno_id: str, pqtl_dataset: str, eqtl_dataset: 
 
     if final_targets_df.height == 0:
         print(f"[CONCERN] No drug targets passed cis-MR (pQTLs) + COLOC + {eqtl_dataset} eQTL SMR")
+        return final_targets_df
+
+    return rename_smr_to_schema(final_targets_df)
+
+
+def compile_multi_omics_targets(pheno_id: str, pqtl_dataset: str, eqtl_dataset: str, eqtl_mode: str, local_results_dir: str = "results"):
+    # single-cell results live under results/SMR/sc/..., bulk under results/SMR/bulk/...
+    targets_path = (
+        paths.smr_sc_out(pqtl_dataset, pheno_id, eqtl_dataset, local_results_dir)
+        if eqtl_mode == "single_cell"
+        else paths.smr_bulk_out(pqtl_dataset, pheno_id, eqtl_dataset, local_results_dir)
+    )
+    df = read_smr_tsv(targets_path)
+    final_targets_df = filter_smr_targets(df, eqtl_dataset)
+
+    if final_targets_df.height == 0:
         return []
-
-    # match sql/schema.sql's smr_results column names - the SMR tool's own output
-    # uses these exact spellings (probeID, topSNP, ...) and plain lowercasing
-    # doesn't produce the schema's snake_case names for them. Applied to each side
-    # before the upsert concat below (rather than once after) so a freshly-computed
-    # frame (raw names) and an existing_df read back from an already-migrated file
-    # (already-renamed names) don't collide into duplicate half-populated columns.
-    def rename_to_schema(frame):
-        rename_map = {
-            "probeID": "probe_id",
-            "ProbeChr": "probe_chr",
-            "topSNP": "top_snp",
-            "topSNP_chr": "top_snp_chr",
-            "topSNP_bp": "top_snp_bp",
-            "start": "start_bp",
-            "end": "end_bp",
-        }
-        rename_map = {k: v for k, v in rename_map.items() if k in frame.columns}
-        return frame.rename(rename_map) if rename_map else frame
-
-    final_targets_df = rename_to_schema(final_targets_df)
 
     # canonical combined output (bulk + single-cell hits together) that the dashboard reads
     # upsert: drop any stale rows for this eqtl_dataset, then append the fresh ones,
@@ -673,7 +681,7 @@ def compile_multi_omics_targets(pheno_id: str, pqtl_dataset: str, eqtl_dataset: 
     os.makedirs(combined_file.parent, exist_ok=True)
 
     if combined_file.exists() and combined_file.stat().st_size > 0:
-        existing_df = rename_to_schema(read_smr_tsv(combined_file))
+        existing_df = rename_smr_to_schema(read_smr_tsv(combined_file))
         existing_df = existing_df.filter(pl.col("eqtl_dataset") != eqtl_dataset)
         combined_df = pl.concat([existing_df, final_targets_df], how="diagonal_relaxed")
     else:
@@ -698,6 +706,50 @@ def compile_multi_omics_targets(pheno_id: str, pqtl_dataset: str, eqtl_dataset: 
     return targets
 
 
+# Nextflow fan-in counterpart to compile_multi_omics_targets(): instead of
+# upserting one eqtl_dataset's rows into a shared file across N sequential
+# calls (only safe when those calls share one real persistent file, as in
+# local.py/hpc.py), this takes every eqtl_dataset's already-computed
+# promising_targets.tsv at once (`inputs`: (eqtl_dataset, eqtl_mode,
+# promising_targets_path) tuples) and writes the combined file in a single
+# shot - correct regardless of whether the producing tasks ran in parallel or
+# in isolated sandboxes, unlike the upsert pattern above (see
+# project_nextflow_migration memory for why the upsert can't run per-task).
+def merge_multi_omics_targets_batch(pheno_id: str, pqtl_dataset: str, inputs: list[tuple[str, str, str]], local_results_dir: str = "results"):
+    filtered_frames = []
+    for eqtl_dataset, eqtl_mode, targets_path in inputs:
+        df = read_smr_tsv(Path(targets_path))
+        filtered = filter_smr_targets(df, eqtl_dataset)
+        if filtered.height > 0:
+            filtered_frames.append(filtered)
+
+    combined_file = paths.smr_final_targets_out(pqtl_dataset, pheno_id, local_results_dir)
+    os.makedirs(combined_file.parent, exist_ok=True)
+
+    if not filtered_frames:
+        print(f"[CONCERN] No drug targets passed cis-MR (pQTLs) + COLOC + eQTL SMR across any of {len(inputs)} eQTL dataset(s)")
+        pl.DataFrame().write_csv(combined_file, separator="\t")
+        return []
+
+    combined_df = pl.concat(filtered_frames, how="diagonal_relaxed")
+    combined_df.write_csv(combined_file, separator="\t")
+
+    targets = (
+        combined_df
+        .select("protein")
+        .unique()
+        .sort("protein")
+        .get_column("protein")
+        .to_list()
+    )
+
+    print(f"[TRACKING] {combined_df.height} target x cell-type SMR hits found across {len(inputs)} eQTL dataset(s)")
+    print(f"[TRACKING] {len(targets)} unique drug targets passed cis-MR (pQTLs) + COLOC + eQTL SMR")
+    print(f"[TRACKING] Combined multi-omics target results saved to {combined_file}")
+    print(f"[TRACKING] Drug targets: {targets}")
+    return targets
+
+
 # THEN
 # -> For each prioritised target
 # -> Check original cis-region (matched with GWAS)
@@ -708,26 +760,46 @@ def compile_multi_omics_targets(pheno_id: str, pqtl_dataset: str, eqtl_dataset: 
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--pheno_id", required=True)
-    p.add_argument("--sumstats", required=True)
+    p.add_argument("--sumstats", default=None)
     p.add_argument("--pqtl_dataset", required=True)
-    p.add_argument("--eqtl_dataset", required=True)
-    p.add_argument("--eqtl_mode", required=True, choices=["bulk", "single_cell"])
-    p.add_argument("--ref_bfile", required=True)
+    p.add_argument("--eqtl_dataset", default=None)
+    p.add_argument("--eqtl_mode", required=True, choices=["bulk", "single_cell", "merge"])
+    p.add_argument("--ref_bfile", default=None)
     p.add_argument("--maf", type=float, default=0.01)
     p.add_argument("--local_results_dir", default="results")
     p.add_argument("--repo_root", default=None)
     p.add_argument("--synthesis_dir", default="synthesis")
     p.add_argument("--manifest_path", default=paths.DEFAULT_QTL_MANIFEST_PATH)
+    p.add_argument("--skip_merge", action="store_true")
+    # merge mode only - repeatable "eqtl_dataset:eqtl_mode:promising_targets_path",
+    # one per upstream SMR_BULK/SMR_SC task being fanned in
+    p.add_argument("--input", action="append", default=[])
     args = p.parse_args()
 
     _smr_utils.manifest_path = args.manifest_path
     if args.repo_root:
         _smr_utils.base_dir = args.repo_root
 
-    # running SMR (bulk or single-cell, depending on --eqtl_mode)
-    # bulk: run fresh SMR from raw dat/bulk-eQTL besd/esi/epi where available (no-op if
-    # already done, or if this eqtl_dataset only exists as a pre-computed .smr),
-    # then ingest whatever ends up under results/SMR/bulk/{eqtl_dataset}/
+    if args.eqtl_mode == "merge":
+        inputs = []
+        for raw in args.input:
+            eqtl_dataset, eqtl_mode, targets_path = raw.split(":", 2)
+            inputs.append((eqtl_dataset, eqtl_mode, targets_path))
+        merge_multi_omics_targets_batch(
+            pheno_id=args.pheno_id,
+            pqtl_dataset=args.pqtl_dataset,
+            inputs=inputs,
+            local_results_dir=args.local_results_dir,
+        )
+        return
+
+    missing = [
+        name for name, val in [("--sumstats", args.sumstats), ("--eqtl_dataset", args.eqtl_dataset), ("--ref_bfile", args.ref_bfile)]
+        if val is None
+    ]
+    if missing:
+        p.error(f"--eqtl_mode {args.eqtl_mode} requires: {', '.join(missing)}")
+
     if args.eqtl_mode == "bulk":
         run_bulk_smr(
             pqtl_dataset=args.pqtl_dataset,
@@ -758,14 +830,14 @@ def main():
             synthesis_dir=args.synthesis_dir
         )
 
-    # final hits
-    compile_multi_omics_targets(
-        pheno_id=args.pheno_id,
-        pqtl_dataset=args.pqtl_dataset,
-        eqtl_dataset=args.eqtl_dataset,
-        eqtl_mode=args.eqtl_mode,
-        local_results_dir=args.local_results_dir
-    )
+    if not args.skip_merge:
+        compile_multi_omics_targets(
+            pheno_id=args.pheno_id,
+            pqtl_dataset=args.pqtl_dataset,
+            eqtl_dataset=args.eqtl_dataset,
+            eqtl_mode=args.eqtl_mode,
+            local_results_dir=args.local_results_dir
+        )
 
 if __name__ == "__main__":
     main()

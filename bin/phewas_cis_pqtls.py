@@ -69,7 +69,7 @@ coloc_threshold = 0
 
 
 # this script runs AFTER cis-MR + pairwise pQTL-GWAS COLOC
-def phewas_for_compelling_targets(pheno_id: str, pqtl_dataset: str, local_results_dir: str = "results"):
+def phewas_for_compelling_targets(pheno_id: str, pqtl_dataset: str, local_results_dir: str = "results", cis_regions_dir: str | None = None):
     # COLOC defines the targets only
     # each protein_id == its own protein assay / aptamer
     coloc_file = paths.coloc_out(pqtl_dataset, pheno_id, local_results_dir)
@@ -195,7 +195,8 @@ def phewas_for_compelling_targets(pheno_id: str, pqtl_dataset: str, local_result
 
         # CHR + BP are only recovered here to construct the FinnGen API variant
         # exposure beta + SE + alleles remain strictly from the cis-MR instruments file
-        pqtl_file = Path(f"./dat/cis_regions/{pqtl_dataset}/{protein}/pqtl.parquet")
+        protein_dir = Path(cis_regions_dir) / protein if cis_regions_dir else Path(f"./dat/cis_regions/{pqtl_dataset}/{protein}")
+        pqtl_file = protein_dir / "pqtl.parquet"
         if not pqtl_file.exists():
             print(f"[TRACKING] Original pQTL cis-region not found for {protein}: {pqtl_file}...")
             continue
@@ -710,11 +711,13 @@ def main():
     p.add_argument("--pheno_id", required=True)
     p.add_argument("--pqtl_dataset", required=True)
     p.add_argument("--local_results_dir", default="results")
+    p.add_argument("--cis_regions_dir", default=None)
     args = p.parse_args()
     phewas_for_compelling_targets(
         pheno_id=args.pheno_id,
         pqtl_dataset=args.pqtl_dataset,
-        local_results_dir=args.local_results_dir
+        local_results_dir=args.local_results_dir,
+        cis_regions_dir=args.cis_regions_dir
     )
 
 

@@ -47,7 +47,8 @@ def pwcoco_qtl_wrapper(
         n_cases: int,
         n_controls: int,
         out_dir: str = "results",
-        pp4_thresh: float = 0.7
+        pp4_thresh: float = 0.7,
+        cis_regions_dir: str | None = None
 ):
 
     """
@@ -77,8 +78,7 @@ def pwcoco_qtl_wrapper(
         probe = row["probe_id"]
 
         # cis regions
-        dir = f"./dat/cis_regions/{pqtl_dataset}/{p}"
-        dir = Path(dir)
+        dir = Path(cis_regions_dir) / p if cis_regions_dir else Path(f"./dat/cis_regions/{pqtl_dataset}/{p}")
         pqtl = dir / "pqtl.parquet"
         gwas = dir / "gwas.parquet"
 
@@ -135,8 +135,7 @@ def pwcoco_qtl_wrapper(
         cell_type = row["cell_type"]
         probe = row["probe_id"]
 
-        dir = f"./dat/cis_regions/{pqtl_dataset}/{p}"
-        dir = Path(dir)
+        dir = Path(cis_regions_dir) / p if cis_regions_dir else Path(f"./dat/cis_regions/{pqtl_dataset}/{p}")
         pqtl = dir / "pqtl.parquet"
         gwas = dir / "gwas.parquet"
 
@@ -236,6 +235,7 @@ def main():
     p.add_argument("--pp4_threshold", type=float, default=0.7)
     p.add_argument("--manifest_path", default=DEFAULT_QTL_MANIFEST_PATH)
     p.add_argument("--repo_root", default=None)
+    p.add_argument("--cis_regions_dir", default=None)
     args = p.parse_args()
 
     _smr.manifest_path = args.manifest_path
@@ -250,6 +250,7 @@ def main():
         n_controls=args.n_controls,
         out_dir=args.local_results_dir,
         pp4_thresh=args.pp4_threshold,
+        cis_regions_dir=args.cis_regions_dir,
     )
 
 

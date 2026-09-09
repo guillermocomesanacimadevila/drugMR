@@ -1,4 +1,5 @@
 import argparse
+import os
 import subprocess
 from pathlib import Path
 
@@ -119,8 +120,8 @@ def load_eqtl_table(data_type: str, eqtl_dataset: str, cell_type: str, base_gene
     return eqtl.select(["SNP", "A1", "A2", "BETA", "SE", "P"])
 
 
-def hyprcoloc_targets(pqtl_dataset: str, pheno_id: str, eqtl_dataset: str, local_results_dir: str = "results"):
-    hyprcoloc_script = "./bin/hyprcoloc.R"
+def hyprcoloc_targets(pqtl_dataset: str, pheno_id: str, eqtl_dataset: str, local_results_dir: str = "results", skip_merge: bool = False):
+    hyprcoloc_script = str(Path(os.environ.get("PYTHONPATH", ".")) / "bin" / "hyprcoloc.R")
     work_dir = paths.work_dir_for_results_dir(local_results_dir) / "hyprcoloc"
     work_dir.mkdir(parents=True, exist_ok=True)
     out_dir = paths.hyprcoloc_dataset_out(pqtl_dataset, eqtl_dataset, pheno_id, local_results_dir).parent.parent
@@ -244,7 +245,15 @@ def hyprcoloc_targets(pqtl_dataset: str, pheno_id: str, eqtl_dataset: str, local
 
     # canonical combined output (bulk + single-cell hits together) - upsert: drop any
     # stale rows for this eqtl_dataset, then append the fresh ones, so bulk and
-    # single-cell runs (in either order) compose instead of overwriting each other
+    # single-cell runs (in either order) compose instead of overwriting each other.
+    # Skipped when skip_merge=True (Nextflow: each fanned-out task runs in its own
+    # isolated sandbox, so "master_file.exists()" is never true there - the upsert
+    # can't accumulate across tasks the way it does for local.py/hpc.py's sequential
+    # calls against one real shared file. merge_hyprcoloc_batch() below is the
+    # fan-in-safe replacement - see project_nextflow_migration memory.
+    if skip_merge:
+        return
+
     master_file = paths.hyprcoloc_out(pqtl_dataset, pheno_id, local_results_dir)
     if master_file.exists() and master_file.stat().st_size > 0:
         existing = pl.read_csv(master_file, separator="\t", null_values=["NA"])
@@ -258,6 +267,36 @@ def hyprcoloc_targets(pqtl_dataset: str, pheno_id: str, eqtl_dataset: str, local
     print(f"[DONE] Saved master HyPrColoc table: {master_file}")
 
 
+# Nextflow fan-in counterpart to hyprcoloc_targets()'s own master-file upsert:
+# instead of upserting one eqtl_dataset's rows into a shared file across N
+# sequential calls (only safe when those calls share one real persistent file,
+# as in local.py/hpc.py), this takes every eqtl_dataset's already-computed
+# hyprcoloc_dataset_out() file at once (`inputs`: (eqtl_dataset,
+# dataset_file_path) tuples) and writes the combined hyprcoloc_out() file in a
+# single shot - correct regardless of whether the producing tasks ran in
+# parallel or in isolated sandboxes.
+def merge_hyprcoloc_batch(pheno_id: str, pqtl_dataset: str, inputs: list[tuple[str, str]], local_results_dir: str = "results"):
+    frames = []
+    for eqtl_dataset, dataset_file in inputs:
+        path = Path(dataset_file)
+        if not path.exists() or path.stat().st_size == 0:
+            print(f"[CONCERN] No HyPrColoc results found for {eqtl_dataset} at {path}")
+            continue
+        frames.append(pl.read_csv(path, separator="\t", null_values=["NA"]))
+
+    master_file = paths.hyprcoloc_out(pqtl_dataset, pheno_id, local_results_dir)
+    master_file.parent.mkdir(parents=True, exist_ok=True)
+
+    if not frames:
+        print(f"[CONCERN] No HyPrColoc results found across any of {len(inputs)} eQTL dataset(s)")
+        pl.DataFrame().write_csv(master_file, separator="\t")
+        return
+
+    master = pl.concat(frames, how="diagonal_relaxed")
+    master.write_csv(master_file, separator="\t")
+    print(f"[DONE] Saved master HyPrColoc table: {master_file}")
+
+
 
 def main():
     p = argparse.ArgumentParser()
@@ -267,17 +306,33 @@ def main():
     p.add_argument("--local_results_dir", default="results")
     p.add_argument("--manifest_path", default=paths.DEFAULT_QTL_MANIFEST_PATH)
     p.add_argument("--repo_root", default=None)
+    p.add_argument("--skip_merge", action="store_true")
+    # merge mode only - repeatable "eqtl_dataset:dataset_file_path", one per
+    # upstream HYPRCOLOC task being fanned in
+    p.add_argument("--merge", action="store_true")
+    p.add_argument("--input", action="append", default=[])
     args = p.parse_args()
 
     _smr.manifest_path = args.manifest_path
     if args.repo_root:
         _smr.base_dir = args.repo_root
 
+    if args.merge:
+        inputs = [tuple(raw.split(":", 1)) for raw in args.input]
+        merge_hyprcoloc_batch(
+            pheno_id=args.pheno_id,
+            pqtl_dataset=args.pqtl_dataset,
+            inputs=inputs,
+            local_results_dir=args.local_results_dir,
+        )
+        return
+
     hyprcoloc_targets(
         pqtl_dataset=args.pqtl_dataset,
         pheno_id=args.pheno_id,
         eqtl_dataset=args.eqtl_dataset,
-        local_results_dir=args.local_results_dir
+        local_results_dir=args.local_results_dir,
+        skip_merge=args.skip_merge,
     )
 
 
