@@ -27,9 +27,10 @@ class SMRUtils:
     - multiple regions within 1 dataset (e.g. GTEx)
     """
 
-    def __init__(self, manifest_path: str = None, ncbi_ref_path: str = None):
+    def __init__(self, manifest_path: str = None, ncbi_ref_path: str = None, base_dir: str = None):
         self.manifest_path = manifest_path
         self.ncbi_ref_path = ncbi_ref_path
+        self.base_dir = base_dir
         self._qtl_manifest = None
         self._gene_positions = None
 
@@ -39,7 +40,7 @@ class SMRUtils:
         if self._qtl_manifest is None:
             if self.manifest_path is None:
                 raise ValueError("manifest_path not set - required for transform_to_esd()")
-            self._qtl_manifest = QTLManifest(manifest_path=self.manifest_path)
+            self._qtl_manifest = QTLManifest(manifest_path=self.manifest_path, base_dir=self.base_dir)
         return self._qtl_manifest
 
     @property

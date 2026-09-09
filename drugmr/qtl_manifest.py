@@ -6,9 +6,10 @@ import polars as pl
 
 class QTLManifest:
 
-    def __init__(self, manifest_path: str):
-        self.manifest_path = manifest_path
-        self._manifest = pl.read_csv(manifest_path)
+    def __init__(self, manifest_path: str, base_dir: str | Path | None = None):
+        self.base_dir = Path(base_dir) if base_dir else None
+        self.manifest_path = str(self.base_dir / manifest_path) if self.base_dir else manifest_path
+        self._manifest = pl.read_csv(self.manifest_path)
 
     def get_row(self, dataset: str) -> dict:
         rows = self._manifest.filter(pl.col("dataset") == dataset)
@@ -55,7 +56,8 @@ class QTLManifest:
 
         manifest_row = self.get_row(dataset)
         key_col = manifest_row.get("key_col") or None
-        matched_files = sorted(glob.glob(manifest_row["path"]))
+        glob_path = str(self.base_dir / manifest_row["path"]) if self.base_dir else manifest_row["path"]
+        matched_files = sorted(glob.glob(glob_path))
         if not matched_files:
             raise FileNotFoundError(f"No files matched path: {manifest_row['path']}")
 

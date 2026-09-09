@@ -8,7 +8,7 @@ from drugmr import paths
 from drugmr.smr import SMRUtils
 from drugmr.utils import extract_common_snps
 
-_smr = SMRUtils(manifest_path="assets/qtl_manifest.csv")
+_smr = SMRUtils(manifest_path=paths.DEFAULT_QTL_MANIFEST_PATH)
 
 # HyPrColoc for the final multi-omics targets
 # -> for every target x cell-type/tissue hit that passed cis-MR + COLOC + SMR + HEIDI
@@ -261,11 +261,18 @@ def hyprcoloc_targets(pqtl_dataset: str, pheno_id: str, eqtl_dataset: str, local
 
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument("--pqtl_dataset", required=True, choices=["ukb_ppp", "decode", "wu_csf", "wingo_brain"])
+    p.add_argument("--pqtl_dataset", required=True)
     p.add_argument("--pheno_id", required=True)
     p.add_argument("--eqtl_dataset", default="SingleBrain")
     p.add_argument("--local_results_dir", default="results")
+    p.add_argument("--manifest_path", default=paths.DEFAULT_QTL_MANIFEST_PATH)
+    p.add_argument("--repo_root", default=None)
     args = p.parse_args()
+
+    _smr.manifest_path = args.manifest_path
+    if args.repo_root:
+        _smr.base_dir = args.repo_root
+
     hyprcoloc_targets(
         pqtl_dataset=args.pqtl_dataset,
         pheno_id=args.pheno_id,

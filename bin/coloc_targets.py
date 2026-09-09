@@ -1,4 +1,5 @@
 import argparse
+import os
 import subprocess
 from pathlib import Path
 
@@ -29,10 +30,21 @@ def pairwise_coloc(
     # not just the cis-MR dir - every paths.py call below derives its own subdir from it
     pqtl_dataset = pqtl_dataset.lower()
     pqtl_dir = Path(pqtl_dir)
-    coloc_script = "./bin/coloc.R"
+    coloc_script = str(Path(os.environ.get("PYTHONPATH", ".")) / "bin" / "coloc.R")
     out_dir = paths.coloc_out(pqtl_dataset, pheno_id, local_results_dir).parent
     out_dir.mkdir(parents=True, exist_ok=True)
-    df = pl.read_csv(paths.mr_out(pqtl_dataset, pheno_id, local_results_dir), separator="\t")
+    df = pl.read_csv(
+        paths.mr_out(pqtl_dataset, pheno_id, local_results_dir),
+        separator="\t",
+        infer_schema_length=None,
+        schema_overrides={
+            "n_instruments": pl.Int64,
+            "IVW_FDR_q": pl.Float64,
+            "egger_intercept_pval": pl.Float64,
+            "Q_pval": pl.Float64,
+            "Wald_FDR_q": pl.Float64,
+        },
+    )
     results = []
     results_sensitivity = []
 
@@ -92,7 +104,7 @@ def pairwise_coloc(
 
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument("--pqtl_dataset", required=True, choices=["ukb_ppp", "decode", "wu_csf", "wingo_brain"])
+    p.add_argument("--pqtl_dataset", required=True)
     p.add_argument("--local_results_dir", required=True)
     p.add_argument("--pqtl_dir", required=True)
     p.add_argument("--pheno_id", required=True)

@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 import argparse
 import os
 from pathlib import Path
@@ -13,9 +12,6 @@ from drugmr.phewas import PheWAS
 # from statsmodels.stats.multitest import fdrcorrection
 from drugmr.twosamplemr import PyTwoSampleMR
 
-# -----------------------------------
-# THIS SCRIPT SHALL NOT BE RAN IN HPC
-# -----------------------------------
 # Bonferroni correction is applied per-protein, across however many endpoints
 # were actually tested for that protein (see df_protein_results.height below) -
 # NOT a fixed constant. 2,511 ICD coded endpoints vs total 2,755 in FinnGen R13

@@ -14,7 +14,7 @@ from drugmr import paths
 # map Ps - Betas - A1 - A2
 # slap onto results/info 
 
-def compile_top_cis_hits(pheno_id: str, pqtl_dataset: str, local_results_dir: str = "results"):
+def compile_top_cis_hits(pheno_id: str, pqtl_dataset: str, local_results_dir: str = "results", cis_regions_dir: str | None = None):
     coloc_res = pl.read_csv(paths.coloc_out(pqtl_dataset, pheno_id, local_results_dir), separator="\t")
     if "protein_id" in coloc_res.columns:
         coloc_res = coloc_res.rename({"protein_id": "protein"})
@@ -38,13 +38,14 @@ def compile_top_cis_hits(pheno_id: str, pqtl_dataset: str, local_results_dir: st
         pwcoco_res = pl.read_csv(pwcoco_file, separator="\t")
         pwcoco_only_proteins = set(pwcoco_res["protein"].unique().to_list()) - set(target_top_snp.keys())
         for pwcoco_target in pwcoco_only_proteins:
-            pwcoco_pqtl = pl.read_parquet(Path(f"./dat/cis_regions/{pqtl_dataset}/{pwcoco_target}") / "pqtl.parquet")
+            pwcoco_target_dir = Path(cis_regions_dir) / pwcoco_target if cis_regions_dir else Path(f"./dat/cis_regions/{pqtl_dataset}/{pwcoco_target}")
+            pwcoco_pqtl = pl.read_parquet(pwcoco_target_dir / "pqtl.parquet")
             target_top_snp[pwcoco_target] = str(pwcoco_pqtl.sort("P").row(0, named=True)["SNP"])
 
     top_hits = []
     for target, snp_id in target_top_snp.items():
         # dir for the gwas and pQTL
-        cis_r = Path(f"./dat/cis_regions/{pqtl_dataset}/{target}")
+        cis_r = Path(cis_regions_dir) / target if cis_regions_dir else Path(f"./dat/cis_regions/{pqtl_dataset}/{target}")
         gwas = cis_r / "gwas.parquet"
         pqtl = cis_r / "pqtl.parquet"
         gwas = pl.read_parquet(gwas)
@@ -116,11 +117,13 @@ def main():
     p.add_argument("--pheno_id", required=True)
     p.add_argument("--pqtl_dataset", required=True)
     p.add_argument("--local_results_dir", default="results")
+    p.add_argument("--cis_regions_dir", default=None)
     args = p.parse_args()
     compile_top_cis_hits(
         pheno_id=args.pheno_id,
         pqtl_dataset=args.pqtl_dataset,
-        local_results_dir=args.local_results_dir
+        local_results_dir=args.local_results_dir,
+        cis_regions_dir=args.cis_regions_dir,
     )
 
 if __name__ == "__main__":

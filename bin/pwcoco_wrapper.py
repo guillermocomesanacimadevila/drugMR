@@ -14,7 +14,7 @@ def resolve_maf_col(df: pl.DataFrame) -> str:
     return "FRQ" if "FRQ" in df.columns else "MAF"
 
 
-def run_pwcoco(ref_bfile: str, n_cases: int, n_controls: int, pqtl_dataset: str, pheno_id: str, local_results_dir: str = "results", cochran_q_thresh: float = 0.05, causal_thresh: float = 0.05):
+def run_pwcoco(ref_bfile: str, n_cases: int, n_controls: int, pqtl_dataset: str, pheno_id: str, local_results_dir: str = "results", cochran_q_thresh: float = 0.05, causal_thresh: float = 0.05, cis_regions_dir: str | None = None):
 
     """
     PWCoCo wrapper for workflow
@@ -29,7 +29,7 @@ def run_pwcoco(ref_bfile: str, n_cases: int, n_controls: int, pqtl_dataset: str,
 
     results = []
     for target in targets:
-        cis_regions = Path(f"./dat/cis_regions/{pqtl_dataset}/{target}")
+        cis_regions = Path(cis_regions_dir) / target if cis_regions_dir else Path(f"./dat/cis_regions/{pqtl_dataset}/{target}")
         gwas = pl.read_parquet(cis_regions / "gwas.parquet")
         pqtl = pl.read_parquet(cis_regions / "pqtl.parquet")
 
@@ -97,7 +97,7 @@ def run_pwcoco(ref_bfile: str, n_cases: int, n_controls: int, pqtl_dataset: str,
 
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument("--pqtl_dataset", required=True, choices=["ukb_ppp", "decode", "wu_csf", "wingo_brain"])
+    p.add_argument("--pqtl_dataset", required=True)
     p.add_argument("--pheno_id", required=True)
     p.add_argument("--ref_bfile", required=True)
     p.add_argument("--n_cases", required=True, type=int)
@@ -105,6 +105,7 @@ def main():
     p.add_argument("--local_results_dir", default="results")
     p.add_argument("--cochran_q_pval", type=float, default=0.05)
     p.add_argument("--wald_fdr_q", type=float, default=0.05)
+    p.add_argument("--cis_regions_dir", default=None)
     args = p.parse_args()
 
     run_pwcoco(
@@ -116,6 +117,7 @@ def main():
         local_results_dir=args.local_results_dir,
         cochran_q_thresh=args.cochran_q_pval,
         causal_thresh=args.wald_fdr_q,
+        cis_regions_dir=args.cis_regions_dir,
     )
 
 

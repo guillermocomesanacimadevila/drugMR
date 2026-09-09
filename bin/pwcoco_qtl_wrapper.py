@@ -4,6 +4,7 @@ from pathlib import Path
 import polars as pl
 
 from drugmr.paths import (
+    DEFAULT_QTL_MANIFEST_PATH,
     pwcoco_eqtl_gwas_out,
     pwcoco_eqtl_pqtl_out,
     pwcoco_out,
@@ -14,7 +15,7 @@ from drugmr.paths import (
 from drugmr.pwcoco import PWCoCo
 from drugmr.smr import SMRUtils
 
-_smr = SMRUtils(manifest_path="assets/qtl_manifest.csv")
+_smr = SMRUtils(manifest_path=DEFAULT_QTL_MANIFEST_PATH)
 
 
 def resolve_maf_col(df):
@@ -226,14 +227,20 @@ def pwcoco_qtl_wrapper(
 
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument("--pqtl_dataset", required=True, choices=["ukb_ppp", "decode", "wu_csf", "wingo_brain"])
+    p.add_argument("--pqtl_dataset", required=True)
     p.add_argument("--pheno_id", required=True)
     p.add_argument("--ref_bfile", required=True)
     p.add_argument("--n_cases", required=True, type=int)
     p.add_argument("--n_controls", required=True, type=int)
     p.add_argument("--local_results_dir", default="results")
     p.add_argument("--pp4_threshold", type=float, default=0.7)
+    p.add_argument("--manifest_path", default=DEFAULT_QTL_MANIFEST_PATH)
+    p.add_argument("--repo_root", default=None)
     args = p.parse_args()
+
+    _smr.manifest_path = args.manifest_path
+    if args.repo_root:
+        _smr.base_dir = args.repo_root
 
     pwcoco_qtl_wrapper(
         pqtl_dataset=args.pqtl_dataset,

@@ -23,7 +23,7 @@ from drugmr.qtl_manifest import QTLManifest
 # * pqtl_dataset
 # * colnames (pQTL and GWAS)
 
-def define_loci_from_cis_regions(pqtl_dataset: str, pheno_id: str, manifest_path: str = "assets/qtl_manifest.csv", qc_tsv: str | None = None, out_dir: str | None = None):
+def define_loci_from_cis_regions(pqtl_dataset: str, pheno_id: str, manifest_path: str = paths.DEFAULT_QTL_MANIFEST_PATH, qc_tsv: str | None = None, out_dir: str | None = None):
     gwas = pl.read_csv(qc_tsv or paths.qc_out(pheno_id), separator="\t")
     pqtl_dataset = pqtl_dataset.lower()
 
@@ -75,9 +75,9 @@ def define_loci_from_cis_regions(pqtl_dataset: str, pheno_id: str, manifest_path
 
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument("--pqtl_dataset", required=True, choices=["ukb_ppp", "decode", "wu_csf", "wingo_brain"])
+    p.add_argument("--pqtl_dataset", required=True)
     p.add_argument("--pheno_id", required=True)
-    p.add_argument("--manifest_path", default="assets/qtl_manifest.csv")
+    p.add_argument("--manifest_path", default=paths.DEFAULT_QTL_MANIFEST_PATH)
     p.add_argument("--qc_tsv", default=None)
     p.add_argument("--out_dir", default=None)
     args = p.parse_args()

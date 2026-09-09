@@ -10,7 +10,7 @@ process GWAS_QC {
 
     tag "gwas_qc"
     
-    publishDir { "${params.out_dir}/${meta.pheno_id}/qc" }, mode: 'copy'
+    publishDir { "dat/derived/${meta.pheno_id}/qc_gwas" }, mode: 'copy'
     container {
         if (params.image_name) {
             return params.image_name

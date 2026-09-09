@@ -5,7 +5,7 @@ process PWCOCO {
 
     tag "pwcoco_targets_in_phase1"
 
-    publishDir { "${params.out_dir}/${meta.pheno_id}/${meta.pqtl_dataset}/pwcoco" }, mode: "copy"
+    publishDir { "${params.runs_root}/${params.run_id}/results/pwcoco" }, mode: "copy"
 
     container {
         if (params.image_name) {

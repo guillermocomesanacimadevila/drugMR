@@ -1,68 +1,8 @@
-#!/usr/bin/env python3
-"""
-Central output-path resolver for the drugMR pipeline.
-
-Every function here returns a path *relative to the project root* (a
-plain pathlib.Path, never made absolute) so both `drugmr/local.py`
-(which joins it onto `project_root`) and `drugmr/hpc.py` (which uses it
-directly as a string relative to the remote repo checkout, since every
-`ssh(...)` call already does `cd "{remote}"` first) can share the exact
-same path logic without this module knowing anything about SSH.
-
-Migration status: this module currently reproduces the exact literals
-that were previously hardcoded independently in `drugmr/local.py`,
-`drugmr/hpc.py`, and `bin/*.py` - byte-for-byte, including the
-`out_dir` argument being ignored by every caller that didn't already
-thread it through (now fixed here: every function takes `out_dir` and
-uses it, defaulting to "results" - the same effective value every
-existing config falls back to, so no run today changes location).
-Phase 3 (runs/<run_id>/ + registry): Tier-2 functions' `out_dir` is now
-computed by callers as `run_results_dir(run_id)` instead of a bare
-"results" default - see `drugmr/registry.py` for run_id computation and
-the registry.json/manifest.json read/write logic (deliberately kept out
-of this module, which stays pure path arithmetic with no I/O).
-
-NetworkMR (mediator/biomarker mediation analysis - protein -> mediator ->
-outcome, plus its MOLOC/HyPrColoc-mediator colocalisation branches) was
-removed from the active pipeline and archived to analysis/networkmr/ - real
-bugs found in it (cis_mr.R silently ignoring the mediator outcome and
-re-running protein -> AD instead, coloc.R hardcoding the mediator's trait
-type as case-control, several stale-glob/idempotency issues) made it not
-worth keeping wired in until revisited properly. See analysis/networkmr/
-for the archived code if this is ever picked back up.
-
-Phase 4 (2026-09-04): stage dirs below are normalised to one casing
-convention (snake_case) and consistently named for what they are, not what
-dataset/trait produced them - `run_id` (the run's own directory name) already
-encodes both `pqtl_dataset` and `pheno_id`, so repeating them inside
-results/ or work/ is redundant (a run is always exactly 1 dataset x 1
-trait). `pqtl_dataset`/`pheno_id` stay as parameters on every function below
-for call-site stability - many callers already have them in scope for other
-reasons (filtering, logging, upstream lookups) - they're just no longer
-embedded in the returned Path. `pwcoco` and `pwcoco_qtl` are consolidated
-into one `pwcoco/` stage with `cis_pqtl/`, `eqtl_pqtl/`, `eqtl_gwas/`,
-`summary/` children - they're the same tool run against different trait
-pairs, not different stages. Per-locus PWCoCo output is grouped one
-directory per protein (or protein_eqtlsource) instead of a flat dump of
-hundreds of files. `bin/coloc.R`, `bin/hyprcoloc.R`, `bin/cis_mr.R` compute
-matching `out_dir` values independently (see their own comments) and must
-stay in lock-step with the functions below. `work_dir_for_results_dir()`
-gives every stage's scratch/intermediate output (deleted before the
-pipeline finishes, never a final artifact) the same run-scoping, without
-needing `run_id` itself threaded through every bin/*.py call site.
-`smr_raw_dir`/`smr_raw_prefix`/`smr_bulk_dir` and everything under
-`synthesis/` are UNCHANGED - they're a dataset-independent raw-SMR cache
-shared across every pqtl_dataset, not part of a run's results/ tree.
-`runs/*/results/network_mr/` and `runs/*/results/colocboost/` from before
-those stages were removed were archived to `runs/<run_id>/_archived_<stage>/`
-by `analysis/migrate_results_schema.py`, not migrated into this schema.
-
-Known pre-existing mismatch preserved as-is (not fixed by this module):
-  - `dat/bulk-eQTL` (singular) vs `dat/bulk-eQTLs` (plural, only in
-    `scripts/GTEx_v10/eqtl_gtex_eqtl.py`) is a separate, untouched
-    input-path mismatch, unrelated to this module.
-"""
 from pathlib import Path
+
+
+
+DEFAULT_QTL_MANIFEST_PATH = "assets/qtl_manifest.csv"
 
 
 def qc_out(pheno_id: str) -> Path:
