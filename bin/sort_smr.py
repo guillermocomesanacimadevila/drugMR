@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import argparse
 import os
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -9,7 +10,10 @@ import pandas as pd
 import polars as pl
 from statsmodels.stats.multitest import fdrcorrection
 
-from drugmr import SMR, paths
+from drugmr import paths
+from drugmr.smr import SMRUtils
+
+_smr_utils = SMRUtils(manifest_path="assets/qtl_manifest.csv")  # ncbi_ref_path not needed - BESD is always pre-built for registered datasets, ETL-from-scratch never triggers
 
 # ------------------------------------------------------------------------------------
 # ------------------------------------------------------------------------------------
@@ -89,10 +93,9 @@ def extract_promising_targets(pqtl_dataset: str, pheno_id: str, local_results_di
 
 # shared GWAS -> .ma prep (SMR GWAS format == SNP A1 A2 freq b se p N)
 # used by both the bulk and single-cell SMR runs - column logic is dataset-agnostic
-def prepare_smr_gwas(sumstats: str, pheno_id: str):
+def prepare_smr_gwas(sumstats: str, pheno_id: str, local_results_dir: str = "results"):
     # temp dir to store .ma file per pheno
-    temp_dir = "./work/SMR/"
-    temp_dir = Path(temp_dir)
+    temp_dir = paths.work_dir_for_results_dir(local_results_dir) / "smr"
     os.makedirs(temp_dir, exist_ok=True)
 
     # Store sumstats (temp) within work/ as a .ma file
@@ -239,9 +242,9 @@ def pull_original_sc_eqtl_beta(target_smr: pl.DataFrame, eqtl_dataset: str, cell
     if target_smr.height == 0:
         return target_smr
 
-    parquet_path = Path(f"./dat/sc-eQTL/{eqtl_dataset}/{cell}.parquet")
-    if not parquet_path.exists():
-        print(f"[CONCERN] Original eQTL file not found for {cell}: {parquet_path}")
+    parquet_path = _smr_utils.resolve_sc_eqtl_file(eqtl_dataset, cell)
+    if parquet_path is None or not parquet_path.exists():
+        print(f"[CONCERN] Original eQTL file not found for {eqtl_dataset}/{cell}")
         return target_smr
 
     needed = target_smr.select(["probeID", "topSNP"]).unique()
@@ -304,44 +307,18 @@ def run_single_cell_smr(pqtl_dataset: str, eqtl_dataset: str, pheno_id: str, sum
     eqtl_temp = eqtl_dataset.lower()
 
     if eqtl_temp == "singlebrain":
-        temp_sumstats = prepare_smr_gwas(sumstats, pheno_id)
-        cell_types = ["Ast", "Ext", "MG", "OD", "OPC", "End", "IN"]
-        # cell_types = ["MG"]
-        eqtls = f"./dat/sc-eQTL/{eqtl_dataset}/SMR_ready"
-        eqtls = Path(eqtls)
+        temp_sumstats = prepare_smr_gwas(sumstats, pheno_id, local_results_dir)
+
+        # manifest-driven BESD discovery (detect_qtl_split finds the real
+        # SMR_ready/<cell>/<cell>.besd triples) instead of a hardcoded cell
+        # list + manual path/existence checks - verified byte-identical
+        # against the old hardcoded discovery for all 7 real cell types
+        besd_prefixes = _smr_utils.ensure_besd(eqtl_temp, esd_dir=Path("synthesis/qtl_esd"))
+        cell_types = sorted(prefix.name for prefix in besd_prefixes.values())
+
         for cell in cell_types:
-            cell_dir = eqtls / cell
-            besd_file = cell_dir / f"{cell}.besd"
-            esi_file = cell_dir / f"{cell}.esi"
-            epi_file = cell_dir / f"{cell}.epi"
-
-            if not cell_dir.exists():
-                print(f"[CONCERN] Cell type directory {cell_dir} not found")
-                continue
-
-            if not besd_file.exists():
-                print(f"[CONCERN] {besd_file} not found")
-                continue
-
-            if not esi_file.exists():
-                print(f"[CONCERN] {esi_file} not found")
-                continue
-
-            if not epi_file.exists():
-                print(f"[CONCERN] {epi_file} not found")
-                continue
-
+            beqtl_summary = next(p for p in besd_prefixes.values() if p.name == cell)
             print(f"[TRACKING] Cell type {cell} found!")
-
-            # use prefix without .besd / .esi / .epi for SMR
-
-            #####
-            #####
-            #####
-            beqtl_summary = cell_dir / cell
-            #####
-            #####
-            #####
 
             # check whether SMR has already been ran for trait X in cell type Y - this
             # depends only on (pheno_id, eqtl_dataset, cell), never on pqtl_dataset, so
@@ -353,7 +330,7 @@ def run_single_cell_smr(pqtl_dataset: str, eqtl_dataset: str, pheno_id: str, sum
             if len(existing_smr) > 0:
                 print(f"[TRACKING] SMR already completed for {pheno_id} in {cell} - skipping SMR")
             else:
-                SMR(
+                _smr_utils.run_smr(
                     pheno_id=pheno_id,
                     sumstats=temp_sumstats,
                     ref_bfile=ref_bfile,
@@ -432,45 +409,46 @@ def run_single_cell_smr(pqtl_dataset: str, eqtl_dataset: str, pheno_id: str, sum
             print(f"[CONCERN] No SMR results found for the promising {pqtl_dataset} targets")
 
 
-# raw bulk eQTL besd/esi/epi under dat/bulk-eQTL/{eqtl_dataset}/ are split per chromosome
-# (unlike single-cell's genome-wide SMR_ready sets), so 1 tissue == 1 smr call per
-# chromosome rather than 1 call overall. Returns {tissue_label: {chr_num: besd_prefix}},
-# or None if eqtl_dataset has no raw dat/bulk-eQTL directory (i.e. it's only available as
-# a pre-computed .smr) - in which case there's nothing to freshly run.
+# manifest-driven replacement for the old directory-scanning version - verified
+# byte-identical against it for both real GTEx_v10 (14 tissues) and MetaBrain
+# (1 label). A dataset registered as several per-region manifest rows (e.g.
+# GTEx_v10's 14 real tissues, sharing parent_dataset=GTEx_v10) is looked up via
+# that grouping; a single-row dataset (e.g. MetaBrain) is looked up directly.
+# Chromosome number is the trailing digits of ensure_besd()'s own per-prefix
+# label, regardless of whether the underlying naming uses "_chr4" (MetaBrain)
+# or ".4" (GTEx_v10) - both real conventions. Returns {tissue_label: {chr_num:
+# besd_prefix}}, or None if nothing is registered/found for eqtl_dataset.
 def bulk_tissue_prefixes(eqtl_dataset: str):
-    base_dir = Path(f"./dat/bulk-eQTL/{eqtl_dataset}")
-    if not base_dir.exists():
-        return None
+    manifest = _smr_utils.qtl_manifest
+    rows = manifest.get_rows_by_parent(eqtl_dataset)
+    if not rows:
+        try:
+            rows = [manifest.get_row(eqtl_dataset.lower())]
+        except ValueError:
+            print(f"[CONCERN] No raw bulk eQTL layout known for {eqtl_dataset} - cannot run SMR from scratch")
+            return None
 
     tissues = {}
+    for row in rows:
+        if row.get("parent_dataset"):
+            tissue = Path(row["path"]).parent.name
+            label = f"{eqtl_dataset.removesuffix('_v10')}_{tissue}_v10"
+        else:
+            label = Path(row["path"]).stem.split("_")[0]
 
-    if eqtl_dataset == "GTEx_v10":
-        for tissue_dir in sorted(base_dir.iterdir()):
-            if not tissue_dir.is_dir():
-                continue
-            tissue = tissue_dir.name
-            label = f"GTEx_{tissue}_v10"
-            chr_prefixes = {}
-            for chr_num in range(1, 23):
-                prefix = tissue_dir / f"{tissue}.v10.eQTL.cis_qtl_pairs.{chr_num}"
-                if Path(f"{prefix}.besd").exists():
-                    chr_prefixes[chr_num] = prefix
-            if chr_prefixes:
-                tissues[label] = chr_prefixes
-    elif eqtl_dataset == "MetaBrain":
-        label = "BrainMeta"
+        besd_prefixes = _smr_utils.ensure_besd(row["dataset"], esd_dir=Path("synthesis/qtl_esd"))
+        if not besd_prefixes:
+            continue
+
         chr_prefixes = {}
-        for chr_num in range(1, 23):
-            prefix = base_dir / f"BrainMeta_cis_eQTL_chr{chr_num}"
-            if Path(f"{prefix}.besd").exists():
-                chr_prefixes[chr_num] = prefix
+        for prefix_label, prefix in besd_prefixes.items():
+            match = re.search(r"(\d+)$", prefix_label)
+            if match:
+                chr_prefixes[int(match.group(1))] = prefix
         if chr_prefixes:
             tissues[label] = chr_prefixes
-    else:
-        print(f"[CONCERN] No raw bulk eQTL layout known for {eqtl_dataset} - cannot run SMR from scratch")
-        return None
 
-    return tissues
+    return tissues if tissues else None
 
 
 # run the smr binary against the raw dat/bulk-eQTL besd/esi/epi files, 1 chromosome at a
@@ -488,7 +466,7 @@ def run_bulk_smr(pqtl_dataset: str, eqtl_dataset: str, pheno_id: str, sumstats: 
         return
 
     ref_bfile = Path(ref_bfile)
-    temp_sumstats = prepare_smr_gwas(sumstats, pheno_id)
+    temp_sumstats = prepare_smr_gwas(sumstats, pheno_id, local_results_dir)
 
     for label, chr_prefixes in tissues.items():
         # bulk SMR(GWAS x eQTL) for a given (pheno_id, eqtl_dataset, label) never depends
@@ -515,7 +493,7 @@ def run_bulk_smr(pqtl_dataset: str, eqtl_dataset: str, pheno_id: str, sumstats: 
         print(f"[TRACKING] Running SMR for {label} ({len(chr_prefixes)} chromosome(s))")
         chr_smr_files = []
         for chr_num, prefix in sorted(chr_prefixes.items()):
-            SMR(
+            _smr_utils.run_smr(
                 pheno_id=pheno_id,
                 sumstats=temp_sumstats,
                 ref_bfile=ref_bfile,

@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 import argparse
 import os
 from pathlib import Path
@@ -6,60 +5,52 @@ from pathlib import Path
 import polars as pl
 
 from drugmr import paths
+from drugmr.qtl_manifest import QTLManifest
 
 # grab .parquet files from pQTLs
-# add fixed N based on either sample size (either deCODE, UKB-PPP or WU-CSF)
-# for each parquet file - create a directory specific to it 
+# add fixed N based on sample size, looked up from assets/qtl_manifest.csv rather than
+# hardcoded here - this used to be a decode_n/ukb_ppp_n/wu_csf_n/wingo_brain_n if/elif
+# chain duplicated in dashboard/mr_app.py too; single source of truth now
+# for each parquet file - create a directory specific to it
 # map grab exactly those same SNPs on the .parquet file and map the same SNPs on outcome GWAS
 # save locus from GWAS specific to protein X onto the same dir as the protein
 # make sure its harmonised to LDSC format
 # these will be the ones used for MR and COLOC
 
-decode_n = 35559
-ukb_ppp_n = 54219
-wu_csf_n = 3506
-wingo_brain_n = 1013
-
 # pre-established args from notebook
 # * pheno_id
-# * pqtl_dir
 # * ref_bfile
 # * pqtl_dataset
 # * colnames (pQTL and GWAS)
 
-def define_loci_from_cis_regions(pqtl_dataset: str, pheno_id: str, pqtl_dir: str):
-    gwas = pl.read_csv(paths.qc_out(pheno_id), separator="\t")
-    pqtl_dir = Path(pqtl_dir)
+def define_loci_from_cis_regions(pqtl_dataset: str, pheno_id: str, manifest_path: str = "assets/qtl_manifest.csv", qc_tsv: str | None = None, out_dir: str | None = None):
+    gwas = pl.read_csv(qc_tsv or paths.qc_out(pheno_id), separator="\t")
     pqtl_dataset = pqtl_dataset.lower()
-    for file in pqtl_dir.glob("*.parquet"):
-        gene = file.stem.split("_")[0]
-        protein = file.stem
-        out_dir = Path(f"./dat/cis_regions/{pqtl_dataset}/{protein}")
-        os.makedirs(out_dir, exist_ok=True)
-        # we need to move both .parquet files (pQTL and GWAS) into that new dir
-        df = pl.read_parquet(file)
+
+    qtl_manifest = QTLManifest(manifest_path)
+    manifest_row = qtl_manifest.get_row(pqtl_dataset)
+    sample_size = int(manifest_row["sample_size"])
+
+    resolved = qtl_manifest.resolve(pqtl_dataset)
+    if isinstance(resolved, pl.DataFrame):
+        # resolve() collapses a single matched file to a bare DataFrame and drops
+        # its filename - re-derive the real protein label here (not pqtl_dataset),
+        # since downstream stages need one dir per protein, not one dir total
+        import glob
+        matched_files = glob.glob(manifest_row["path"])
+        protein_label = Path(matched_files[0]).stem
+        resolved = {protein_label: resolved}
+
+    for protein, df in resolved.items():
+        protein_out_dir = Path(out_dir) / protein if out_dir else Path(f"./dat/cis_regions/{pqtl_dataset}/{protein}")
+        os.makedirs(protein_out_dir, exist_ok=True)
 
         if df.height == 0:
             print(f"[SKIP] {protein}: empty pQTL parquet")
             continue
 
-        if pqtl_dataset == "ukb_ppp":
-            df = df.with_columns(
-                pl.lit(ukb_ppp_n).alias("N")
-            )
-        elif pqtl_dataset == "decode":
-            df = df.with_columns(
-                pl.lit(decode_n).alias("N")
-            )
-        elif pqtl_dataset == "wu_csf":
-            df = df.with_columns(
-                pl.lit(wu_csf_n).alias("N")
-            )
-        elif pqtl_dataset == "wingo_brain":
-            df = df.with_columns(
-                pl.lit(wingo_brain_n).alias("N")
-            )
-        
+        df = df.with_columns(pl.lit(sample_size).alias("N"))
+
         # pos
         chr = df.select(pl.col("CHR").cast(pl.Int64).unique()).item()
         start = df.select(pl.col("BP").min()).item()
@@ -74,9 +65,9 @@ def define_loci_from_cis_regions(pqtl_dataset: str, pheno_id: str, pqtl_dir: str
         pqtl_matched = df.join(df2.select("SNP"), on="SNP", how="inner")
         gwas_matched = df2.join(df.select("SNP"), on="SNP", how="inner")
 
-        # save onto out_dir
-        pqtl_matched.write_parquet(out_dir / "pqtl.parquet")
-        gwas_matched.write_parquet(out_dir / "gwas.parquet")
+        # save onto protein_out_dir
+        pqtl_matched.write_parquet(protein_out_dir / "pqtl.parquet")
+        gwas_matched.write_parquet(protein_out_dir / "gwas.parquet")
         print(
             f"{protein}: "
             f"pQTL={df.height}, GWAS_region={df2.height}, matched={pqtl_matched.height}"
@@ -86,12 +77,16 @@ def main():
     p = argparse.ArgumentParser()
     p.add_argument("--pqtl_dataset", required=True, choices=["ukb_ppp", "decode", "wu_csf", "wingo_brain"])
     p.add_argument("--pheno_id", required=True)
-    p.add_argument("--pqtl_dir", required=True)
+    p.add_argument("--manifest_path", default="assets/qtl_manifest.csv")
+    p.add_argument("--qc_tsv", default=None)
+    p.add_argument("--out_dir", default=None)
     args = p.parse_args()
     define_loci_from_cis_regions(
         pqtl_dataset=args.pqtl_dataset,
         pheno_id=args.pheno_id,
-        pqtl_dir=args.pqtl_dir,
+        manifest_path=args.manifest_path,
+        qc_tsv=args.qc_tsv,
+        out_dir=args.out_dir,
     )
 
 if __name__ == "__main__":

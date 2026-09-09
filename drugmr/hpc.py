@@ -252,12 +252,11 @@ def prep_cis_regions(
     falcon_user: str,
     pheno_id: str,
     pqtl_dataset: str,
-    pqtl_dir: str
 ):
     remote, sif = get_remote_paths(falcon_user)
 
     ssh(f"""
-set -euo pipefail 
+set -euo pipefail
 cd "{remote}"
 
 apptainer exec --bind "{remote}:/work" \\
@@ -265,8 +264,7 @@ apptainer exec --bind "{remote}:/work" \\
   "{sif}" \\
 bash -c "cd /work && python bin/prep_cis_regions.py \\
   --pqtl_dataset {pqtl_dataset} \\
-  --pheno_id {pheno_id} \\
-  --pqtl_dir {pqtl_dir}"
+  --pheno_id {pheno_id}"
 """, falcon_user)
 
 
@@ -825,7 +823,6 @@ def hpc(config: str, run_id: str = None):
     n_cases = cfg.n_cases
     n_controls = cfg.n_controls
     pqtl_dataset = cfg.pqtl_dataset
-    pqtl_dir = cfg.pqtl_dir
     ref_bfile = cfg.ref_bfile
     snp_col = cfg.snp_col
     a1_col = cfg.a1_col
@@ -958,7 +955,6 @@ def hpc(config: str, run_id: str = None):
             falcon_user=falcon_user,
             pheno_id=pheno_id,
             pqtl_dataset=pqtl_dataset,
-            pqtl_dir=pqtl_dir,
         )
 
     if not check_remote_output(

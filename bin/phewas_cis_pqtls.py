@@ -163,7 +163,7 @@ def phewas_for_compelling_targets(pheno_id: str, pqtl_dataset: str, local_result
     )
 
     # temp_dir
-    temp_dir = f"./work/PheWAS-FinnGen/{pqtl_dataset}_{pheno_id}"
+    temp_dir = str(paths.work_dir_for_results_dir(local_results_dir) / "phewas_finngen")
     os.makedirs(temp_dir, exist_ok=True)
     phewas_out_file = paths.phewas_out(pqtl_dataset, pheno_id, local_results_dir)
     os.makedirs(phewas_out_file.parent, exist_ok=True)

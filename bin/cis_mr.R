@@ -46,7 +46,7 @@ ref_bfile    <- args[5] # /Users/c.user/Desktop/neurobridge/ref/ldsc/1000G_EUR_P
 # must match what local.py's require_output() checks, hence not left hardcoded
 results_dir <- ifelse(length(args) >= 6, args[6], "results")
 
-out_dir <- file.path(results_dir, "cis-MR")
+out_dir <- file.path(results_dir, "cis_mr")
 
 # let's just assume for now that the ldsc ref stuff is inside dat/ref
 # ld <- ".dat/ref/ldsc/eur_w_ld_chr" -> for mediators
@@ -126,14 +126,14 @@ mr_function <- function(pqtl_dataset, pqtl_dir, pheno_id, pheno_gwas, ref_bfile,
 
   
   # this is just so if one protein crashes later, we dont lose all the ones that worked
-  out_file_running <- file.path(out_dir, paste0(pqtl_dataset, "_", pheno_id, "_all_MR.running.tsv"))
-  out_file_final <- file.path(out_dir, paste0(pqtl_dataset, "_", pheno_id, "_all_MR.tsv"))
+  out_file_running <- file.path(out_dir, "mr.running.tsv")
+  out_file_final <- file.path(out_dir, "mr.tsv")
 
   # for saving instruments
   instruments_dir <- file.path(out_dir, "instruments")
   dir.create(instruments_dir, recursive = TRUE, showWarnings = FALSE)
-  out_instruments_running <- file.path(instruments_dir, paste0(pqtl_dataset, "_", pheno_id, "_all_MR_instruments.running.tsv"))
-  out_instruments_final <- file.path(instruments_dir, paste0(pqtl_dataset, "_", pheno_id, "_all_MR_instruments.tsv"))
+  out_instruments_running <- file.path(instruments_dir, "mr_instruments.running.tsv")
+  out_instruments_final <- file.path(instruments_dir, "mr_instruments.tsv")
  
   if (file.exists(out_file_running)) {
     file.remove(out_file_running)
@@ -640,7 +640,7 @@ mr_function <- function(pqtl_dataset, pqtl_dir, pheno_id, pheno_gwas, ref_bfile,
   keep_cols <- keep_cols[keep_cols %in% names(all_results)]
   all_results <- all_results[, ..keep_cols]
   
-  out_file <- file.path(out_dir, paste0(pqtl_dataset, "_", pheno_id, "_all_MR.tsv"))
+  out_file <- file.path(out_dir, "mr.tsv")
   fwrite(all_results, out_file, sep = "\t")
   print(paste0("Saved all MR results: ", out_file))
 
@@ -694,22 +694,15 @@ mr_function <- function(pqtl_dataset, pqtl_dir, pheno_id, pheno_gwas, ref_bfile,
   print("[TRACKING] Instrument count distribution:")
   print(table(all_results$n_instruments))
   
+  # final write above succeeded - the incremental checkpoint files have now
+  # served their only purpose (surviving a mid-run crash) and would otherwise
+  # sit in the results tree forever
   if (file.exists(out_file_running)) {
-    print(
-      paste0(
-        "Saved running MR results too: ",
-        out_file_running
-      )
-    )
+    file.remove(out_file_running)
   }
-  
+
   if (file.exists(out_instruments_running)) {
-    print(
-      paste0(
-        "Saved running instrument results too: ",
-        out_instruments_running
-      )
-    )
+    file.remove(out_instruments_running)
   }
 }
 

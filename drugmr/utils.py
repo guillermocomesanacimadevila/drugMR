@@ -164,18 +164,6 @@ def extract_smr_hits(bulk_smr_file, sc_smr_file,  p_heidi_thresh, p_smr_thresh, 
     return targets_and_dataset
 
 
-def find_bulk_eqtl(bulk_eqtl_dir, bulk_eqtl_dataset, eqtl_region=None,):
-    bulk_eqtl_dir = Path(bulk_eqtl_dir)
-    for dataset_dir in bulk_eqtl_dir.iterdir():
-        if dataset_dir.is_dir() and bulk_eqtl_dataset in dataset_dir.name:
-            for file_path in dataset_dir.glob("*.parquet"):
-                if eqtl_region is None:
-                    return file_path
-                elif eqtl_region in file_path.name:
-                    return file_path
-    return None
-
-
 def quick_f_statistic(beta_exposure, se_exposure):
     return (beta_exposure / se_exposure)**2
 

@@ -12,7 +12,9 @@ from drugmr.paths import (
     smr_final_targets_out,
 )
 from drugmr.pwcoco import PWCoCo
-from drugmr.utils import find_bulk_eqtl
+from drugmr.smr import SMRUtils
+
+_smr = SMRUtils(manifest_path="assets/qtl_manifest.csv")
 
 
 def resolve_maf_col(df):
@@ -85,41 +87,17 @@ def pwcoco_qtl_wrapper(
         start = min(pqtl_df["BP"].to_list())
         end = max(pqtl_df["BP"].to_list())
 
-        # grab bulk eqtl dataset - full parquet - auto-detect flat (MetaBrain-style,
-        # parquet sits directly in the dataset dir) vs nested-by-region (GTEx-style,
-        # parquet sits one level down inside a tissue dir) instead of hardcoding either
-        # dataset name
-        eqtl_file = find_bulk_eqtl("./dat/bulk-eQTL", dataset)
-        if eqtl_file is None:
-            dataset_dir = Path(f"./dat/bulk-eQTL/{dataset}")
-            for sub in dataset_dir.iterdir():
-                if sub.is_dir() and sub.name in cell_type:
-                    hits = list(sub.glob("*.parquet"))
-                    if hits:
-                        eqtl_file = hits[0]
-                    break
+        base_gene = probe.split(".")[0]
+        eqtl_df = _smr.load_eqtl_rows("bulk", dataset, cell_type, base_gene)
 
-        base_gene = probe.split(".")[0] # eqtl_file -> path to .parquet for that row
-
-        if eqtl_file is None:
-            continue
-
-        eqtl_df = (
-            pl.scan_parquet(eqtl_file)
-            .filter(pl.col("Probe").str.split(".").list.first() == base_gene)
-            .collect()
-            .sort("p")
-            .unique(subset="SNP", keep="first")
-        )
-
-        if eqtl_df.height == 0:
+        if eqtl_df is None or eqtl_df.height == 0:
             continue
 
         gwas_df = pl.read_parquet(gwas)
 
         pqtl_h = pwcoco.harmonise_sumstats(pqtl_df, "SNP", "A1", "A2", resolve_maf_col(pqtl_df), "BETA", "SE", "P", "N")
         gwas_h = pwcoco.harmonise_sumstats(gwas_df, "SNP", "A1", "A2", resolve_maf_col(gwas_df), "BETA", "SE", "P", "N")
-        eqtl_h = pwcoco.harmonise_sumstats(eqtl_df, "SNP", "A1", "A2", "Freq", "b", "SE", "p", "N")
+        eqtl_h = pwcoco.harmonise_sumstats(eqtl_df, "SNP", "A1", "A2", "FRQ", "BETA", "SE", "P", "N")
 
         eqtl_n = int(eqtl_h["n"][0])
         pqtl_n = int(pqtl_h["n"][0])
@@ -164,20 +142,10 @@ def pwcoco_qtl_wrapper(
         pqtl_df = pl.read_parquet(pqtl)
         gwas_df = pl.read_parquet(gwas)
 
-        eqtl_file = Path(f"./dat/sc-eQTL/{dataset}/{cell_type}.parquet")
-        if not eqtl_file.exists():
-            continue
-
         base_gene = probe.split(".")[0]
-        eqtl_df = (
-            pl.scan_parquet(eqtl_file)
-            .filter(pl.col("GENE").str.split(".").list.first() == base_gene)
-            .collect()
-            .sort("P")
-            .unique(subset="SNP", keep="first")
-        )
+        eqtl_df = _smr.load_eqtl_rows("single_cell", dataset, cell_type, base_gene)
 
-        if eqtl_df.height == 0:
+        if eqtl_df is None or eqtl_df.height == 0:
             continue
 
         pqtl_h = pwcoco.harmonise_sumstats(pqtl_df, "SNP", "A1", "A2", resolve_maf_col(pqtl_df), "BETA", "SE", "P", "N")

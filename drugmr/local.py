@@ -226,7 +226,6 @@ def local(config: str, run_id: str = None):
     n_cases = cfg.n_cases
     n_controls = cfg.n_controls
     pqtl_dataset = cfg.pqtl_dataset
-    pqtl_dir = cfg.pqtl_dir
     ref_bfile = cfg.ref_bfile
     snp_col = cfg.snp_col
     a1_col = cfg.a1_col
@@ -405,7 +404,6 @@ def local(config: str, run_id: str = None):
         "python", "bin/prep_cis_regions.py",
         "--pqtl_dataset", pqtl_dataset,
         "--pheno_id", pheno_id,
-        "--pqtl_dir", str(pqtl_dir),
     ]
 
     if not check_cis_regions(cis_dir, overwrite):
@@ -421,7 +419,7 @@ def local(config: str, run_id: str = None):
     print(f"[TRACKING] Complete cis-region loci generated: {len(complete_loci)}")
 
     if len(complete_loci) == 0:
-        raise RuntimeError("No complete cis-region files generated. Check pqtl_dir path.")
+        raise RuntimeError("No complete cis-region files generated. Check assets/qtl_manifest.csv's 'path' for this dataset.")
 
     if len(incomplete_loci) > 0:
         raise RuntimeError(

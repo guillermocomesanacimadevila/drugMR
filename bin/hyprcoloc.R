@@ -24,7 +24,7 @@ local_results_dir <- args[6]
 
 # must match paths.hyprcoloc_dataset_out(...).parent.parent in
 # bin/hyprcoloc_targets.py, which is where the caller looks for out_file
-out_dir <- file.path(local_results_dir, "hyprcoloc", pqtl_dataset)
+out_dir <- file.path(local_results_dir, "hyprcoloc", "by_eqtl_source")
 dir.create(out_dir, showWarnings = FALSE, recursive = TRUE)
 out_file <- file.path(out_dir, paste0(pheno_id, "_", protein, "_", cell_type, "_hyprcoloc.tsv"))
 

@@ -3,7 +3,9 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 SECRETS_PATH = PROJECT_ROOT / ".streamlit" / "secrets.toml"
 
-# must match docker-compose.yml's postgres service exactly
+# Docker Compose Postgres is canonical (see docker-compose.yml) - fixed
+# creds, not tied to the OS user, since this pipeline is never deployed
+# anywhere. Must stay in sync with docker-compose.yml by hand.
 POSTGRES_USER = "drugmr_user"
 POSTGRES_PASSWORD = "drugmr_ukdri"
 POSTGRES_DB = "drugmr"

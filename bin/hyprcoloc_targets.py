@@ -5,7 +5,10 @@ from pathlib import Path
 import polars as pl
 
 from drugmr import paths
+from drugmr.smr import SMRUtils
 from drugmr.utils import extract_common_snps
+
+_smr = SMRUtils(manifest_path="assets/qtl_manifest.csv")
 
 # HyPrColoc for the final multi-omics targets
 # -> for every target x cell-type/tissue hit that passed cis-MR + COLOC + SMR + HEIDI
@@ -100,77 +103,25 @@ def attach_candidate_snp_stats(result_df: pl.DataFrame, gwas: pl.DataFrame, pqtl
     return pl.concat([result_df, stats_df], how="horizontal")
 
 
-# bulk eQTL parquet files are laid out differently per dataset: GTEx_v10 is
-# tissue-resolved (1 file per tissue, cell_type carries a "GTEx_<Tissue>_v10" label
-# that maps onto the dat/bulk-eQTL/GTEx_v10/<Tissue>/ directory name), MetaBrain is
-# flat (1 genome-wide file regardless of the cell_type label). Returns None for any
-# other/unrecognised bulk eqtl_dataset.
-def resolve_bulk_eqtl_file(eqtl_dataset: str, cell_type: str):
-    if eqtl_dataset == "GTEx_v10":
-        tissue = cell_type.removeprefix("GTEx_").removesuffix("_v10")
-        return Path(f"./dat/bulk-eQTL/GTEx_v10/{tissue}/{tissue}.parquet")
-    if eqtl_dataset == "MetaBrain":
-        return Path("./dat/bulk-eQTL/MetaBrain/BrainMeta_cis_eQTL.parquet")
-    return None
-
-
 # loads the 1 gene's eQTL rows (bulk or single-cell), aligned onto the pipeline's own
 # SNP/A1/A2/BETA/SE/P convention - shared by the main HyPrColoc loop below and
 # bin/backfill_hyprcoloc_snp_stats.py, which needs the exact same table to
 # re-resolve a candidate SNP's stats for older result files without re-running
-# HyPrColoc itself. Returns None (with a printed [CONCERN]) on any missing file or
-# unrecognised data_type, same as the inline version this replaced.
+# HyPrColoc itself. drugmr.smr.SMRUtils.load_eqtl_rows() carries the actual bulk
+# vs single-cell file-resolution logic (manifest-driven, no hardcoded dataset
+# names) - this just narrows its 8-column output down onto the 6 columns this
+# pipeline's downstream code expects. Returns None (with a printed [CONCERN]) on
+# any missing file or unrecognised data_type.
 def load_eqtl_table(data_type: str, eqtl_dataset: str, cell_type: str, base_gene_id: str):
-    if data_type == "single_cell":
-        eqtl_file = Path(f"./dat/sc-eQTL/{eqtl_dataset}/{cell_type}.parquet")
-
-        if not eqtl_file.exists():
-            print(f"[CONCERN] Missing {eqtl_dataset} eQTL file for {cell_type}: {eqtl_file}")
-            return None
-
-        # sc-eQTL files carry ref/alt as A1/A2 and the actual effect allele as EA -
-        # re-point A1/A2 so A1 is always the effect allele the BETA belongs to,
-        # same idea as sort_smr.py's pull_original_sc_eqtl_beta
-        return (
-            pl.scan_parquet(eqtl_file)
-            .filter(pl.col("GENE").str.split(".").list.first() == base_gene_id)
-            .select(["SNP", "A1", "A2", "EA", "BETA", "SE", "P"])
-            .with_columns(
-                pl.col("EA").alias("eqtl_a1"),
-                pl.when(pl.col("EA") == pl.col("A2")).then(pl.col("A1")).otherwise(pl.col("A2")).alias("eqtl_a2")
-            )
-            .select(["SNP", pl.col("eqtl_a1").alias("A1"), pl.col("eqtl_a2").alias("A2"), "BETA", "SE", "P"])
-            .sort("P")
-            .unique(subset="SNP", keep="first")
-            .collect()
-        )
-
-    if data_type == "bulk":
-        eqtl_file = resolve_bulk_eqtl_file(eqtl_dataset, cell_type)
-
-        if eqtl_file is None or not eqtl_file.exists():
-            print(f"[CONCERN] Missing {eqtl_dataset} bulk eQTL file for {cell_type}: {eqtl_file}")
-            return None
-
-        # bulk eQTL parquets come straight from an SMR besd/esi/epi query, so A1 is
-        # already the effect allele b belongs to (SMR's own convention) - no
-        # re-pointing needed, just rename onto the pipeline's BETA/P convention
-        return (
-            pl.scan_parquet(eqtl_file)
-            .filter(pl.col("Probe").str.split(".").list.first() == base_gene_id)
-            .select(["SNP", "A1", "A2", pl.col("b").alias("BETA"), "SE", pl.col("p").alias("P")])
-            .sort("P")
-            .unique(subset="SNP", keep="first")
-            .collect()
-        )
-
-    print(f"[CONCERN] Unrecognised data_type '{data_type}' for {cell_type} - skipping")
-    return None
+    eqtl = _smr.load_eqtl_rows(data_type, eqtl_dataset, cell_type, base_gene_id)
+    if eqtl is None:
+        return None
+    return eqtl.select(["SNP", "A1", "A2", "BETA", "SE", "P"])
 
 
 def hyprcoloc_targets(pqtl_dataset: str, pheno_id: str, eqtl_dataset: str, local_results_dir: str = "results"):
     hyprcoloc_script = "./bin/hyprcoloc.R"
-    work_dir = Path(f"./work/hyprcoloc/{pqtl_dataset}/{pheno_id}")
+    work_dir = paths.work_dir_for_results_dir(local_results_dir) / "hyprcoloc"
     work_dir.mkdir(parents=True, exist_ok=True)
     out_dir = paths.hyprcoloc_dataset_out(pqtl_dataset, eqtl_dataset, pheno_id, local_results_dir).parent.parent
     out_dir.mkdir(parents=True, exist_ok=True)

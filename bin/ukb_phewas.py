@@ -177,7 +177,7 @@ def phewas_mr_on_ukbb(pqtl_dataset: str, pheno_id: str, local_results_dir: str =
         .join(compelling_targets, on="protein", how="inner")
         .unique(subset=["protein", "SNP"], keep="first")
     )
-    temp_dir = f"./work/PheWAS_UKBB/{pqtl_dataset}_{pheno_id}"
+    temp_dir = str(paths.work_dir_for_results_dir(local_results_dir) / "phewas_ukbb")
     os.makedirs(temp_dir, exist_ok=True)
     phewas_ukbb_out_file = paths.phewas_ukbb_out(pqtl_dataset, pheno_id, local_results_dir)
     os.makedirs(phewas_ukbb_out_file.parent, exist_ok=True)

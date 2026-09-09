@@ -135,7 +135,7 @@ def perform_qc(
     n_cases: int,
     n_controls: int):
 
-    path = f"/work/{sumstats}"
+    path = sumstats
     bases = ["A", "T", "C", "G"]
     # --out-dir is the exact directory {pheno_id}.tsv is written into - the
     # caller (drugmr/local.py, drugmr/hpc.py) is responsible for pointing it

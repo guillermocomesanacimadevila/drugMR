@@ -29,7 +29,7 @@ results_dir  <- ifelse(length(args) >= 8, args[8], "results")
 exposure_def <- "quant"
 pp4_thresh   <- 0.70
 outcome_def  <- "cc"   # might have to change this at some other stage
-out_dir <- file.path(results_dir, "coloc", pqtl_dataset)
+out_dir <- file.path(results_dir, "coloc")
 dir.create(out_dir, showWarnings = FALSE, recursive = TRUE)
 
 # out_file = just 1 file eventually, but for now 1 file per protein
