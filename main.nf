@@ -14,6 +14,7 @@ include { MR_ON_CIS_REGIONS } from './subworkflows/cis_mr/main.nf'
 include { COLOC } from './subworkflows/pairwise_coloc/main.nf'
 include { PWCOCO_WF } from './subworkflows/pwcoco/main.nf'
 include { TARGET_HITS } from './subworkflows/target_hits/main.nf'
+include { SMR } from './subworkflows/smr/main.nf'
 
 workflow {
 
@@ -26,7 +27,7 @@ workflow {
     COLOC(MR_ON_CIS_REGIONS.out.mr_results, PREP_CIS_REGIONS.out.protein_dirs)
     PWCOCO_WF(MR_ON_CIS_REGIONS.out.mr_results, PREP_CIS_REGIONS.out.protein_dirs)
     TARGET_HITS(COLOC.out.coloc_results, PWCOCO_WF.out.pwcoco_results, PREP_CIS_REGIONS.out.protein_dirs)
-    // smr (bulk+sc)
+    SMR(QC_GWAS.out.qc_tsv, MR_ON_CIS_REGIONS.out.mr_results, COLOC.out.coloc_results, PWCOCO_WF.out.pwcoco_results)
     // hyprcoloc (bulk+sc)
     // pwcoco_qtl
     // phewas (finngen + ukbb)

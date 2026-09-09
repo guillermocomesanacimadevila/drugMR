@@ -26,6 +26,20 @@ workflow QC_GWAS {
             def remove_apoe_def = false
             def remove_apoe
 
+            // SMR (matches params/schema.json's own default: true)
+            def run_smr_def = true
+            def run_smr
+
+            // bulk_eqtl_datasets / sc_eqtl_dataset are genuinely optional -
+            // no bulk fan-out / no single-cell task at all when unset,
+            // matching local.py's own "no bulk_eqtl_datasets specified,
+            // skipping bulk SMR" / "no sc_eqtl_dataset specified" behaviour
+            def bulk_eqtl_datasets_def = []
+            def bulk_eqtl_datasets
+
+            def sc_eqtl_dataset_def = null
+            def sc_eqtl_dataset
+
             if (row.maf) {
                 maf = row.maf
             } else {
@@ -43,7 +57,25 @@ workflow QC_GWAS {
             } else {
                 remove_apoe = remove_apoe_def
             }
-            
+
+            if (row.containsKey("run_smr")) {
+                run_smr = row.run_smr
+            } else {
+                run_smr = run_smr_def
+            }
+
+            if (row.containsKey("bulk_eqtl_datasets")) {
+                bulk_eqtl_datasets = row.bulk_eqtl_datasets
+            } else {
+                bulk_eqtl_datasets = bulk_eqtl_datasets_def
+            }
+
+            if (row.containsKey("sc_eqtl_dataset")) {
+                sc_eqtl_dataset = row.sc_eqtl_dataset
+            } else {
+                sc_eqtl_dataset = sc_eqtl_dataset_def
+            }
+
             // define meta tuple as input channel for QC module
             def meta = [
                 pheno_id      : row.pheno_id,
@@ -67,7 +99,10 @@ workflow QC_GWAS {
                 n_controls    : row.n_controls,
                 remove_mhc    : remove_mhc,
                 remove_apoe   : remove_apoe,
-                ref_bfile     : row.ref_bfile 
+                ref_bfile     : row.ref_bfile,
+                run_smr       : run_smr,
+                bulk_eqtl_datasets: bulk_eqtl_datasets,
+                sc_eqtl_dataset   : sc_eqtl_dataset
             ]
         }
 
