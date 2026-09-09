@@ -6,7 +6,7 @@ process CIS_MR {
 
     tag "cis_mr"
 
-    publishDir { "${params.out_dir}/${meta.pheno_id}/cis_mr" }, mode: "copy"
+    publishDir { "${params.out_dir}/${meta.pheno_id}/${meta.pqtl_dataset}/cis_mr" }, mode: "copy"
 
     container {
         if (params.image_name) {

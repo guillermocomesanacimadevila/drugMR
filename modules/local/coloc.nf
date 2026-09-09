@@ -5,7 +5,7 @@ process PAIRWISE_COLOC {
 
     tag "pairwise_coloc"
 
-    publishDir { "${params.out_dir}/${meta.pheno_id}/coloc" }, mode: "copy"
+    publishDir { "${params.out_dir}/${meta.pheno_id}/${meta.pqtl_dataset}/coloc" }, mode: "copy"
 
     container {
         if (params.image_name) {
