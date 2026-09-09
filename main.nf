@@ -6,8 +6,14 @@ nextflow.enable.dsl = 2
 
 include { QC_GWAS } from './subworkflows/qc_gwas/main.nf'
 include { PREP_CIS_REGIONS } from './subworkflows/prep_cis_regions/main.nf'
+include { MR_ON_CIS_REGIONS } from './subworkflows/cis_mr/main.nf'
+
 
 workflow {
+
+    log.info("Welcome to the drugMR pipeline!")
+
     QC_GWAS()
     PREP_CIS_REGIONS(QC_GWAS.out.qc_tsv)
+    MR_ON_CIS_REGIONS(QC_GWAS.out.qc_tsv, PREP_CIS_REGIONS.out.protein_dirs)
 }

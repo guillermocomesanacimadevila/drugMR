@@ -28,6 +28,7 @@ process EXTRACT_CIS_REGIONS {
         --pqtl_dataset ${meta.pqtl_dataset} \\
         --pheno_id ${meta.pheno_id} \\
         --manifest_path ${qtl_manifest} \\
-        --qc_tsv ${qc_tsv}
+        --qc_tsv ${qc_tsv} \\
+        --out_dir .
     """
 }

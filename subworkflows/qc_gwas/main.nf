@@ -67,6 +67,7 @@ workflow QC_GWAS {
                 n_controls    : row.n_controls,
                 remove_mhc    : remove_mhc,
                 remove_apoe   : remove_apoe,
+                ref_bfile     : row.ref_bfile 
             ]
         }
 

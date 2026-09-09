@@ -21,3 +21,4 @@ inputs:
     n_controls: 849833
     remove_mhc: true
     remove_apoe: false
+    ref_bfile: dat/ref/1000G_EUR_Phase3_plink/1000G.EUR.QC.ALL
