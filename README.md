@@ -27,26 +27,16 @@ drugMR is not tied to Alzheimer's disease, Cardiff/UKDRI own compute, or any sin
 
 ## Quick start
 
-Install Nextflow (26.04.0 or later) and at least one container engine:
+1. Install [Nextflow](https://www.nextflow.io/) (`>=26.04.0`)
+2. Install any of [Docker](https://docs.docker.com/engine/install/), [Apptainer](https://apptainer.org/), [Singularity](https://sylabs.io/singularity/), Podman, Shifter or Charliecloud for full pipeline reproducibility. R, PostgreSQL, PLINK, GCTA, SMR and PWCoCo never need installing directly, they all live inside the pipeline's own container image, pulled automatically on first run.
 
-```bash
-curl -s https://get.nextflow.io | bash
-chmod +x nextflow
-sudo mv nextflow /usr/local/bin/
-```
-
-Clone the pipeline and run it against the bundled example dataset:
+Download the pipeline and run it against the bundled example dataset with a single command:
 
 ```bash
 git clone --recurse-submodules https://github.com/guillermocomesanacimadevila/drugMR.git
-cd drugMR
 
-nextflow run main.nf \
-  -profile docker \
-  -params-file params/AD.ukb_ppp.yaml
+nextflow run /path/to/cloned/drugMR/main.nf -profile docker -params-file params/AD.ukb_ppp.yaml
 ```
-
-R, PostgreSQL, PLINK, GCTA, SMR and PWCoCo never need installing on your own machine. All of that lives inside the pipeline's own container image, pulled automatically on first run.
 
 ## Run on your own data
 
