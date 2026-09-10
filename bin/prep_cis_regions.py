@@ -27,7 +27,10 @@ def define_loci_from_cis_regions(pqtl_dataset: str, pheno_id: str, manifest_path
     gwas = pl.read_csv(qc_tsv or paths.qc_out(pheno_id), separator="\t")
     pqtl_dataset = pqtl_dataset.lower()
 
-    qtl_manifest = QTLManifest(manifest_path)
+    # qtl_manifest = QTLManifest(manifest_path)
+    repo_root = Path(__file__).resolve().parents[1]
+    qtl_manifest = QTLManifest(str(Path(manifest_path).resolve()), base_dir=repo_root)
+
     manifest_row = qtl_manifest.get_row(pqtl_dataset)
     sample_size = int(manifest_row["sample_size"])
 
