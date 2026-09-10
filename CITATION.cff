@@ -1,6 +1,6 @@
-cff-version: 1.2.0
+cff-version: 1.0.0
 message: "If you use this software, please cite it as below."
-title: "drugMR: A Multi-Fluid Multi-Omics Drug Discovery Pipeline"
+title: "drugMR: A Multi-Omics Drug Target Discovery Pipeline"
 version: "0.1.0"
 repository-code: "https://github.com/guillermocomesanacimadevila/drugMR"
 license: MIT
@@ -11,6 +11,12 @@ authors:
   - family-names: "Dib"
     given-names: "Marie-Joe"
     affiliation: "Nascent Studio Ltd"
+  - family-names: "Bracher-Smit"
+    given-names: "Matthew"
+    affiliation: "UK Dementia Research Institute at Cardiff University"
+  - family-names: "Pepler"
+    given-names: "Christian"
+    affiliation: "School of Biosciences at Cardiff University"
   - family-names: "Salih"
     given-names: "Dervis"
     affiliation: "UK Dementia Research Institute at University College London"
