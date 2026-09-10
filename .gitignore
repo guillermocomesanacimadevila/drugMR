@@ -18,6 +18,7 @@ analysis/*
 !analysis/pipeline_dag.py
 !analysis/pipeline_dag.svg
 containers/
+assets/nf-core
 jupyter/
 scripts/
 .env/
