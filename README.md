@@ -17,8 +17,8 @@ drugMR takes an outcome GWAS and a panel of protein QTLs and returns a ranked, s
 
 ## Quick start
 
-1. Install `Nextflow`(https://www.nextflow.io/) (`>=26.04.0`)
-2. Install any of `Docker`(https://docs.docker.com/engine/install/), `Apptainer`(https://apptainer.org/) or `Singularity`(https://sylabs.io/singularity/)
+1. Install [`Nextflow`](https://www.nextflow.io/) (`>=26.04.0`)
+2. Install any of [`Docker`](https://docs.docker.com/engine/install/), [`Apptainer`](https://apptainer.org/) or [`Singularity`](https://sylabs.io/singularity/)
 
 ```bash
 git clone --recurse-submodules https://github.com/guillermocomesanacimadevila/drugMR.git
