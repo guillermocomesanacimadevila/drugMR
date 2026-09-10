@@ -13,15 +13,18 @@
 
 ## Introduction
 
-drugMR takes an outcome GWAS and a panel of protein QTLs and returns a ranked, safety screened shortlist of druggable targets, end to end with no manual steps between stages: Mendelian randomisation, colocalisation, SMR, HyPrColoc, then a phenome wide PheWAS safety screen. It runs via a Nextflow pipeline or a Python orchestrator, against any outcome GWAS and any pQTL cohort registered in its dataset manifest, bulk or single cell. The downstream SMR, PWCoCo and HyPrColoc stages are generic to any QTL type, eQTL, sQTL, mQTL or otherwise, for genuine multi-omics triangulation.
+drugMR takes an outcome GWAS and a panel of protein QTLs and returns a ranked, safety screened shortlist of druggable targets, end to end with no manual steps between stages: Mendelian randomisation, colocalisation, SMR, HyPrColoc, then a phenome wide PheWAS safety screen. It runs via a Nextflow pipeline or a Python orchestrator, against any outcome GWAS and any pQTL cohort registered in its dataset manifest. The downstream SMR, PWCoCo and HyPrColoc stages run against bulk or single cell QTL panels of any type, eQTL, sQTL, mQTL or otherwise, for genuine multi-omics triangulation.
 
 ## Quick start
 
 1. Install [`Nextflow`](https://www.nextflow.io/) (`>=26.04.0`)
 2. Install any of [`Docker`](https://docs.docker.com/engine/install/), [`Apptainer`](https://apptainer.org/) or [`Singularity`](https://sylabs.io/singularity/)
+3. Install the `drugmr` Python package, needed for the Python orchestrator and the dashboard: `pip install -e .`
 
 ```bash
 git clone --recurse-submodules https://github.com/guillermocomesanacimadevila/drugMR.git
+cd drugMR
+pip install -e .
 
 nextflow run /path/to/cloned/drugMR/main.nf -profile docker -params-file params/AD.ukb_ppp.yaml --manifest_path assets/qtl_manifest.csv
 ```
@@ -68,11 +71,24 @@ or via Python:
 import drugmr as dm
 
 dm.local(config="params/AD.ukb_ppp.yaml")
-dm.hpc(config="params/AD.ukb_ppp.yaml", falcon_user="your_username")
+
+dm.hpc(
+    config="params/AD.ukb_ppp.yaml",
+    falcon_user="your_username",
+    host="falconlogin.cf.ac.uk",
+    remote_repo_root="/shared/home1/{falcon_user}/drugMR",
+)
+
 dm.results(config="params/AD.ukb_ppp.yaml")
 ```
 
-Postgres loading and dashboard serving are deliberately not a Nextflow stage. Run `dm.results()` afterwards regardless of which entry point produced the run.
+`host` and `remote_repo_root` default to Falcon and are only needed if you run on a different SLURM and Apptainer cluster.
+
+Postgres loading and dashboard serving are deliberately not a Nextflow stage. Run `dm.results()` afterwards regardless of which entry point produced the run. If the run happened on a different machine, for example a plain `nextflow run` on a cloned checkout on a remote cluster, pull it across first:
+
+```python
+dm.fetch_run(run_id, host="your_cluster.ac.uk", remote_root="/path/to/drugMR/runs")
+```
 
 ## Pipeline summary
 
@@ -80,6 +96,7 @@ Postgres loading and dashboard serving are deliberately not a Nextflow stage. Ru
 * Cis-MR (Wald ratio, inverse variance weighted)
 * Pairwise colocalisation and PWCoCo
 * SMR and HEIDI, bulk and single cell QTL panels
+* PWCoCo QTL, SNP level pQTL to QTL to GWAS triangulation
 * HyPrColoc
 * PheWAS (FinnGen, UK Biobank)
 * PostgreSQL and an interactive Streamlit dashboard
