@@ -178,7 +178,7 @@ import drugmr as dm
 dm.local(config="params/AD.ukb_ppp.yaml")
 
 # or run on the Falcon HPC cluster via SLURM and Apptainer
-dm.hpc(config="params/AD.ukb_ppp.yaml")
+dm.hpc(config="params/AD.ukb_ppp.yaml", falcon_user="your_falcon_username")
 
 # load that run's results into PostgreSQL and launch the Streamlit dashboard
 dm.results(config="params/AD.ukb_ppp.yaml")
