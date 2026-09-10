@@ -1,4 +1,3 @@
-falcon_user: ""                                             # Falcon username for SLURM cluster run - only needed to actually run hpc()
 pheno_id: AD                                                # Outcome phenotype prefix (e.g. AD = Alzheimer's disease)
 sumstats: dat/gwas/AD.tsv                                   # Path to GWAS summary statistics pertaining to your outcome trait of interest
 n_cases: 128681                                             # Number of cases for outcome GWAS
@@ -16,15 +15,11 @@ chr_col: CHR                                                # Chromosome column 
 af_col: FRQ                                                 # Minor allele frequency column name in outcome GWAS
 
 pqtl_dataset: wingo_brain                                   # pQTL dataset ID
-pqtl_dir: dat/pqtl/wingo_brain                              # Path to this dataset's cis-region-ready pQTLs
 ref_bfile: dat/ref/1000G_EUR_Phase3_plink/1000G.EUR.QC.ALL  # Path to reference panel (1,000 genomes)
 
 run_smr: true                                               # Master on/off switch for the SMR step (after coloc)
-bulk_eqtl_datasets: [MetaBrain, GTEx_v10]                   # Pre-computed bulk eQTL datasets under results/SMR/bulk/; [] = skip bulk SMR
-sc_eqtl_dataset: SingleBrain                                # Single-cell eQTL dataset name under dat/sc-eQTL/; empty = skip sc SMR
-
-mediators: false                                            # True / False flag as to whether you want to include mediator analysis
-mediator_manifest: assets/mediator_manifest.csv             # Path to mediator manifest outlining mediators
+bulk_qtl_datasets: [metabrain, gtex_v10]                    # Pre-computed bulk QTL datasets under results/SMR/bulk/; [] = skip bulk SMR
+sc_qtl_dataset: singlebrain                                 # Single-cell QTL dataset name under dat/sc-QTL/; empty = skip sc SMR
 
 maf: 0.01                                                   # Minor allele frequency cut-off in outcome GWAS
 overwrite: false                                            # Overwrite all current output files
@@ -39,7 +34,29 @@ gates:
     cochran_q_pval: 0.05            # Minimum Cochran's Q p-value (no significant heterogeneity) for IVW proteins
     egger_intercept_pval_min: 0     # Minimum (exclusive) Egger intercept p-value for IVW proteins
     min_instruments_for_ivw: 3      # Instrument count at/above which IVW (rather than Wald ratio) gates
+    apply_steiger_filter: true      # Hard-drop instruments failing Steiger directionality - off by default
+    clump_kb: 10000                 # LD clumping window
+    clump_r2: 0.001                 # LD clumping r2 threshold
+    instrument_pval_threshold: 5.0e-8  # p-value cutoff for selecting independent instrument SNPs
+    min_f_stat: 10                  # Minimum instrument F-statistic
   coloc:
     pp4_threshold: 0.7              # Minimum PP.H4.abf (shared causal variant) to pass pairwise coloc
-  network_mr:
-    m_y_pval_threshold: 0.05        # Maximum mediator -> outcome (M-Y) p-value to carry a mediator forward into NetworkMR
+    p1: 1.0e-4                      # coloc.abf prior: SNP causal for trait 1 only
+    p2: 1.0e-4                      # coloc.abf prior: SNP causal for trait 2 only
+    p12: 1.0e-5                     # coloc.abf prior: SNP causal for both traits (shared)
+  smr:
+    p_qtl_smr: 5.0e-8                # QTL p-value threshold SMR uses to pick the top cis-QTL per probe
+    p_qtl_heidi: 1.57e-3             # QTL p-value threshold SMR uses to select SNPs for the HEIDI test
+    p_smr_threshold: 0.05            # Max q_SMR (FDR-corrected) to pass
+    p_heidi_threshold: 0.01          # Min p_HEIDI to pass (no evidence of linkage/pleiotropy)
+  hyprcoloc:
+    prior_1: 1.0e-4
+    prior_c: [0.05, 0.02, 0.01, 0.005]
+    reg_thresh: [0.5, 0.6, 0.7]
+    align_thresh: [0.5, 0.6, 0.7]
+    equal_thresholds: true
+  pwcoco:
+    pp4_threshold: 0.7              # Kept independent from gates.coloc.pp4_threshold by design
+  phewas:
+    bonferroni_alpha: 0.05
+    coloc_threshold: 0              # 0 = every PWCoCo result unioned in, unfiltered by PP4

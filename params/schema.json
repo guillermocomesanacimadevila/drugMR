@@ -22,14 +22,9 @@
     "chr_col",
     "af_col",
     "pqtl_dataset",
-    "pqtl_dir",
     "ref_bfile"
   ],
   "properties": {
-    "falcon_user": {
-      "type": "string",
-      "description": "Falcon SLURM username. Required to actually run hpc(); not needed for local()."
-    },
     "pheno_id": {
       "type": "string",
       "description": "Outcome phenotype prefix, e.g. AD."
@@ -65,11 +60,7 @@
     "af_col": { "type": "string" },
     "pqtl_dataset": {
       "type": "string",
-      "enum": ["ukb_ppp", "decode", "wu_csf", "wingo_brain"]
-    },
-    "pqtl_dir": {
-      "type": "string",
-      "description": "Path to this pqtl_dataset's cis-region-ready pQTLs."
+      "description": "Must match a dataset registered in assets/qtl_manifest.csv."
     },
     "ref_bfile": {
       "type": "string",
@@ -80,24 +71,16 @@
       "default": true,
       "description": "Master on/off switch for the SMR step."
     },
-    "bulk_eqtl_datasets": {
+    "bulk_qtl_datasets": {
       "type": "array",
       "items": { "type": "string" },
       "default": [],
-      "description": "Pre-computed bulk eQTL datasets under results/SMR/bulk/; [] = skip bulk SMR."
+      "description": "Pre-computed bulk QTL datasets (eQTL, sQTL, mQTL) under results/SMR/bulk/; [] = skip bulk SMR."
     },
-    "sc_eqtl_dataset": {
+    "sc_qtl_dataset": {
       "type": "string",
       "default": "",
-      "description": "Single-cell eQTL dataset name under dat/sc-eQTL/; empty = skip sc SMR."
-    },
-    "mediators": {
-      "type": "boolean",
-      "default": false
-    },
-    "mediator_manifest": {
-      "type": "string",
-      "default": ""
+      "description": "Single-cell QTL dataset name under dat/sc-QTL/; empty = skip sc SMR."
     },
     "maf": {
       "type": "number",
@@ -126,10 +109,6 @@
       "type": "boolean",
       "default": false
     },
-    "image_uri": {
-      "type": "string",
-      "default": "ghcr.io/guillermocomesanacimadevila/drugmr:latest"
-    },
     "image_name": {
       "type": "string",
       "default": "ghcr.io/guillermocomesanacimadevila/drugmr:latest"
@@ -147,21 +126,58 @@
             "ivw_fdr_q": { "type": "number", "minimum": 0, "maximum": 1, "default": 0.05, "description": "FDR-q cutoff for multi-instrument (IVW) proteins." },
             "cochran_q_pval": { "type": "number", "minimum": 0, "maximum": 1, "default": 0.05, "description": "Minimum Cochran's Q p-value (i.e. no significant heterogeneity) for IVW proteins." },
             "egger_intercept_pval_min": { "type": "number", "minimum": 0, "maximum": 1, "default": 0, "description": "Minimum (exclusive) Egger intercept p-value for IVW proteins." },
-            "min_instruments_for_ivw": { "type": "integer", "minimum": 2, "default": 3, "description": "Instrument count at/above which IVW (rather than Wald ratio) is the gating method." }
+            "min_instruments_for_ivw": { "type": "integer", "minimum": 2, "default": 3, "description": "Instrument count at/above which IVW (rather than Wald ratio) is the gating method." },
+            "apply_steiger_filter": { "type": "boolean", "default": false, "description": "Hard-drop instruments failing Steiger directionality (R2_GX > R2_GY). Off by default - near-vacuous for cis-pQTLs given the variance-explained asymmetry; steiger_dir/steiger_pval are always retained as reported columns regardless of this flag." },
+            "clump_kb": { "type": "integer", "minimum": 0, "default": 10000, "description": "LD clumping window (kb) for instrument selection." },
+            "clump_r2": { "type": "number", "minimum": 0, "maximum": 1, "default": 0.001, "description": "LD clumping r2 threshold for instrument selection." },
+            "instrument_pval_threshold": { "type": "number", "minimum": 0, "maximum": 1, "default": 5.0e-8, "description": "p-value cutoff for selecting independent instrument SNPs." },
+            "min_f_stat": { "type": "number", "minimum": 0, "default": 10, "description": "Minimum instrument F-statistic (instrument strength)." }
           }
         },
         "coloc": {
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "pp4_threshold": { "type": "number", "minimum": 0, "maximum": 1, "default": 0.7, "description": "Minimum PP.H4.abf (shared causal variant) to pass pairwise coloc." }
+            "pp4_threshold": { "type": "number", "minimum": 0, "maximum": 1, "default": 0.7, "description": "Minimum PP.H4.abf (shared causal variant) to pass pairwise coloc." },
+            "p1": { "type": "number", "minimum": 0, "maximum": 1, "default": 1.0e-4, "description": "coloc.abf prior: SNP causal for trait 1 only." },
+            "p2": { "type": "number", "minimum": 0, "maximum": 1, "default": 1.0e-4, "description": "coloc.abf prior: SNP causal for trait 2 only." },
+            "p12": { "type": "number", "minimum": 0, "maximum": 1, "default": 1.0e-5, "description": "coloc.abf prior: SNP causal for both traits (shared)." }
           }
         },
-        "network_mr": {
+        "smr": {
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "m_y_pval_threshold": { "type": "number", "minimum": 0, "maximum": 1, "default": 0.05, "description": "Maximum mediator -> outcome (M-Y) p-value for a mediator to be carried forward into NetworkMR." }
+            "p_qtl_smr": { "type": "number", "minimum": 0, "maximum": 1, "default": 5.0e-8, "description": "QTL p-value threshold the SMR tool uses to select the top cis-QTL per probe." },
+            "p_qtl_heidi": { "type": "number", "minimum": 0, "maximum": 1, "default": 1.57e-3, "description": "QTL p-value threshold the SMR tool uses to select SNPs included in the HEIDI test." },
+            "p_smr_threshold": { "type": "number", "minimum": 0, "maximum": 1, "default": 0.05, "description": "Maximum q_SMR (FDR-corrected) to pass the SMR result gate." },
+            "p_heidi_threshold": { "type": "number", "minimum": 0, "maximum": 1, "default": 0.01, "description": "Minimum p_HEIDI to pass the SMR result gate (i.e. no evidence of linkage/pleiotropy)." }
+          }
+        },
+        "hyprcoloc": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "prior_1": { "type": "number", "minimum": 0, "maximum": 1, "default": 1.0e-4, "description": "HyPrColoc sensitivity plot: prior probability a SNP is causal for a given trait." },
+            "prior_c": { "type": "array", "items": { "type": "number" }, "default": [0.05, 0.02, 0.01, 0.005], "description": "HyPrColoc sensitivity plot: prior probability of colocalisation given causality." },
+            "reg_thresh": { "type": "array", "items": { "type": "number" }, "default": [0.5, 0.6, 0.7], "description": "HyPrColoc sensitivity plot: regional association probability thresholds." },
+            "align_thresh": { "type": "array", "items": { "type": "number" }, "default": [0.5, 0.6, 0.7], "description": "HyPrColoc sensitivity plot: alignment probability thresholds." },
+            "equal_thresholds": { "type": "boolean", "default": true, "description": "HyPrColoc sensitivity plot: force reg_thresh and align_thresh to be equal." }
+          }
+        },
+        "pwcoco": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "pp4_threshold": { "type": "number", "minimum": 0, "maximum": 1, "default": 0.7, "description": "Minimum H4 to pass PWCoCo (kept independent from gates.coloc.pp4_threshold - PWCoCo and coloc are allowed to disagree by design)." }
+          }
+        },
+        "phewas": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "bonferroni_alpha": { "type": "number", "minimum": 0, "maximum": 1, "default": 0.05, "description": "Family-wise error rate for the per-protein Bonferroni correction across endpoints tested." },
+            "coloc_threshold": { "type": "number", "minimum": 0, "maximum": 1, "default": 0, "description": "Minimum PWCoCo H4 for a target to be unioned into the PheWAS target set. 0 = every PWCoCo result is included, unfiltered by PP4." }
           }
         }
       }
