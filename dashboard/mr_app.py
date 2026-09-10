@@ -2984,7 +2984,6 @@ def dashboard(db_name: str, port_number: str, phenotype: str, pqtl_dataset: str)
     hyprcoloc_testable_set = smr_eligible_set
     hyprcoloc_status = compute_hyprcoloc_pass_status(hyprcoloc_display, hyprcoloc_testable_set, hyprcoloc_pp_threshold)
     hyprcoloc_pass_set = {protein for protein in hyprcoloc_testable_set if hyprcoloc_status.get(protein)}
-    hyprcoloc_fail_set = hyprcoloc_testable_set - hyprcoloc_pass_set
 
     # PWCoCo-QTL triangulation - co-equal alternative to HyPrColoc above, not a
     # downstream refinement of it (same relationship PWCoCo(pQTL-GWAS) has to

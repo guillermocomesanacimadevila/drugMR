@@ -87,7 +87,12 @@ dm.results(config="params/AD.ukb_ppp.yaml")
 Postgres loading and dashboard serving are deliberately not a Nextflow stage. Run `dm.results()` afterwards regardless of which entry point produced the run. If the run happened on a different machine, for example a plain `nextflow run` on a cloned checkout on a remote cluster, pull it across first:
 
 ```python
-dm.fetch_run(run_id, host="your_cluster.ac.uk", remote_root="/path/to/drugMR/runs")
+dm.fetch_run(
+    run_id, 
+    user="your_username", 
+    host="your_cluster.ac.uk", 
+    remote_root="/path/to/drugMR/runs"
+)
 ```
 
 ## Pipeline summary

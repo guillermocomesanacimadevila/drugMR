@@ -31,12 +31,13 @@ jobs:
       - name: Run toy pipeline chain
         run: |
           nextflow run main.nf \
+            -profile docker,local \
             -params-file tests/nf/params.qc_test.yaml \
             --manifest_path tests/dat/qtl_manifest_toy.csv
 
       - name: Check real cis-MR output was produced
         run: |
-          MR_TSV=$(find tests/nf/results -path "*cis_mr/mr.tsv" | head -1)
+          MR_TSV=$(find tests/nf/runs -path "*cis_mr/mr.tsv" | head -1)
           if [ -z "$MR_TSV" ]; then
             echo "::error::no mr.tsv produced by the toy Nextflow run"
             exit 1

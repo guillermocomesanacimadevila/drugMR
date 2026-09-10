@@ -87,17 +87,17 @@ def require_output(path: Path, step: str, required_for: str):
             f"{required_for} cannot run because {step} output is empty: {path}"
         )
 
-def fetch_run(run_id: str, host: str, remote_root: str):
+def fetch_run(run_id: str, user: str, host: str, remote_root: str):
     # for a run launched directly via `nextflow run` on a remote host (no
-    # dm.hpc() involved) - drugMR has no way to know that run exists, so host
-    # and remote_root always have to be given explicitly here
+    # dm.hpc() involved) - drugMR has no way to know that run exists, so
+    # user, host and remote_root always have to be given explicitly here
     project_root = Path(__file__).resolve().parents[1]
     local_run_dir = paths.run_dir(run_id, root=str(project_root / "runs"))
     local_run_dir.mkdir(parents=True, exist_ok=True)
 
-    print(f"[TRACKING] Fetching {host}:{remote_root}/{run_id}/ -> {local_run_dir}")
+    print(f"[TRACKING] Fetching {user}@{host}:{remote_root}/{run_id}/ -> {local_run_dir}")
     subprocess.run(
-        ["rsync", "-avz", f"{host}:{remote_root}/{run_id}/", f"{local_run_dir}/"],
+        ["rsync", "-avz", f"{user}@{host}:{remote_root}/{run_id}/", f"{local_run_dir}/"],
         check=True,
     )
 
