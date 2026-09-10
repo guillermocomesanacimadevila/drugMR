@@ -23,7 +23,7 @@ drugMR takes an outcome GWAS and a panel of protein QTLs and returns a ranked, s
 ```bash
 git clone --recurse-submodules https://github.com/guillermocomesanacimadevila/drugMR.git
 
-nextflow run /path/to/cloned/drugMR/main.nf -profile docker -params-file params/AD.ukb_ppp.yaml
+nextflow run /path/to/cloned/drugMR/main.nf -profile docker -params-file params/AD.ukb_ppp.yaml --manifest_path assets/qtl_manifest.csv
 ```
 
 ## Run on your own data
@@ -53,12 +53,13 @@ bulk_qtl_datasets: [MetaBrain, GTEx_v10]
 sc_qtl_dataset: SingleBrain
 ```
 
-`pqtl_dataset`, `bulk_qtl_datasets` and `sc_qtl_dataset` must match a dataset registered in `assets/qtl_manifest.csv`. Registering a new one is a new row there, no code changes.
+`pqtl_dataset`, `bulk_qtl_datasets` and `sc_qtl_dataset` must match a dataset registered in `assets/qtl_manifest.csv`. Registering a new one is a new row there, parquet, csv, tsv or txt all work, no code changes.
 
 ```bash
 nextflow run main.nf \
   -profile <docker,apptainer,singularity,podman,shifter,charliecloud> \
-  -params-file <path/to/params.yaml>
+  -params-file <path/to/params.yaml> \
+  --manifest_path <path/to/qtl_manifest.csv>
 ```
 
 or via Python:
