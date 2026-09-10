@@ -34,7 +34,7 @@ args <- commandArgs(trailingOnly = TRUE)
 # args -> database (ukb-ppp) -> pheno1 -> out_dir
 
 if (length(args) < 5) {
-  stop("Usage: Rscript cis_mr.R <pQTL_dataset> <pqtl_dir> <pheno_id> <pheno_gwas> <ref_bfile>")
+  stop("Usage: Rscript cis_mr.R <pQTL_dataset> <pqtl_dir> <pheno_id> <pheno_gwas> <ref_bfile> [results_dir] [clump_kb] [clump_r2] [instrument_pval_threshold] [min_f_stat] [apply_steiger_filter] [maf]")
 }
 
 pqtl_dataset <- args[1] # ukb_ppp
@@ -52,13 +52,13 @@ out_dir <- file.path(results_dir, "cis_mr")
 # ld <- ".dat/ref/ldsc/eur_w_ld_chr" -> for mediators
 # hm3 <- ".dat/ref/ldsc/weights_hm3_no_hla" -> for mediators
 
-# MR params
-# clump_kb, clump_r2, clump_p1
-# pval thresh, f_stat thresh
-CLUMP_KB      <- 10000
-CLUMP_R2      <- 0.001
-PVAL_THRESH   <- 5e-8
-F_THRESH      <- 10
+# MR params (params/*.yaml gates.cis_mr - overridable via args 7-11)
+CLUMP_KB             <- ifelse(length(args) >= 7, as.numeric(args[7]), 10000)
+CLUMP_R2             <- ifelse(length(args) >= 8, as.numeric(args[8]), 0.001)
+PVAL_THRESH          <- ifelse(length(args) >= 9, as.numeric(args[9]), 5e-8)
+F_THRESH             <- ifelse(length(args) >= 10, as.numeric(args[10]), 10)
+APPLY_STEIGER_FILTER <- ifelse(length(args) >= 11, as.logical(args[11]), FALSE)
+MAF                  <- ifelse(length(args) >= 12, as.numeric(args[12]), 0.01)
 MIN_IV_WME    <- 3
 MIN_IV_EGGER  <- 3
 
@@ -72,42 +72,22 @@ eaf_col_name <- function(df) if ("FRQ" %in% names(df)) "FRQ" else "MAF"
 dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
 
 mr_function <- function(pqtl_dataset, pqtl_dir, pheno_id, pheno_gwas, ref_bfile, out_dir) {
-  
-  # dataset specfic 
-  supported_datasets <- c(
-    "ukb_ppp",
-    "decode",
-    "wu_csf",
-    "wingo_brain"
-  )
-  
-  if (!pqtl_dataset %in% supported_datasets) {
-    stop(
-      paste0(
-        "Unsupported pQTL dataset: ",
-        pqtl_dataset,
-        ". Supported datasets: ",
-        paste(supported_datasets, collapse = ", ")
-      )
-    )
-  }
-  
-  if (pqtl_dataset == "ukb_ppp") {
-    dataset_label <- "UKBB-PPP"
-  }
-  
-  if (pqtl_dataset == "decode") {
-    dataset_label <- "deCODE"
-  }
-  
-  if (pqtl_dataset == "wu_csf") {
-    dataset_label <- "WU-CSF"
+
+  # fail loudly and immediately if plink isn't available, rather than letting
+  # every single protein's LD-clump step fail silently via the per-protein
+  # tryCatch below - that path prints 0 final results indistinguishable from
+  # a genuine "nothing significant" run, masking a missing dependency as a
+  # null scientific finding
+  if (Sys.which("plink") == "") {
+    stop("plink not found on PATH - required for LD clumping. Check the container/environment setup.")
   }
 
-  if (pqtl_dataset == "wingo_brain") {
-    dataset_label <- "Wingo_Brain"
-  }
-  
+  # dataset display label (cosmetic only, used in log messages below) -
+  # just the raw dataset ID, so it always matches whatever is registered
+  # in assets/qtl_manifest.csv without a separate list to keep in sync
+  dataset_label <- pqtl_dataset
+
+
   protein_dirs <- list.dirs(
     pqtl_dir,
     recursive = FALSE,
@@ -243,8 +223,8 @@ mr_function <- function(pqtl_dataset, pqtl_dir, pheno_id, pheno_gwas, ref_bfile,
       exposure$pval.exposure <- as.numeric(exposure$pval.exposure)
       exposure <- exposure[exposure$pval.exposure < PVAL_THRESH, ]
       exposure <- exposure[
-        exposure$eaf.exposure > 0.01 &
-          exposure$eaf.exposure < 0.99,
+        exposure$eaf.exposure > MAF &
+          exposure$eaf.exposure < (1 - MAF),
       ]
       exposure$F <- (exposure$beta.exposure^2) / (exposure$se.exposure^2)
       # NA F (e.g. missing SE upstream) must be dropped explicitly - exposure[NA, ]
@@ -321,19 +301,30 @@ mr_function <- function(pqtl_dataset, pqtl_dir, pheno_id, pheno_gwas, ref_bfile,
         },
         error = function(e) {
           print(paste0("[CONCERN] Steiger filtering failed for ", protein, " - ", e$message))
-          return(NULL)
+          if (APPLY_STEIGER_FILTER) {
+            return(NULL)
+          }
+          # apply_steiger_filter is off, so Steiger isn't meant to gate this
+          # protein at all - a computation failure here shouldn't either.
+          # Carry on with NA placeholders so downstream column selection
+          # still finds steiger_dir/steiger_pval.
+          dat.clump$steiger_dir <- NA
+          dat.clump$steiger_pval <- NA
+          return(dat.clump)
         }
       )
-      
+
       if (is.null(dat.clump)) {
         pb$tick(tokens = list(protein = protein))
         next
       }
-      
-      dat.clump <- dat.clump[dat.clump$steiger_dir == TRUE, ]
-      
+
+      if (APPLY_STEIGER_FILTER) {
+        dat.clump <- dat.clump[dat.clump$steiger_dir == TRUE, ]
+      }
+
       print(paste0("[TRACKING] Instruments after Steiger filtering: ", nrow(dat.clump)))
-      
+
       if (nrow(dat.clump) == 0) {
         print(paste0("No instruments after Steiger filtering for ", protein))
         pb$tick(tokens = list(protein = protein))

@@ -15,18 +15,23 @@ import streamlit as st
 from liftover import ChainFile
 from plotly.subplots import make_subplots
 
-from drugmr import paths, registry
 from bin.load_db_into_postgres import PostgresLoader, PostgresReader
+from drugmr import paths, registry
+from drugmr.qtl_manifest import QTLManifest
+from drugmr.smr import SMRUtils
 
 # shared plotting conventions so charts look consistent across tabs rather than each
 # px.* call picking its own default palette
-SIGNIFICANCE_COLOR_MAP = {True: "#d62728", False: "#7f7f7f"}  # red = significant, grey = not
-SEQUENTIAL_SCALE = "Viridis"  # continuous significance / intensity scale
 
 # status colors reused across the prioritisation Sankey - fixed, never themed
 STATUS_GOOD = "#0ca30c"
 STATUS_CRITICAL = "#d03b3b"
 STATUS_MUTED = "#898781"
+
+# red = significant, grey = not - reuses the same validated status colors as the
+# Sankey above rather than a separate near-duplicate red/grey pair
+SIGNIFICANCE_COLOR_MAP = {True: STATUS_CRITICAL, False: STATUS_MUTED}
+SEQUENTIAL_SCALE = "Viridis"  # continuous significance / intensity scale
 SANKEY_BULK_COLOR = "#2a78d6"
 SANKEY_SC_COLOR = "#eb6834"
 SANKEY_BOTH_COLOR = "#1baf7a"
@@ -43,6 +48,29 @@ COLOC_SUPPORT_BOTH_COLOR = SANKEY_BOTH_COLOR
 COLOC_SUPPORT_COLOC_ONLY_COLOR = SANKEY_BULK_COLOR
 COLOC_SUPPORT_PWCOCO_ONLY_COLOR = SANKEY_SC_COLOR
 
+# chart chrome shared by every plotly figure - keeps charts visually consistent
+# with the surrounding Streamlit UI (same Inter font the CSS block below sets on
+# the page, same off-white chart surface/gridline as the rest of this palette)
+# instead of each chart falling back to plotly_white's own bare defaults
+CHART_FONT_FAMILY = "Inter, -apple-system, Helvetica Neue, Arial, sans-serif"
+CHART_SURFACE = "#fcfcfb"
+CHART_GRIDLINE = "#e1e0d9"
+CHART_AXIS_LINE = "#c3c2b7"
+CHART_MUTED_INK = "#898781"
+
+
+def apply_chart_theme(fig, **layout_overrides):
+    fig.update_layout(
+        template="plotly_white",
+        font=dict(family=CHART_FONT_FAMILY, color="#0b0b0b"),
+        plot_bgcolor=CHART_SURFACE,
+        paper_bgcolor=CHART_SURFACE,
+        **layout_overrides,
+    )
+    fig.update_xaxes(gridcolor=CHART_GRIDLINE, linecolor=CHART_AXIS_LINE, tickfont=dict(color=CHART_MUTED_INK))
+    fig.update_yaxes(gridcolor=CHART_GRIDLINE, linecolor=CHART_AXIS_LINE, tickfont=dict(color=CHART_MUTED_INK))
+    return fig
+
 # single source of truth for "where am I in the pipeline" - the Overview tab's step
 # map and every downstream tab's stage caption are both built from this list, so the
 # two can never drift out of sync with each other or with the st.tabs() labels below
@@ -52,7 +80,7 @@ PIPELINE_STAGES = [
     dict(title="FinnGen PheWAS", blurb="Phenome-wide MR classifying Bonferroni-significant hits as potential additional indications or adverse effects."),
     dict(title="UKB PheWAS", blurb="Fallback phenome-wide MR in UK Biobank EHR-derived phenotypes, for targets uncovered by FinnGen."),
     dict(title="SMR (bulk/sc eQTL)", blurb="SMR + HEIDI test that the pQTL signal also acts through transcription."),
-    dict(title="HyPrColoc (bulk/sc eQTL)", blurb="pQTL + GWAS + eQTL signals sharing one causal variant - via HyPrColoc's clustering, or via PWCoCo-QTL's SNP-level triangulation."),
+    dict(title="HyPrColoc (bulk/sc eQTL)", blurb="pQTL, GWAS and eQTL signals sharing one causal variant, via HyPrColoc's clustering or PWCoCo-QTL's SNP-level triangulation."),
     dict(title="Final Targets", blurb="Targets surviving every stage above, each reported at its correct SNP."),
 ]
 
@@ -155,6 +183,16 @@ def retention(current: int, previous: int):
 
 def available_cols(df: pd.DataFrame, cols: list[str]):
     return [col for col in cols if col in df.columns]
+
+
+def for_display(df: pd.DataFrame) -> pd.DataFrame:
+    """Blanks out missing values for on-screen tables.
+
+    A stat that doesn't apply to a row (e.g. IVW/heterogeneity columns for a
+    single-instrument, Wald-ratio protein) should read as an empty cell, not
+    the literal word "None" pandas prints for a NaN by default.
+    """
+    return df.where(pd.notna(df), "")
 
 
 def load_required_tsv(file: Path, label: str):
@@ -385,10 +423,10 @@ def compute_snp_h4_map(df: pd.DataFrame, pp4_thresh: float):
 # combos (pQTL-GWAS, eQTL-pQTL, eQTL-GWAS) at once - the live equivalent of
 # bin/pwcoco_qtl_wrapper.py's shared_rows. Every row here is a triangulated
 # target; the "protein" column's unique values are triangulated_proteins.
-def compute_shared_snp_table(pqtl_gwas_df: pd.DataFrame, eqtl_pqtl_df: pd.DataFrame, eqtl_gwas_df: pd.DataFrame, pp4_thresh: float):
+def compute_shared_snp_table(pqtl_gwas_df: pd.DataFrame, qtl_pqtl_df: pd.DataFrame, qtl_gwas_df: pd.DataFrame, pp4_thresh: float):
     pg_map = compute_snp_h4_map(pqtl_gwas_df, pp4_thresh)
-    ep_map = compute_snp_h4_map(eqtl_pqtl_df, pp4_thresh)
-    eg_map = compute_snp_h4_map(eqtl_gwas_df, pp4_thresh)
+    ep_map = compute_snp_h4_map(qtl_pqtl_df, pp4_thresh)
+    eg_map = compute_snp_h4_map(qtl_gwas_df, pp4_thresh)
 
     rows = []
     for protein in set(pg_map) & set(ep_map) & set(eg_map):
@@ -398,8 +436,8 @@ def compute_shared_snp_table(pqtl_gwas_df: pd.DataFrame, eqtl_pqtl_df: pd.DataFr
                 "protein": protein,
                 "snp": snp,
                 "pqtl_gwas_h4": pg_map[protein][snp],
-                "eqtl_pqtl_h4": ep_map[protein][snp],
-                "eqtl_gwas_h4": eg_map[protein][snp],
+                "qtl_pqtl_h4": ep_map[protein][snp],
+                "qtl_gwas_h4": eg_map[protein][snp],
             })
 
     return pd.DataFrame(rows)
@@ -585,7 +623,7 @@ def compute_hyprcoloc_pass_status(hyprcoloc_df: pd.DataFrame, proteins, threshol
     all_three_traits = (
         traits_lower.str.contains("pqtl_") &
         traits_lower.str.contains("gwas_") &
-        traits_lower.str.contains("eqtl_")
+        traits_lower.str.contains(r"(?<!p)qtl_", regex=True)
     )
 
     passing = all_three_traits & (df["posterior_prob"].fillna(0) >= threshold)
@@ -603,7 +641,7 @@ def compute_hyprcoloc_pass_status(hyprcoloc_df: pd.DataFrame, proteins, threshol
 # posterior_prob >= threshold" rule as compute_hyprcoloc_pass_status, but returns the
 # rows themselves (not just a per-protein bool) so the Final Targets table can read off
 # each row's candidate_snp and its aligned alleles/betas (a1/a2/gwas_beta/gwas_p/
-# pqtl_beta/pqtl_p/eqtl_beta/eqtl_p - written by bin/hyprcoloc_targets.py's
+# pqtl_beta/pqtl_p/qtl_beta/qtl_p - written by bin/hyprcoloc_targets.py's
 # attach_candidate_snp_stats, p == 0 already replaced with 1e-300 at the source).
 # Older HyPrColoc runs predating that change won't have those columns yet - callers
 # should handle their absence rather than assume they're always there.
@@ -621,7 +659,7 @@ def select_hyprcoloc_candidate_rows(hyprcoloc_df: pd.DataFrame, threshold: float
     all_three_traits = (
         traits_lower.str.contains("pqtl_") &
         traits_lower.str.contains("gwas_") &
-        traits_lower.str.contains("eqtl_")
+        traits_lower.str.contains(r"(?<!p)qtl_", regex=True)
     )
 
     passing = df[all_three_traits & (df["posterior_prob"].fillna(0) >= threshold)].copy()
@@ -643,7 +681,7 @@ def select_hyprcoloc_candidate_rows(hyprcoloc_df: pd.DataFrame, threshold: float
 # cis-region parquets bin/pwcoco_wrapper.py and bin/hyprcoloc_targets.py
 # already produce (dat/cis_regions/{pqtl_dataset}/{protein}/{pqtl,gwas}.parquet)
 # - the FULL cis window, not just the handful of MR instrument SNPs. eQTL
-# regional data mirrors bin/hyprcoloc_targets.py's load_eqtl_table() exactly,
+# regional data mirrors bin/hyprcoloc_targets.py's load_qtl_table() exactly,
 # but keeps every SNP (not collapsed to the lead one) and keeps CHR/BP for
 # plotting. Gene body coordinates (chr/start/end/strand) come for free from
 # smr_final_targets_out's own gene annotation - no external gene reference
@@ -725,9 +763,9 @@ def _liftover_hg19_to_hg38(df: pd.DataFrame, chr_col: str = "chr", bp_col: str =
 
 
 @st.cache_data(show_spinner=False)
-def load_regional_eqtl_data(data_type: str, eqtl_dataset: str, cell_type: str, base_gene_id: str):
+def load_regional_eqtl_data(data_type: str, qtl_dataset: str, cell_type: str, base_gene_id: str):
     """Full regional eQTL summary stats for 1 gene - same file layout and allele
-    convention as bin/hyprcoloc_targets.py's load_eqtl_table(), but every SNP in
+    convention as bin/hyprcoloc_targets.py's load_qtl_table(), but every SNP in
     the window is kept (not collapsed to the lead one) and CHR/BP are retained.
 
     IMPORTANT: MetaBrain's own BP column is GRCh37/hg19, not GRCh38 like every
@@ -738,11 +776,11 @@ def load_regional_eqtl_data(data_type: str, eqtl_dataset: str, cell_type: str, b
     project_dir = Path(__file__).resolve().parent.parent
 
     if data_type == "single_cell":
-        eqtl_file = project_dir / "dat" / "sc-eQTL" / eqtl_dataset / f"{cell_type}.parquet"
-        if not eqtl_file.exists():
+        qtl_file = project_dir / "dat" / "sc-eQTL" / qtl_dataset / f"{cell_type}.parquet"
+        if not qtl_file.exists():
             return pd.DataFrame()
         df = (
-            pl.scan_parquet(eqtl_file)
+            pl.scan_parquet(qtl_file)
             .filter(pl.col("GENE").str.split(".").list.first() == base_gene_id)
             .select(["SNP", "CHR", "BP", "A1", "A2", "EA", "BETA", "SE", "P"])
             .with_columns(
@@ -753,26 +791,21 @@ def load_regional_eqtl_data(data_type: str, eqtl_dataset: str, cell_type: str, b
             .to_pandas()
         )
     elif data_type == "bulk":
-        if eqtl_dataset == "GTEx_v10":
-            tissue = cell_type.removeprefix("GTEx_").removesuffix("_v10")
-            eqtl_file = project_dir / "dat" / "bulk-eQTL" / "GTEx_v10" / tissue / f"{tissue}.parquet"
-        elif eqtl_dataset == "MetaBrain":
-            eqtl_file = project_dir / "dat" / "bulk-eQTL" / "MetaBrain" / "BrainMeta_cis_eQTL.parquet"
-        else:
-            return pd.DataFrame()
+        _smr = SMRUtils(manifest_path=str(project_dir / "assets" / "qtl_manifest.csv"))
+        qtl_file = _smr.resolve_bulk_qtl_file(qtl_dataset, cell_type)
 
-        if not eqtl_file.exists():
+        if qtl_file is None or not qtl_file.exists():
             return pd.DataFrame()
 
         df = (
-            pl.scan_parquet(eqtl_file)
+            pl.scan_parquet(qtl_file)
             .filter(pl.col("Probe").str.split(".").list.first() == base_gene_id)
             .select(["SNP", pl.col("Chr").alias("CHR"), "BP", "A1", "A2", pl.col("b").alias("BETA"), "SE", pl.col("p").alias("P")])
             .collect()
             .to_pandas()
         )
         df.columns = df.columns.str.lower()
-        if eqtl_dataset == "MetaBrain":
+        if qtl_dataset == "MetaBrain":
             df = _liftover_hg19_to_hg38(df)
         return df
     else:
@@ -975,12 +1008,12 @@ def _select_labelled_genes(genes_df: pd.DataFrame, window_bp: float, target_symb
 
 
 def _regional_eqtl_options(smr_rows: pd.DataFrame):
-    """1 selectable option per unique (eqtl_dataset, data_type, cell_type,
+    """1 selectable option per unique (qtl_dataset, data_type, cell_type,
     probeid) combination this target has SMR support in, with a friendly label.
     Returns (options, default_label) - default is whichever combo has the
     strongest SMR evidence (lowest q_SMR, falling back to p_SMR), so the eQTL
     panel is populated automatically rather than defaulting to hidden."""
-    required = {"eqtl_dataset", "data_type", "cell_type", "probeid"}
+    required = {"qtl_dataset", "data_type", "cell_type", "probe_id"}
     if smr_rows.empty or not required.issubset(smr_rows.columns):
         return [], None
 
@@ -997,21 +1030,21 @@ def _regional_eqtl_options(smr_rows: pd.DataFrame):
     options = []
     for _, row in combos.iterrows():
         data_type = str(row["data_type"])
-        eqtl_dataset = str(row["eqtl_dataset"])
+        qtl_dataset = str(row["qtl_dataset"])
         cell_type = str(row["cell_type"])
-        probeid = str(row["probeid"])
+        probeid = str(row["probe_id"])
 
-        if data_type == "bulk" and eqtl_dataset == "GTEx_v10":
+        if data_type == "bulk" and qtl_dataset == "GTEx_v10":
             label = f"GTEx v10 · {cell_type.removeprefix('GTEx_').removesuffix('_v10')}"
         elif data_type == "bulk":
-            label = f"{eqtl_dataset} (bulk)"
+            label = f"{qtl_dataset} (bulk)"
         else:
-            label = f"{eqtl_dataset} · {cell_type} (single-cell)"
+            label = f"{qtl_dataset} · {cell_type} (single-cell)"
 
         options.append({
             "label": label,
             "data_type": data_type,
-            "eqtl_dataset": eqtl_dataset,
+            "qtl_dataset": qtl_dataset,
             "cell_type": cell_type,
             "base_gene_id": probeid.split(".")[0],
             "rank": row.get(rank_col) if rank_col is not None else None,
@@ -1030,8 +1063,8 @@ def render_regional_locus_plot(protein: str, pqtl_dataset: str, smr_rows: pd.Dat
 
     if pqtl_df.empty or gwas_df.empty:
         st.info(
-            "No regional cis-window summary statistics found on disk for this target - "
-            "the plot needs `dat/cis_regions/.../{pqtl,gwas}.parquet`, produced alongside PWCoCo."
+            "No regional cis-window summary statistics found on disk for this target. "
+            "The plot needs `dat/cis_regions/.../{pqtl,gwas}.parquet`, produced alongside PWCoCo."
         )
         return
 
@@ -1085,31 +1118,31 @@ def render_regional_locus_plot(protein: str, pqtl_dataset: str, smr_rows: pd.Dat
     window_start_bp = float(min(gwas_df["bp"].min(), pqtl_df["bp"].min()))
     window_end_bp = float(max(gwas_df["bp"].max(), pqtl_df["bp"].max()))
 
-    eqtl_df = pd.DataFrame()
+    qtl_df = pd.DataFrame()
     eqtl_label = None
     if selected_label != "None":
         selected = next(o for o in eqtl_options if o["label"] == selected_label)
         eqtl_df_full = load_regional_eqtl_data(
             data_type=selected["data_type"],
-            eqtl_dataset=selected["eqtl_dataset"],
+            qtl_dataset=selected["qtl_dataset"],
             cell_type=selected["cell_type"],
             base_gene_id=selected["base_gene_id"],
         )
         eqtl_label = selected_label
         if eqtl_df_full.empty:
-            st.caption(f"No eQTL rows found for this gene in {eqtl_label} within the cached parquet - showing GWAS/pQTL only.")
+            st.caption(f"No eQTL rows found for this gene in {eqtl_label} within the cached parquet. Showing GWAS/pQTL only.")
         else:
-            eqtl_df = eqtl_df_full[
+            qtl_df = eqtl_df_full[
                 (eqtl_df_full["bp"] >= window_start_bp) & (eqtl_df_full["bp"] <= window_end_bp)
             ]
-            n_cropped = len(eqtl_df_full) - len(eqtl_df)
+            n_cropped = len(eqtl_df_full) - len(qtl_df)
             if n_cropped > 0:
                 st.caption(
-                    f"{eqtl_label}'s eQTL cis-window extends beyond the GWAS/pQTL region shown here - "
-                    f"{n_cropped:,} SNP(s) outside {window_start_bp/1e6:.2f}-{window_end_bp/1e6:.2f} Mb are not plotted."
+                    f"{eqtl_label}'s eQTL cis-window extends beyond the GWAS/pQTL region shown here. "
+                    f"{n_cropped:,} SNP(s) outside {window_start_bp/1e6:.2f} to {window_end_bp/1e6:.2f} Mb are not plotted."
                 )
-            if eqtl_df.empty:
-                st.caption(f"No {eqtl_label} eQTL SNPs fall within the GWAS/pQTL window - showing GWAS/pQTL only.")
+            if qtl_df.empty:
+                st.caption(f"No {eqtl_label} eQTL SNPs fall within the GWAS/pQTL window. Showing GWAS/pQTL only.")
 
     # every protein-coding gene in the GWAS/pQTL window (GRCh38) - matches the
     # region actually shown, since eQTL is now cropped to the same boundary
@@ -1148,17 +1181,17 @@ def render_regional_locus_plot(protein: str, pqtl_dataset: str, smr_rows: pd.Dat
     ld_available = not ld_df.empty
 
     if candidate_bp is not None:
-        ld_note = " Points are coloured by LD (r²) with this variant." if ld_available else " LD (r²) colouring unavailable for this variant - showing uncoloured points."
+        ld_note = " Points are coloured by LD (r²) with this variant." if ld_available else " LD (r²) colouring is unavailable for this variant, so points are shown uncoloured."
         st.caption(f"Candidate variant **{candidate_snp}** ({candidate_source}) marked in every panel.{ld_note}")
     else:
-        st.caption(f"Candidate variant **{candidate_snp}** ({candidate_source}) - position not found in the plotted window, marker omitted.")
+        st.caption(f"Candidate variant **{candidate_snp}** ({candidate_source}): position not found in the plotted window, marker omitted.")
 
     show_gene_track = not genes_df.empty
     if not show_gene_track:
-        st.caption("Gene track unavailable - couldn't reach Ensembl and no SMR gene annotation exists yet for this target.")
+        st.caption("Gene track unavailable. Couldn't reach Ensembl and no SMR gene annotation exists yet for this target.")
     row_specs = [("GWAS", gwas_df), ("pQTL", pqtl_df)]
-    if not eqtl_df.empty:
-        row_specs.append((f"eQTL · {eqtl_label}", eqtl_df))
+    if not qtl_df.empty:
+        row_specs.append((f"eQTL · {eqtl_label}", qtl_df))
     n_data_rows = len(row_specs)
     if show_gene_track:
         row_specs.append(("Gene", None))
@@ -1306,10 +1339,10 @@ def render_regional_locus_plot(protein: str, pqtl_dataset: str, smr_rows: pd.Dat
 
         if label == "GWAS":
             fig.add_hline(
-                y=-np.log10(GWAS_SIGNIFICANCE_P), line_dash="dash", line_color="#d62728", line_width=1,
+                y=-np.log10(GWAS_SIGNIFICANCE_P), line_dash="dash", line_color=STATUS_CRITICAL, line_width=1,
                 opacity=0.7, row=i, col=1,
                 annotation_text="genome-wide significance (5×10⁻⁸)", annotation_position="top left",
-                annotation_font=dict(size=9, color="#d62728"),
+                annotation_font=dict(size=9, color=STATUS_CRITICAL),
             )
 
     fig.update_xaxes(title_text="Position (Mb, GRCh38)", title_font=dict(size=12), row=n_rows, col=1)
@@ -1324,12 +1357,16 @@ def render_regional_locus_plot(protein: str, pqtl_dataset: str, smr_rows: pd.Dat
         lambda a: a.update(font=dict(size=13, color="#37474f")) if a.text in subplot_title_texts else None
     )
     fig.update_layout(
+        # +40px top margin, legend pushed to y=1.08 (was 1.0) - the legend and
+        # the "GWAS" subplot title were both competing for the same narrow band
+        # right above the 1st subplot, overlapping into unreadable clutter
         height=230 * n_data_rows + (gene_row_px if show_gene_track else 0),
         template="plotly_white",
-        font=dict(family="-apple-system, Helvetica Neue, Arial, sans-serif", size=12),
-        margin=dict(t=70, b=50, l=60, r=30),
-        legend=dict(orientation="h", yanchor="bottom", y=1.0, xanchor="right", x=1.0, font=dict(size=10)),
-        plot_bgcolor="white",
+        font=dict(family=CHART_FONT_FAMILY, size=12),
+        margin=dict(t=110, b=50, l=60, r=30),
+        legend=dict(orientation="h", yanchor="bottom", y=1.08, xanchor="right", x=1.0, font=dict(size=10)),
+        plot_bgcolor=CHART_SURFACE,
+        paper_bgcolor=CHART_SURFACE,
         hovermode="closest",
     )
 
@@ -1341,7 +1378,7 @@ def render_regional_locus_plot(protein: str, pqtl_dataset: str, smr_rows: pd.Dat
         for idx, (tab, (label, df)) in enumerate(zip(tabs, data_specs)):
             with tab:
                 display_df = df[["snp", "chr", "bp", "a1", "a2", "beta", "se", "p"]].sort_values("p")
-                st.dataframe(display_df, width="stretch", hide_index=True)
+                st.dataframe(for_display(display_df), width="stretch", hide_index=True)
                 st.download_button(
                     label=f"Download {label} regional summary stats",
                     data=display_df.to_csv(index=False, sep="\t"),
@@ -1712,7 +1749,7 @@ def render_phewas_section(
             return
         cols = [c for c in classification_display_cols if c in df_subset.columns]
         st.dataframe(
-            df_subset.sort_values("p_mr")[cols].rename(columns=classification_display_cols),
+            for_display(df_subset.sort_values("p_mr")[cols].rename(columns=classification_display_cols)),
             width="stretch",
             hide_index=True,
         )
@@ -1795,7 +1832,7 @@ def render_phewas_section(
 
     with st.expander(f"View all {source_name} PheWAS associations ({len(target_phewas)} endpoints)"):
         st.dataframe(
-            target_phewas[full_cols].sort_values(p_col, ascending=True).rename(columns=full_column_names),
+            for_display(target_phewas[full_cols].sort_values(p_col, ascending=True).rename(columns=full_column_names)),
             width="stretch",
             hide_index=True
         )
@@ -1877,7 +1914,7 @@ def render_target_profile(
     elif passed_safety:
         st.success("PRIORITISED · passed cis-MR, colocalisation and PheWAS safety. No SMR/eQTL support found or tested yet.")
     elif passed_coloc_stage:
-        st.warning("ADVERSE EFFECT FLAG · a Bonferroni-significant FinnGen or UKB PheWAS hit runs opposite to the primary protein→AD effect direction - excluded from Prioritised Targets.")
+        st.warning("ADVERSE EFFECT FLAG · a Bonferroni-significant FinnGen or UKB PheWAS hit runs opposite to the primary protein→AD effect direction. Excluded from Prioritised Targets.")
     elif passed_mr:
         st.error("STOPPED AT COLOCALISATION · passed cis-MR, but neither standard COLOC nor PWCoCo cleared the PP.H4 threshold.")
     else:
@@ -1903,7 +1940,7 @@ def render_target_profile(
     st.markdown("#### Stage 2 · pQTL–GWAS colocalisation")
     with st.container(border=True):
         if not passed_mr:
-            st.caption("Not reached - target did not pass cis-MR.")
+            st.caption("Not reached. Target did not pass cis-MR.")
         else:
             col1, col2 = st.columns(2)
 
@@ -1953,7 +1990,7 @@ def render_target_profile(
             st.caption("Bonferroni-significant FinnGen hit running opposite to the primary protein→AD direction.")
         elif finngen_status == "additional_indication":
             st.badge("ADDITIONAL INDICATION", color="green")
-            st.caption("Bonferroni-significant FinnGen hit running the same direction as the primary protein→AD effect - a potential repurposing signal, not a safety concern.")
+            st.caption("Bonferroni-significant FinnGen hit running the same direction as the primary protein→AD effect: a potential repurposing signal, not a safety concern.")
         else:
             st.badge("NO SIGNIFICANT SIGNAL", color="green")
 
@@ -1969,7 +2006,7 @@ def render_target_profile(
             st.caption("Bonferroni-significant UKB hit running opposite to the primary protein→AD direction.")
         elif ukb_status == "additional_indication":
             st.badge("ADDITIONAL INDICATION", color="green")
-            st.caption("Bonferroni-significant UKB hit running the same direction as the primary protein→AD effect - a potential repurposing signal, not a safety concern.")
+            st.caption("Bonferroni-significant UKB hit running the same direction as the primary protein→AD effect: a potential repurposing signal, not a safety concern.")
         else:
             st.badge("NO SIGNIFICANT SIGNAL", color="green")
 
@@ -1982,269 +2019,48 @@ def render_target_profile(
             st.badge("No SMR support", color="gray")
         else:
             display_cols = available_cols(
-                smr_rows, ["eqtl_dataset", "data_type", "cell_type", "b_smr", "p_smr", "q_smr", "p_heidi"]
+                smr_rows, ["qtl_dataset", "qtl_type", "data_type", "cell_type", "b_smr", "p_smr", "q_smr", "p_heidi"]
             )
-            st.dataframe(smr_rows[display_cols], hide_index=True, width="stretch")
+            st.dataframe(for_display(smr_rows[display_cols]), hide_index=True, width="stretch")
             if smr_pass_rows.empty:
                 st.badge("No dataset clears the SMR FDR / HEIDI thresholds", color="red")
             else:
-                n_datasets = smr_pass_rows["eqtl_dataset"].nunique() if "eqtl_dataset" in smr_pass_rows.columns else len(smr_pass_rows)
+                n_datasets = smr_pass_rows["qtl_dataset"].nunique() if "qtl_dataset" in smr_pass_rows.columns else len(smr_pass_rows)
                 st.badge(f"SMR support in {n_datasets} dataset(s)", color="green")
 
     # --- Stage 6: HyPrColoc ---
     st.markdown("#### Stage 6 · HyPrColoc")
     with st.container(border=True):
         if not has_smr_support:
-            st.caption("Not reached - no SMR/eQTL support to test.")
+            st.caption("Not reached. No SMR/eQTL support to test.")
         elif hypr_rows.empty:
             st.badge("No HyPrColoc result", color="gray")
         else:
             st.badge("PASSED" if passed_hyprcoloc else "FAILED", color="green" if passed_hyprcoloc else "red")
             display_cols = available_cols(hypr_rows, ["cell_type", "traits", "posterior_prob", "candidate_snp"])
-            st.dataframe(hypr_rows[display_cols], hide_index=True, width="stretch")
+            st.dataframe(for_display(hypr_rows[display_cols]), hide_index=True, width="stretch")
 
 
-def dashboard(db_name: str, port_number: str, phenotype: str, pqtl_dataset: str):
-    mr_table = "cis_mr_results"
-    coloc_table = "coloc_results"
-    finngen_phewas_table = "finngen_phewas_safety"
-    ukb_phewas_table = "ukb_phewas_safety"
-
-    # main aesthetics
-    st.set_page_config(
-        page_title=f"{db_name}",
-        page_icon="",
-        layout="wide",
-        initial_sidebar_state="expanded"
-    )
-
-    # custom stylesheet on top of .streamlit/config.toml's base theme - only
-    # targets data-testid/data-baseweb attributes and other stable ARIA/role
-    # attributes Streamlit keeps stable across versions for theming/testing
-    # (not the auto-generated st-emotion-cache-* build hashes, which change per
-    # build and would silently stop matching on any upgrade). Note: st.dataframe
-    # renders its grid on an HTML canvas (glide-data-grid), not real <table>/<th>
-    # DOM - its internal header/cell styling can't be reached from CSS at all;
-    # it follows .streamlit/config.toml's theme directly instead, which is the
-    # real reason getting that file actually picked up (see drugmr/local.py's
-    # results() / drugmr/hpc.py's run_dashboard_local(), both now pin cwd to
-    # project_root for exactly this) matters more here than any CSS rule could.
-    st.markdown(
-        """
-        <style>
-        :root { --accent: #0E7C86; }
-
-        /* tighter, calmer vertical rhythm - the default stacks widgets with a
-           lot of dead air, which is what makes a data-dense page feel busy */
-        div[data-testid="stVerticalBlock"] { gap: 0.6rem; }
-
-        /* headers: a little more weight for a cleaner hierarchy */
-        h1, h2, h3 { font-weight: 650; letter-spacing: -0.01em; }
-
-        /* bordered containers (st.container(border=True)) - used throughout
-           for stage cards - get real depth instead of a flat grey outline */
-        div[data-testid="stVerticalBlockBorderWrapper"] {
-            border-radius: 12px !important;
-            box-shadow: 0 1px 4px rgba(16, 24, 32, 0.06);
-        }
-
-        /* metrics: bigger numbers read faster at a glance than the default size.
-           Labels wrap onto a 2nd line instead of Streamlit's default silent
-           ellipsis-truncation - a label that's too long for a narrow metric
-           column (e.g. in a 4-up row) stays fully readable rather than cutting
-           off mid-word. */
-        div[data-testid="stMetricValue"] { font-size: 1.65rem; font-weight: 650; }
-        div[data-testid="stMetricLabel"], div[data-testid="stMetricDelta"] {
-            font-size: 0.82rem;
-            opacity: 0.75;
-            white-space: normal !important;
-            overflow: visible !important;
-            text-overflow: unset !important;
-        }
-
-        /* multiselect chips (e.g. the HyPrColoc cell-type/tissue filter) - the
-           default size reads as a wall of pills when 10+ are selected at once;
-           tighter padding and a smaller font let more fit per line */
-        div[data-baseweb="tag"] {
-            font-size: 0.78rem;
-            padding-top: 0.05rem;
-            padding-bottom: 0.05rem;
-        }
-
-        /* tabs: bolder labels, a clear accent-coloured underline on whichever
-           tab is active, and more breathing room so a 5-wide tab bar doesn't
-           feel cramped */
-        button[data-baseweb="tab"] {
-            font-weight: 600;
-            padding-top: 0.55rem;
-            padding-bottom: 0.55rem;
-        }
-        button[data-baseweb="tab"][aria-selected="true"] { color: var(--accent); }
-        div[data-baseweb="tab-highlight"] { background-color: var(--accent); height: 3px; }
-
-        /* sidebar: a visible seam from the main content, and tighter expander
-           spacing so the 6 stage-grouped threshold sections read as 1 coherent
-           panel rather than 6 disconnected boxes */
-        section[data-testid="stSidebar"] {
-            border-right: 1px solid rgba(16, 24, 32, 0.08);
-        }
-        section[data-testid="stSidebar"] div[data-testid="stExpander"] {
-            margin-bottom: 0.35rem;
-        }
-
-        /* alert boxes (st.info/success/warning/error) - slightly rounder to
-           match the card styling above instead of Streamlit's sharper default */
-        div[data-testid="stAlert"] { border-radius: 10px; }
-
-        /* dataframes/tables: only the outer wrapper is real DOM (the grid
-           itself is a canvas - glide-data-grid - so its internal header/cell
-           styling can't be reached from CSS; it follows the app theme
-           directly once .streamlit/config.toml actually loads). Rounding +
-           a thin border here just makes the wrapper match the card language
-           used everywhere else instead of Streamlit's flat default edge. */
-        div[data-testid="stDataFrame"], div[data-testid="stTable"] {
-            border-radius: 10px;
-            overflow: hidden;
-            border: 1px solid rgba(16, 24, 32, 0.08);
-        }
-
-        /* slider thumb - previously confirmed live (getComputedStyle) that this
-           rendered Streamlit's hardcoded default red (#FF4B4B) instead of
-           .streamlit/config.toml's primaryColor, because the theme file wasn't
-           being picked up at all (a CWD issue - Streamlit only finds
-           .streamlit/config.toml relative to the directory `streamlit run` is
-           invoked FROM, and drugmr/local.py's results() / drugmr/hpc.py's
-           run_dashboard_local() launched it without pinning that directory).
-           Now fixed at the source (both launchers pin cwd=project_root), so
-           this CSS block is redundant defense-in-depth, not the real fix -
-           safe to keep since it just reinforces the same color the theme
-           itself now sets. role="slider" is a stable ARIA attribute (unlike
-           the st-emotion-cache-* build-hash classes elsewhere on this
-           element), so it survives Streamlit upgrades either way. */
-        div[data-testid="stSlider"] [role="slider"] {
-            background-color: var(--accent) !important;
-            border-color: var(--accent) !important;
-        }
-        div[data-testid="stSliderThumbValue"] { color: var(--accent) !important; }
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
-
-    # pQTL dataset selection schema
-    # CLI pQTL dataset is used as the default dashboard selection
-    dataset_names = {
-        "ukb_ppp": "UKB-PPP",
-        "decode": "deCODE",
-        "wu_csf": "WU-CSF",
-        "wingo_brain": "Wingo_Brain"
-    }
-
-    dataset_ns = {
-        "ukb_ppp": 54219,
-        "decode": 35559,
-        "wu_csf": 3506,
-        "wingo_brain": 1013
-    }
-
-    project_dir = Path(__file__).resolve().parent.parent
-
-    # check which datasets have the required dashboard files - resolved via
-    # runs/registry.json first (see resolve_dataset_files()), falling back to
-    # legacy candidate-path guessing for any dataset never run through runs/
-    dataset_result_files = {}
-    dataset_run_ids = {}
-    available_datasets = []
-
-    for dataset_id in dataset_names:
-        run_id_used, files = resolve_dataset_files(project_dir, phenotype, dataset_id, run_id="latest")
-
-        required_files = [files["mr"], files["coloc"]]
-
-        if all(file is not None and file.exists() for file in required_files):
-            available_datasets.append(dataset_id)
-            dataset_result_files[dataset_id] = files
-            dataset_run_ids[dataset_id] = run_id_used
-
-    if len(available_datasets) == 0:
-        st.error(f"No dataset has a complete set of cis-MR and COLOC dashboard files for {phenotype}.")
-        st.stop()
-
-    # use the CLI dataset as default
-    # otherwise use the first complete dataset which was found
-    if pqtl_dataset not in available_datasets:
-        pqtl_dataset = available_datasets[0]
-
-    available_dataset_names = [dataset_names[dataset_id] for dataset_id in available_datasets]
-    default_dataset_name = dataset_names[pqtl_dataset]
-
-    st.title(f"{db_name}")
-    st.caption("Genetically supported drug target discovery and clinical safety dashboard")
-
-    with st.container(border=True):
-        dataset_col, run_col, dataset_info_col = st.columns([2, 1, 1])
-
-        with dataset_col:
-            selected_dataset_name = st.segmented_control(
-                "pQTL dataset",
-                available_dataset_names,
-                default=default_dataset_name,
-                selection_mode="single",
-                key="pqtl_dataset_selector"
-            )
-
-        dataset_ids = {dataset_name: dataset_id for dataset_id, dataset_name in dataset_names.items()}
-        if selected_dataset_name is None:
-            selected_dataset_name = default_dataset_name
-
-        pqtl_dataset = dataset_ids[selected_dataset_name]
-        dataset_name = dataset_names[pqtl_dataset]
-        dataset_n = dataset_ns[pqtl_dataset]
-
-        # run selector - history comes from runs/registry.json; a dataset resolved
-        # via legacy_resolve_dataset_files() (no registry entry) has no history at all
-        run_history = registry.load_registry(root=str(project_dir / "runs")).get(
-            f"{phenotype}__{pqtl_dataset}", {}
-        ).get("history", [])
-
-        with run_col:
-            if run_history:
-                run_options = ["latest"] + list(reversed(run_history))
-                selected_run = st.selectbox("Run", run_options, index=0, key="run_selector")
-            else:
-                selected_run = "latest"
-                st.caption("No run history (legacy path)")
-
-        if selected_run != "latest":
-            run_id_used, dataset_result_files[pqtl_dataset] = resolve_dataset_files(
-                project_dir, phenotype, pqtl_dataset, run_id=selected_run
-            )
-            dataset_run_ids[pqtl_dataset] = run_id_used
-
-        with dataset_info_col:
-            st.metric("pQTL sample size", f"{dataset_n:,}")
-
-    st.divider()
-
-    # corresponding selected dataset result files
-    mr_file = dataset_result_files[pqtl_dataset]["mr"]
-    coloc_file = dataset_result_files[pqtl_dataset]["coloc"]
-    finngen_phewas_file = dataset_result_files[pqtl_dataset]["finngen_phewas"]
-    ukb_phewas_file = dataset_result_files[pqtl_dataset]["ukb_phewas"]
-    target_info_file = dataset_result_files[pqtl_dataset]["target_info"]
-    smr_file = dataset_result_files[pqtl_dataset]["smr"]
-    hyprcoloc_file = dataset_result_files[pqtl_dataset]["hyprcoloc"]
-    pwcoco_file = dataset_result_files[pqtl_dataset]["pwcoco"]
-    pwcoco_eqtl_pqtl_file = dataset_result_files[pqtl_dataset]["pwcoco_eqtl_pqtl"]
-    pwcoco_eqtl_gwas_file = dataset_result_files[pqtl_dataset]["pwcoco_eqtl_gwas"]
-
-    # push this run's result files straight into PostgreSQL (schema-matching
-    # since bin/coloc_targets.py, bin/sort_smr.py, bin/pwcoco_wrapper.py,
-    # bin/pwcoco_qtl_wrapper.py and bin/compile_cis_hit_info.py all emit
-    # sql/schema.sql-shaped columns now) - scoped to this dataset's actual
-    # run_id, not the dashboard's own in-memory transforms further below
-    run_id = dataset_run_ids[pqtl_dataset]
-
+@st.cache_data(show_spinner=False)
+def load_and_sync_run_data(
+    run_id: str,
+    pqtl_dataset: str,
+    db_name: str,
+    mr_file: Path,
+    coloc_file: Path,
+    finngen_phewas_file: Path,
+    ukb_phewas_file: Path,
+    target_info_file: Path,
+    smr_file: Path,
+    hyprcoloc_file: Path,
+    pwcoco_file: Path,
+    pwcoco_eqtl_pqtl_file: Path,
+    pwcoco_eqtl_gwas_file: Path,
+):
+    """Sync this run's TSVs into PostgreSQL and read cis-MR/COLOC/PheWAS back,
+    loading the rest straight from disk - cached per run_id so this whole
+    DELETE+INSERT+re-read cycle only actually runs once per run, not on every
+    single dashboard interaction (slider drag, tab click, text input, ...)."""
     postgres_tables = [
         ("cis_mr_results", mr_file, True),
         ("coloc_results", coloc_file, True),
@@ -2336,7 +2152,6 @@ def dashboard(db_name: str, port_number: str, phenotype: str, pqtl_dataset: str)
     if "pqtl_dataset" not in coloc.columns:
         coloc["pqtl_dataset"] = pqtl_dataset
 
-
     finngen_phewas_available = postgres_table_available["finngen_phewas_safety"]
     ukb_phewas_available = postgres_table_available["ukb_phewas_safety"]
 
@@ -2354,26 +2169,360 @@ def dashboard(db_name: str, port_number: str, phenotype: str, pqtl_dataset: str)
         "smr_rows": len(smr) if not smr.empty else None,
         "hyprcoloc_rows": len(hyprcoloc) if not hyprcoloc.empty else None,
         "pwcoco_rows": len(pwcoco) if not pwcoco.empty else None,
-        "mr_table": mr_table,
-        "coloc_table": coloc_table,
-        "finngen_phewas_table": finngen_phewas_table,
-        "ukb_phewas_table": ukb_phewas_table,
+        "mr_table": "cis_mr_results",
+        "coloc_table": "coloc_results",
+        "finngen_phewas_table": "finngen_phewas_safety",
+        "ukb_phewas_table": "ukb_phewas_safety",
     }
 
     # load MR + COLOC results
     reader = PostgresReader(run_id=run_id, db_id=db_name)
-    mr = reader.get_table(mr_table)
-    coloc = reader.get_table(coloc_table)
+    mr = reader.get_table("cis_mr_results")
+    coloc = reader.get_table("coloc_results")
 
     if finngen_phewas_available:
-        finngen_phewas = prepare_phewas(reader.get_table(finngen_phewas_table))
+        finngen_phewas = prepare_phewas(reader.get_table("finngen_phewas_safety"))
     else:
         finngen_phewas = pd.DataFrame()
 
     if ukb_phewas_available:
-        ukb_phewas = prepare_phewas(reader.get_table(ukb_phewas_table))
+        ukb_phewas = prepare_phewas(reader.get_table("ukb_phewas_safety"))
     else:
         ukb_phewas = pd.DataFrame()
+
+    return {
+        "mr": mr,
+        "coloc": coloc,
+        "finngen_phewas": finngen_phewas,
+        "ukb_phewas": ukb_phewas,
+        "target_info": target_info,
+        "smr": smr,
+        "hyprcoloc": hyprcoloc,
+        "pwcoco": pwcoco,
+        "pwcoco_eqtl_pqtl": pwcoco_eqtl_pqtl,
+        "pwcoco_eqtl_gwas": pwcoco_eqtl_gwas,
+        "finngen_phewas_available": finngen_phewas_available,
+        "ukb_phewas_available": ukb_phewas_available,
+        "tracking_info": tracking_info,
+    }
+
+
+def dashboard(db_name: str, port_number: str, phenotype: str, pqtl_dataset: str):
+    # main aesthetics
+    assets_dir = Path(__file__).resolve().parent / "assets"
+    logo_header_path = assets_dir / "drugmr_header.png"
+    logo_icon_path = assets_dir / "drugmr_icon.png"
+    st.set_page_config(
+        page_title=f"{db_name}",
+        page_icon=str(logo_icon_path) if logo_icon_path.exists() else "🧬",
+        layout="wide",
+        initial_sidebar_state="expanded"
+    )
+
+    # custom stylesheet on top of .streamlit/config.toml's base theme - only
+    # targets data-testid/data-baseweb attributes and other stable ARIA/role
+    # attributes Streamlit keeps stable across versions for theming/testing
+    # (not the auto-generated st-emotion-cache-* build hashes, which change per
+    # build and would silently stop matching on any upgrade). Note: st.dataframe
+    # renders its grid on an HTML canvas (glide-data-grid), not real <table>/<th>
+    # DOM - its internal header/cell styling can't be reached from CSS at all;
+    # it follows .streamlit/config.toml's theme directly instead, which is the
+    # real reason getting that file actually picked up (see drugmr/local.py's
+    # results() / drugmr/falcon.py's run_dashboard_local(), both now pin cwd to
+    # project_root for exactly this) matters more here than any CSS rule could.
+    st.markdown(
+        """
+        <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;650;700&display=swap');
+
+        :root {
+            --accent: #0E7C86;
+            --accent-soft: #E7F2F3;
+            --ink: #1B2B34;
+            --muted: #64748b;
+        }
+
+        html, body, [class*="css"] { font-family: "Inter", -apple-system, "Helvetica Neue", Arial, sans-serif; }
+
+        /* tighter, calmer vertical rhythm - the default stacks widgets with a
+           lot of dead air, which is what makes a data-dense page feel busy */
+        div[data-testid="stVerticalBlock"] { gap: 0.6rem; }
+
+        /* headers: a little more weight for a cleaner hierarchy */
+        h1, h2, h3 { font-weight: 650; letter-spacing: -0.01em; }
+
+        /* bordered containers (st.container(border=True)) - used throughout
+           for stage cards - get real depth instead of a flat grey outline */
+        div[data-testid="stVerticalBlockBorderWrapper"] {
+            border-radius: 12px !important;
+            box-shadow: 0 1px 4px rgba(16, 24, 32, 0.06);
+        }
+
+        /* metrics: bigger numbers read faster at a glance than the default size.
+           Labels wrap onto a 2nd line instead of Streamlit's default silent
+           ellipsis-truncation - a label that's too long for a narrow metric
+           column (e.g. in a 4-up row) stays fully readable rather than cutting
+           off mid-word. */
+        div[data-testid="stMetricValue"] { font-size: 1.65rem; font-weight: 650; }
+        div[data-testid="stMetricLabel"], div[data-testid="stMetricDelta"] {
+            font-size: 0.82rem;
+            opacity: 0.75;
+            white-space: normal !important;
+            overflow: visible !important;
+            text-overflow: unset !important;
+        }
+
+        /* multiselect chips (e.g. the HyPrColoc cell-type/tissue filter) - the
+           default size reads as a wall of pills when 10+ are selected at once;
+           tighter padding and a smaller font let more fit per line */
+        div[data-baseweb="tag"] {
+            font-size: 0.78rem;
+            padding-top: 0.05rem;
+            padding-bottom: 0.05rem;
+        }
+
+        /* tabs: bolder labels, a clear accent-coloured underline on whichever
+           tab is active, and more breathing room so a 5-wide tab bar doesn't
+           feel cramped */
+        button[data-baseweb="tab"] {
+            font-weight: 600;
+            padding-top: 0.55rem;
+            padding-bottom: 0.55rem;
+        }
+        button[data-baseweb="tab"][aria-selected="true"] { color: var(--accent); }
+        div[data-baseweb="tab-highlight"] { background-color: var(--accent); height: 3px; }
+
+        /* sidebar: a visible seam from the main content, and tighter expander
+           spacing so the 6 stage-grouped threshold sections read as 1 coherent
+           panel rather than 6 disconnected boxes */
+        section[data-testid="stSidebar"] {
+            border-right: 1px solid rgba(16, 24, 32, 0.08);
+        }
+        section[data-testid="stSidebar"] div[data-testid="stExpander"] {
+            margin-bottom: 0.35rem;
+        }
+
+        /* alert boxes (st.info/success/warning/error) - slightly rounder to
+           match the card styling above instead of Streamlit's sharper default */
+        div[data-testid="stAlert"] { border-radius: 10px; }
+
+        /* dataframes/tables: only the outer wrapper is real DOM (the grid
+           itself is a canvas - glide-data-grid - so its internal header/cell
+           styling can't be reached from CSS; it follows the app theme
+           directly once .streamlit/config.toml actually loads). Rounding +
+           a thin border here just makes the wrapper match the card language
+           used everywhere else instead of Streamlit's flat default edge. */
+        div[data-testid="stDataFrame"], div[data-testid="stTable"] {
+            border-radius: 10px;
+            overflow: hidden;
+            border: 1px solid rgba(16, 24, 32, 0.08);
+        }
+
+        /* slider thumb - previously confirmed live (getComputedStyle) that this
+           rendered Streamlit's hardcoded default red (#FF4B4B) instead of
+           .streamlit/config.toml's primaryColor, because the theme file wasn't
+           being picked up at all (a CWD issue - Streamlit only finds
+           .streamlit/config.toml relative to the directory `streamlit run` is
+           invoked FROM, and drugmr/local.py's results() / drugmr/falcon.py's
+           run_dashboard_local() launched it without pinning that directory).
+           Now fixed at the source (both launchers pin cwd=project_root), so
+           this CSS block is redundant defense-in-depth, not the real fix -
+           safe to keep since it just reinforces the same color the theme
+           itself now sets. role="slider" is a stable ARIA attribute (unlike
+           the st-emotion-cache-* build-hash classes elsewhere on this
+           element), so it survives Streamlit upgrades either way. */
+        div[data-testid="stSlider"] [role="slider"] {
+            background-color: var(--accent) !important;
+            border-color: var(--accent) !important;
+        }
+        div[data-testid="stSliderThumbValue"] { color: var(--accent) !important; }
+
+        /* print (Cmd/Ctrl+P) - a client wants a clean static page out of a live
+           target profile, not the dev chrome around it. Hides the sidebar
+           (thresholds/tracking are irrelevant on paper) and widens the main
+           content to fill the page it leaves behind. Streamlit has no native
+           "print view", so this is the pragmatic way to get a shareable PDF
+           without standing up a separate server-side rendering pipeline. */
+        @media print {
+            section[data-testid="stSidebar"],
+            div[data-testid="stToolbar"],
+            div[data-testid="stDecoration"],
+            header[data-testid="stHeader"],
+            div[data-testid="stStatusWidget"] { display: none !important; }
+            section[data-testid="stMain"] { margin-left: 0 !important; }
+            div[data-testid="stAppViewBlockContainer"] { max-width: 100% !important; }
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    header_logo_col, header_title_col = st.columns([2, 9], vertical_alignment="center")
+    with header_logo_col:
+        if logo_header_path.exists():
+            # pre-cropped lockup (dashboard/assets/drugmr_header.png), tight to
+            # content - the original docs/drugmr_logo.png has ~2x the vertical
+            # whitespace padding baked in, which made a small width= render as
+            # a near-invisible sliver; the wordmark is already in this image,
+            # so no separate "drugMR" text is added alongside it
+            st.image(str(logo_header_path), width=190)
+    with header_title_col:
+        st.markdown(
+            f"<div style='line-height:1.15; padding-top:0.35rem;'>"
+            f"<span style='color:var(--muted); font-weight:500; font-size:0.95rem;'>{phenotype} target evidence</span>"
+            f"</div>",
+            unsafe_allow_html=True,
+        )
+    st.divider()
+
+    # pQTL dataset selection schema
+    # CLI pQTL dataset is used as the default dashboard selection
+    dataset_names = {
+        "ukb_ppp": "UKB-PPP",
+        "decode": "deCODE",
+        "wu_csf": "WU-CSF",
+        "wingo_brain": "Wingo_Brain"
+    }
+
+    project_dir = Path(__file__).resolve().parent.parent
+
+    # sample sizes come from assets/qtl_manifest.csv - single source of truth,
+    # shared with bin/prep_cis_regions.py, instead of a duplicated hardcoded dict
+    _qtl_manifest = QTLManifest(str(project_dir / "assets" / "qtl_manifest.csv"))
+    dataset_ns = {
+        dataset_id: int(_qtl_manifest.get_row(dataset_id)["sample_size"])
+        for dataset_id in dataset_names
+    }
+
+    # check which datasets have the required dashboard files - resolved via
+    # runs/registry.json first (see resolve_dataset_files()), falling back to
+    # legacy candidate-path guessing for any dataset never run through runs/
+    dataset_result_files = {}
+    dataset_run_ids = {}
+    available_datasets = []
+
+    for dataset_id in dataset_names:
+        run_id_used, files = resolve_dataset_files(project_dir, phenotype, dataset_id, run_id="latest")
+
+        required_files = [files["mr"], files["coloc"]]
+
+        if all(file is not None and file.exists() for file in required_files):
+            available_datasets.append(dataset_id)
+            dataset_result_files[dataset_id] = files
+            dataset_run_ids[dataset_id] = run_id_used
+
+    if len(available_datasets) == 0:
+        st.error(f"No dataset has a complete set of cis-MR and COLOC dashboard files for {phenotype}.")
+        st.stop()
+
+    # use the CLI dataset as default
+    # otherwise use the first complete dataset which was found
+    if pqtl_dataset not in available_datasets:
+        pqtl_dataset = available_datasets[0]
+
+    available_dataset_names = [dataset_names[dataset_id] for dataset_id in available_datasets]
+    default_dataset_name = dataset_names[pqtl_dataset]
+
+    # branded header (logo + "drugMR · <phenotype> target evidence") above already
+    # covers the app identity - a 2nd raw st.title(db_name) here just repeated it
+    # in a less polished form (the literal lowercase db_id), so only the
+    # descriptive tagline stays
+    st.caption("Genetically supported drug target discovery and clinical safety dashboard")
+
+    with st.container(border=True):
+        dataset_col, run_col, dataset_info_col = st.columns([2, 1, 1])
+
+        with dataset_col:
+            selected_dataset_name = st.segmented_control(
+                "pQTL dataset",
+                available_dataset_names,
+                default=default_dataset_name,
+                selection_mode="single",
+                key="pqtl_dataset_selector"
+            )
+
+        dataset_ids = {dataset_name: dataset_id for dataset_id, dataset_name in dataset_names.items()}
+        if selected_dataset_name is None:
+            selected_dataset_name = default_dataset_name
+
+        pqtl_dataset = dataset_ids[selected_dataset_name]
+        dataset_name = dataset_names[pqtl_dataset]
+        dataset_n = dataset_ns[pqtl_dataset]
+
+        # run selector - history comes from runs/registry.json; a dataset resolved
+        # via legacy_resolve_dataset_files() (no registry entry) has no history at all
+        run_history = registry.load_registry(root=str(project_dir / "runs")).get(
+            f"{phenotype}__{pqtl_dataset}", {}
+        ).get("history", [])
+
+        with run_col:
+            if run_history:
+                run_options = ["latest"] + list(reversed(run_history))
+                selected_run = st.selectbox("Run", run_options, index=0, key="run_selector")
+            else:
+                selected_run = "latest"
+                st.caption("No run history (legacy path)")
+
+        if selected_run != "latest":
+            run_id_used, dataset_result_files[pqtl_dataset] = resolve_dataset_files(
+                project_dir, phenotype, pqtl_dataset, run_id=selected_run
+            )
+            dataset_run_ids[pqtl_dataset] = run_id_used
+
+        with dataset_info_col:
+            st.metric("pQTL sample size", f"{dataset_n:,}")
+
+    st.divider()
+
+    # corresponding selected dataset result files
+    mr_file = dataset_result_files[pqtl_dataset]["mr"]
+    coloc_file = dataset_result_files[pqtl_dataset]["coloc"]
+    finngen_phewas_file = dataset_result_files[pqtl_dataset]["finngen_phewas"]
+    ukb_phewas_file = dataset_result_files[pqtl_dataset]["ukb_phewas"]
+    target_info_file = dataset_result_files[pqtl_dataset]["target_info"]
+    smr_file = dataset_result_files[pqtl_dataset]["smr"]
+    hyprcoloc_file = dataset_result_files[pqtl_dataset]["hyprcoloc"]
+    pwcoco_file = dataset_result_files[pqtl_dataset]["pwcoco"]
+    pwcoco_eqtl_pqtl_file = dataset_result_files[pqtl_dataset]["pwcoco_eqtl_pqtl"]
+    pwcoco_eqtl_gwas_file = dataset_result_files[pqtl_dataset]["pwcoco_eqtl_gwas"]
+
+    # push this run's result files straight into PostgreSQL (schema-matching
+    # since bin/coloc_targets.py, bin/sort_smr.py, bin/pwcoco_wrapper.py,
+    # bin/pwcoco_qtl_wrapper.py and bin/compile_cis_hit_info.py all emit
+    # sql/schema.sql-shaped columns now) - scoped to this dataset's actual
+    # run_id, not the dashboard's own in-memory transforms further below.
+    # Cached per run_id (load_and_sync_run_data) so this DELETE+INSERT+re-read
+    # cycle runs once per run, not on every single dashboard interaction.
+    run_id = dataset_run_ids[pqtl_dataset]
+
+    run_data = load_and_sync_run_data(
+        run_id=run_id,
+        pqtl_dataset=pqtl_dataset,
+        db_name=db_name,
+        mr_file=mr_file,
+        coloc_file=coloc_file,
+        finngen_phewas_file=finngen_phewas_file,
+        ukb_phewas_file=ukb_phewas_file,
+        target_info_file=target_info_file,
+        smr_file=smr_file,
+        hyprcoloc_file=hyprcoloc_file,
+        pwcoco_file=pwcoco_file,
+        pwcoco_eqtl_pqtl_file=pwcoco_eqtl_pqtl_file,
+        pwcoco_eqtl_gwas_file=pwcoco_eqtl_gwas_file,
+    )
+    mr = run_data["mr"]
+    coloc = run_data["coloc"]
+    finngen_phewas = run_data["finngen_phewas"]
+    ukb_phewas = run_data["ukb_phewas"]
+    target_info = run_data["target_info"]
+    smr = run_data["smr"]
+    hyprcoloc = run_data["hyprcoloc"]
+    pwcoco = run_data["pwcoco"]
+    pwcoco_eqtl_pqtl = run_data["pwcoco_eqtl_pqtl"]
+    pwcoco_eqtl_gwas = run_data["pwcoco_eqtl_gwas"]
+    finngen_phewas_available = run_data["finngen_phewas_available"]
+    ukb_phewas_available = run_data["ukb_phewas_available"]
+    tracking_info = run_data["tracking_info"]
 
     # MR ammenities
     # standardise numeric MR columns
@@ -2527,16 +2676,16 @@ def dashboard(db_name: str, port_number: str, phenotype: str, pqtl_dataset: str)
         )
         q_pval = st.slider(
             "Minimum Cochran Q p-value", 0.0, 1.0, 0.05, 0.01,
-            help="IVW targets only (2+ instruments) - guards against instrument heterogeneity. Wald-ratio (1-instrument) targets are unaffected."
+            help="IVW targets only (2+ instruments). Guards against instrument heterogeneity. Wald-ratio (1-instrument) targets are unaffected."
         )
 
     with st.sidebar.expander("Stage 2 · Colocalisation", expanded=True):
         pp4 = st.slider(
             "PP.H4 threshold", 0.0, 1.0, 0.70, 0.01,
-            help="Shared by BOTH standard COLOC and PWCoCo - a target clears this stage if EITHER method's PP.H4 is at or above this bar."
+            help="Shared by BOTH standard COLOC and PWCoCo. A target clears this stage if EITHER method's PP.H4 is at or above this bar."
         )
 
-    st.sidebar.caption("Stage 3-4 · PheWAS (FinnGen/UKB) has no threshold here - it uses a fixed per-protein Bonferroni cutoff, not a configurable slider.")
+    st.sidebar.caption("Stage 3-4 · PheWAS (FinnGen/UKB) has no threshold here. It uses a fixed per-protein Bonferroni cutoff, not a configurable slider.")
 
     with st.sidebar.expander("Stage 5 · SMR / HEIDI", expanded=False):
         smr_fdr_threshold = st.slider("SMR FDR (q_SMR) threshold", 0.0, 1.0, 0.05, 0.01)
@@ -2561,7 +2710,7 @@ def dashboard(db_name: str, port_number: str, phenotype: str, pqtl_dataset: str)
         st.badge("Not reached / no data", color="gray")
         st.caption(
             "Blue and orange repeat at 3 different \"which of 2 methods supported "
-            "this\" splits in the pipeline - same 2 colours each time, but a "
+            "this\" splits in the pipeline. Same 2 colours each time, but a "
             "different pair of methods depending on where you see them: standard "
             "COLOC vs. PWCoCo (Stage 2), bulk vs. single-cell eQTL (SMR, Stage 5), "
             "or HyPrColoc vs. PWCoCo-QTL (Stage 6). Hover a Sankey node's tooltip "
@@ -2812,7 +2961,7 @@ def dashboard(db_name: str, port_number: str, phenotype: str, pqtl_dataset: str)
 
     if "data_type" in smr_pass_rows.columns and "protein" in smr_pass_rows.columns:
         bulk_pass_set = set(smr_pass_rows.loc[smr_pass_rows["data_type"] == "bulk", "protein"].dropna().astype(str))
-        sc_pass_set = set(smr_pass_rows.loc[smr_pass_rows["data_type"] != "bulk", "protein"].dropna().astype(str))
+        sc_pass_set = set(smr_pass_rows.loc[smr_pass_rows["data_type"] == "single_cell", "protein"].dropna().astype(str))
     else:
         bulk_pass_set = set()
         sc_pass_set = set()
@@ -2915,7 +3064,7 @@ def dashboard(db_name: str, port_number: str, phenotype: str, pqtl_dataset: str)
             "PWCoCo. Safety-cleared = also no adverse FinnGen/UKB PheWAS hit ('Prioritised' "
             "on the Overview tab's target cards below). SMR-supported = also cleared SMR "
             "FDR/HEIDI. Multi-omics = pQTL+GWAS+eQTL share 1 causal variant, via **either** "
-            "HyPrColoc's clustering **or** PWCoCo-QTL's SNP-level triangulation - this is the "
+            "HyPrColoc's clustering **or** PWCoCo-QTL's SNP-level triangulation. This is the "
             "exact same count as the **Multi-omics** view on the **7. Final Targets** tab. "
             "Full branching detail (COLOC-vs-PWCoCo, bulk-vs-single-cell, HyPrColoc-vs-"
             "PWCoCo-QTL) is on that tab's Sankey; colour legend is in the sidebar."
@@ -2962,7 +3111,7 @@ def dashboard(db_name: str, port_number: str, phenotype: str, pqtl_dataset: str)
         st.divider()
         st.subheader("Target prioritisation")
         st.caption(
-            "The same 6 numbers as the bar above the tabs, shown here at scale - the "
+            "The same 6 numbers as the bar above the tabs, shown here at scale: the "
             "complete flow through every stage, all the way to the same **Multi-omics** "
             "count on the **7. Final Targets** tab. That tab's Sankey diagram shows the "
             "same funnel with the extra branching detail (COLOC-vs-PWCoCo, bulk-vs-"
@@ -3003,7 +3152,7 @@ def dashboard(db_name: str, port_number: str, phenotype: str, pqtl_dataset: str)
             title="Progressive target prioritisation",
             labels={"n_targets": "Number of unique proteins (log scale)", "stage": ""},
             height=520,
-            template="plotly_white",
+            color_discrete_sequence=[SANKEY_BULK_COLOR],
             log_x=True
         )
 
@@ -3017,7 +3166,7 @@ def dashboard(db_name: str, port_number: str, phenotype: str, pqtl_dataset: str)
         # (2, 5) between them, which reads as a broken sequence ("10 2 5 100...")
         # to anyone not used to log axes
         funnel_fig.update_xaxes(dtick=1)
-        funnel_fig.update_layout(showlegend=False, margin=dict(l=20, r=60, t=60, b=20))
+        apply_chart_theme(funnel_fig, showlegend=False, margin=dict(l=20, r=60, t=60, b=20))
         st.plotly_chart(funnel_fig, width="stretch")
 
         st.divider()
@@ -3040,9 +3189,18 @@ def dashboard(db_name: str, port_number: str, phenotype: str, pqtl_dataset: str)
             if n_mr_coloc_safe < n_mr_coloc:
                 st.caption(
                     f"{n_mr_coloc - n_mr_coloc_safe} additional target(s) passed cis-MR + COLOC but were "
-                    "excluded here for a Bonferroni-significant, opposite-direction (adverse-effect) FinnGen/UKB PheWAS hit - "
-                    "see the Sankey diagram on the **7. Final Targets** tab for the full breakdown."
+                    "excluded here for a Bonferroni-significant, opposite-direction (adverse-effect) FinnGen/UKB PheWAS hit. "
+                    "See the Sankey diagram on the **7. Final Targets** tab for the full breakdown."
                 )
+
+            gene_list = sorted(mr_coloc_safe_pass["protein"].dropna().astype(str).str.split("_").str[0].unique())
+            st.download_button(
+                label="Download target list (.txt)",
+                data="\n".join(gene_list),
+                file_name=f"{pqtl_dataset}_{outcome}_prioritised_target_list.txt",
+                mime="text/plain",
+                key=f"download_target_list_overview_{pqtl_dataset}_{outcome}"
+            )
 
             cards_df = mr_coloc_safe_pass.sort_values(
                 ["pp_h4_abf", "mr_fdr_q"],
@@ -3134,7 +3292,7 @@ def dashboard(db_name: str, port_number: str, phenotype: str, pqtl_dataset: str)
                         "MR FDR": st.column_config.NumberColumn(format="%.3e"),
                         "Cochran Q p-value": st.column_config.NumberColumn(format="%.3e"),
                         "Egger intercept p-value": st.column_config.NumberColumn(format="%.3e"),
-                        "COLOC PP.H4": st.column_config.NumberColumn(format="%.3f")
+                        "COLOC PP.H4": st.column_config.ProgressColumn(format="%.3f", min_value=0.0, max_value=1.0)
                     }
                 )
 
@@ -3150,7 +3308,7 @@ def dashboard(db_name: str, port_number: str, phenotype: str, pqtl_dataset: str)
         elif n_mr_coloc > 0:
             st.info(
                 f"{n_mr_coloc} target(s) passed the selected cis-MR and pQTL COLOC thresholds, but all were "
-                "excluded here for a Bonferroni-significant, opposite-direction (adverse-effect) FinnGen/UKB PheWAS hit - see the "
+                "excluded here for a Bonferroni-significant, opposite-direction (adverse-effect) FinnGen/UKB PheWAS hit. See the "
                 "Sankey diagram on the **7. Final Targets** tab for the full breakdown."
             )
         else:
@@ -3168,8 +3326,8 @@ def dashboard(db_name: str, port_number: str, phenotype: str, pqtl_dataset: str)
         st.caption(
             "Every other tab is organised by pipeline stage (1 table per stage, every "
             "protein at once). This tab flips that around: pick 1 target and see its "
-            "complete evidence trail - cis-MR, colocalisation, PheWAS safety, SMR and "
-            "HyPrColoc - top to bottom, in the order the pipeline actually applies them."
+            "complete evidence trail, top to bottom, in the order the pipeline actually "
+            "applies it: cis-MR, colocalisation, PheWAS safety, SMR and HyPrColoc."
         )
 
         profile_proteins = (
@@ -3180,9 +3338,18 @@ def dashboard(db_name: str, port_number: str, phenotype: str, pqtl_dataset: str)
         if not profile_proteins:
             st.info("No proteins are available to look up for this outcome / pQTL dataset.")
         else:
+            # the sidebar "Protein filter" (if the user typed one) wins as the
+            # default-selection hint; a ?target=... query param is a fallback
+            # for opening a shared link fresh, deliberately NOT wired back into
+            # the sidebar filter itself - the 2 are different concerns (this
+            # tab's own picker vs. every tab's cross-cutting filter), and
+            # syncing them one-way-only avoids a loop where visiting this tab
+            # would silently re-lock the sidebar filter to whatever it last
+            # picked, filtering every other tab down to 1 protein
             default_index = 0
-            if protein:
-                matches = [p for p in profile_proteins if protein.lower() in p.lower()]
+            lookup_hint = protein or st.query_params.get("target", "")
+            if lookup_hint:
+                matches = [p for p in profile_proteins if lookup_hint.lower() in p.lower()]
                 if matches:
                     default_index = profile_proteins.index(matches[0])
 
@@ -3192,6 +3359,11 @@ def dashboard(db_name: str, port_number: str, phenotype: str, pqtl_dataset: str)
                 index=default_index,
                 key="target_profile_selector"
             )
+            # keyed widgets keep the user's own selection across reruns (index=
+            # above only seeds the very first render), so this write is a 1-way
+            # mirror for a shareable URL, not a source of truth read back
+            # elsewhere on rerun
+            st.query_params["target"] = selected_target
 
             mr_pass_proteins_for_profile = (
                 set(mr_pass["protein"].dropna().astype(str)) if "protein" in mr_pass.columns else set()
@@ -3217,7 +3389,7 @@ def dashboard(db_name: str, port_number: str, phenotype: str, pqtl_dataset: str)
 
     with tab_evidence:
         st.caption(
-            "Detailed per-stage tables, for auditing exact numbers behind a call - most people "
+            "Detailed per-stage tables, for auditing exact numbers behind a call. Most people "
             "want the **Overview** or **Target Profile** tab instead."
         )
 
@@ -3297,7 +3469,7 @@ def dashboard(db_name: str, port_number: str, phenotype: str, pqtl_dataset: str)
             }
 
             st.dataframe(
-                mr_display[display_cols + remaining_cols].rename(columns=mr_table_column_names),
+                for_display(mr_display[display_cols + remaining_cols].rename(columns=mr_table_column_names)),
                 width="stretch",
                 hide_index=True
             )
@@ -3351,11 +3523,11 @@ def dashboard(db_name: str, port_number: str, phenotype: str, pqtl_dataset: str)
                     },
                     title="Primary cis-MR volcano plot",
                     height=600,
-                    template="plotly_white"
                 )
+                apply_chart_theme(fig)
 
-                fig.add_hline(y=-np.log10(0.05), line_dash="dash", line_color="grey")
-                fig.add_vline(x=0, line_dash="dash", line_color="grey")
+                fig.add_hline(y=-np.log10(0.05), line_dash="dash", line_color=CHART_MUTED_INK)
+                fig.add_vline(x=0, line_dash="dash", line_color=CHART_MUTED_INK)
                 st.plotly_chart(fig, width="stretch")
 
             else:
@@ -3366,7 +3538,7 @@ def dashboard(db_name: str, port_number: str, phenotype: str, pqtl_dataset: str)
             st.subheader("cis-MR + pQTL–GWAS COLOC targets")
             st.caption(
                 "Targets shown here pass cis-MR and cleared the PP.H4 threshold via standard COLOC, "
-                "PWCoCo, or both - check the **Coloc support** column. A `pwcoco_only` row's PP.H0-H4 "
+                "PWCoCo, or both: check the **Coloc support** column. A `pwcoco_only` row's PP.H0-H4 "
                 "columns are blank by design (standard COLOC genuinely didn't support it); see the "
                 "**PWCoCo** tab for its conditional-analysis result instead."
             )
@@ -3430,7 +3602,7 @@ def dashboard(db_name: str, port_number: str, phenotype: str, pqtl_dataset: str)
                 }
 
                 st.dataframe(
-                    mr_coloc_pass[prioritised_cols + remaining_cols].rename(columns=prioritised_table_column_names),
+                    for_display(mr_coloc_pass[prioritised_cols + remaining_cols].rename(columns=prioritised_table_column_names)),
                     width="stretch",
                     hide_index=True
                 )
@@ -3586,12 +3758,13 @@ def dashboard(db_name: str, port_number: str, phenotype: str, pqtl_dataset: str)
                     "a1",
                     "a2",
                     "b_gwas",
-                    "b_eqtl",
+                    "b_qtl",
                     "b_smr",
                     "p_smr",
                     "q_smr",
                     "p_heidi",
-                    "eqtl_dataset"
+                    "qtl_dataset",
+                    "qtl_type"
                 ]
 
                 smr_cols = available_cols(smr_filtered, smr_cols)
@@ -3607,12 +3780,13 @@ def dashboard(db_name: str, port_number: str, phenotype: str, pqtl_dataset: str)
                     "a1": "Risk allele",
                     "a2": "Other allele",
                     "b_gwas": "GWAS beta (risk allele)",
-                    "b_eqtl": "eQTL beta (risk allele)",
+                    "b_qtl": "QTL beta (risk allele)",
                     "b_smr": "SMR beta",
                     "p_smr": "SMR p-value",
                     "q_smr": "SMR FDR",
                     "p_heidi": "HEIDI p-value",
-                    "eqtl_dataset": "eQTL dataset"
+                    "qtl_dataset": "QTL dataset",
+                    "qtl_type": "QTL type"
                 }
 
                 smr_table = smr_table.rename(columns=smr_column_names)
@@ -3623,7 +3797,7 @@ def dashboard(db_name: str, port_number: str, phenotype: str, pqtl_dataset: str)
                     hide_index=True,
                     column_config={
                         "GWAS beta (risk allele)": st.column_config.NumberColumn(format="%.4f"),
-                        "eQTL beta (risk allele)": st.column_config.NumberColumn(format="%.4f"),
+                        "QTL beta (risk allele)": st.column_config.NumberColumn(format="%.4f"),
                         "SMR beta": st.column_config.NumberColumn(format="%.4f"),
                         "SMR p-value": st.column_config.NumberColumn(format="%.3e"),
                         "SMR FDR": st.column_config.NumberColumn(format="%.3e"),
@@ -3649,7 +3823,7 @@ def dashboard(db_name: str, port_number: str, phenotype: str, pqtl_dataset: str)
                 "the pQTL, GWAS and eQTL association signals in that target's cis-region for a "
                 "single shared causal variant, restricted to the SNPs shared across all three and "
                 "aligned onto a common effect allele. The table below only shows rows where "
-                "HyPrColoc actually put all 3 traits into 1 credible set - that 3-way test is the "
+                "HyPrColoc actually put all 3 traits into 1 credible set. That 3-way test is the "
                 "entire point of running HyPrColoc, so a cluster missing the eQTL trait (it either "
                 "clustered separately or joined no cluster at all) isn't shown as a result here, "
                 "regardless of how confident the pQTL+GWAS-only cluster it did find is."
@@ -3691,7 +3865,7 @@ def dashboard(db_name: str, port_number: str, phenotype: str, pqtl_dataset: str)
                     all_3_traits_clustered = (
                         traits_lower.str.contains("pqtl_") &
                         traits_lower.str.contains("gwas_") &
-                        traits_lower.str.contains("eqtl_")
+                        traits_lower.str.contains(r"(?<!p)qtl_", regex=True)
                     )
                 else:
                     all_3_traits_clustered = pd.Series(False, index=hyprcoloc_filtered.index)
@@ -3708,7 +3882,7 @@ def dashboard(db_name: str, port_number: str, phenotype: str, pqtl_dataset: str)
                 n_dropped_2trait = n_before_3trait_filter - len(hyprcoloc_filtered)
                 if n_dropped_2trait > 0:
                     st.caption(
-                        f"{n_dropped_2trait} target x cell-type/tissue row(s) excluded below - "
+                        f"{n_dropped_2trait} target x cell-type/tissue row(s) excluded below. "
                         "HyPrColoc could not put the eQTL trait into the same credible set as "
                         "pQTL + GWAS for those (it clustered separately or didn't join any "
                         "cluster), so they aren't a 3-way colocalisation result."
@@ -3789,9 +3963,9 @@ def dashboard(db_name: str, port_number: str, phenotype: str, pqtl_dataset: str)
                     width="stretch",
                     hide_index=True,
                     column_config={
-                        "Posterior probability": st.column_config.NumberColumn(format="%.4f"),
-                        "Regional probability": st.column_config.NumberColumn(format="%.4f"),
-                        "Posterior explained by SNP": st.column_config.NumberColumn(format="%.4f")
+                        "Posterior probability": st.column_config.ProgressColumn(format="%.4f", min_value=0.0, max_value=1.0),
+                        "Regional probability": st.column_config.ProgressColumn(format="%.4f", min_value=0.0, max_value=1.0),
+                        "Posterior explained by SNP": st.column_config.ProgressColumn(format="%.4f", min_value=0.0, max_value=1.0)
                     }
                 )
 
@@ -3831,7 +4005,7 @@ def dashboard(db_name: str, port_number: str, phenotype: str, pqtl_dataset: str)
                 "the Overview tab.\n"
                 "- **pQTL–GWAS COLOC**: passes on the posterior-probability threshold set in "
                 "the sidebar. PWCoCo (a conditional-analysis variant of COLOC, see the "
-                "**PWCoCo** tab) runs alongside it on the same targets - passing *either* "
+                "**PWCoCo** tab) runs alongside it on the same targets: passing *either* "
                 "method is enough to continue, split into \"Both methods\" / \"COLOC only\" / "
                 "\"PWCoCo only\" lanes below so discordant hits stay visible rather than being "
                 "silently dropped.\n"
@@ -3847,7 +4021,7 @@ def dashboard(db_name: str, port_number: str, phenotype: str, pqtl_dataset: str)
                 "- **HyPrColoc**: runs against whichever eQTL dataset(s) supported the target's "
                 "SMR stage (bulk, single-cell, or both); no-SMR-support targets end at the SMR "
                 "stage. Runs on targets supported by standard COLOC, PWCoCo, or both (same "
-                "**Coloc support** union as the COLOC/PWCoCo stage) - passes when a HyPrColoc "
+                "**Coloc support** union as the COLOC/PWCoCo stage). Passes when a HyPrColoc "
                 "cluster contains the pQTL, GWAS *and* eQTL trait together (not just 2 of the 3) "
                 f"with posterior probability ≥ {hyprcoloc_pp_threshold:.2f}."
             )
@@ -4001,8 +4175,8 @@ def dashboard(db_name: str, port_number: str, phenotype: str, pqtl_dataset: str)
                 )
             ))
 
-            sankey_fig.update_layout(
-                template="plotly_white",
+            apply_chart_theme(
+                sankey_fig,
                 height=420,
                 margin=dict(l=14, r=20, t=18, b=18),
                 hoverlabel=dict(align="left", bgcolor="white", bordercolor="rgba(0,0,0,0.15)", font=dict(size=12))
@@ -4013,13 +4187,10 @@ def dashboard(db_name: str, port_number: str, phenotype: str, pqtl_dataset: str)
         st.divider()
         st.subheader("Final target list")
         st.caption(
-            "Two views of the target list, switched below, at 2 genuinely different "
-            "depths - not just 2 presentations of the same targets. **Proteogenomic "
-            "only** stops at cis-MR + COLOC/PWCoCo + FinnGen/UKB safety (pQTL + GWAS "
-            "evidence only) and deliberately goes no further. **Multi-omics** requires "
-            "SMR/HEIDI and HyPrColoc's 3-trait confirmation on top of that - since SMR "
-            "already draws on eQTL data, anything that reaches SMR belongs to the "
-            "Multi-omics side, not Proteogenomic."
+            "Two views of the target list, at genuinely different depths. "
+            "**Proteogenomic only** stops at cis-MR, COLOC/PWCoCo and FinnGen/UKB "
+            "safety: pQTL and GWAS evidence only. **Multi-omics** adds SMR/HEIDI and "
+            "HyPrColoc's 3-trait confirmation, bringing eQTL evidence in as well."
         )
 
         final_targets_view = st.segmented_control(
@@ -4037,12 +4208,12 @@ def dashboard(db_name: str, port_number: str, phenotype: str, pqtl_dataset: str)
 
         if show_hyprcoloc_targets:
             st.success(
-                "**Multi-omics targets** - on top of cis-MR, COLOC, FinnGen/UKB safety and "
-                f"SMR/HEIDI, these also passed HyPrColoc (posterior probability ≥ {hyprcoloc_pp_threshold:.2f}), "
-                "meaning all 3 omics layers - pQTL (proteomics), GWAS (genomics) and eQTL "
-                "(transcriptomics) - share a single causal variant. **Top SNP** is HyPrColoc's "
-                "own *candidate SNP* - the single variant it found shared across the pQTL, GWAS "
-                "and eQTL signals - with alleles and betas aligned to the AD risk allele."
+                "**Multi-omics targets**: passed cis-MR, COLOC, FinnGen/UKB safety, SMR/HEIDI "
+                f"and HyPrColoc (posterior probability ≥ {hyprcoloc_pp_threshold:.2f}). All 3 omics "
+                "layers, pQTL (proteomics), GWAS (genomics) and eQTL (transcriptomics), share a "
+                "single causal variant. **Top SNP** is HyPrColoc's own *candidate SNP*: the "
+                "variant shared across the pQTL, GWAS and eQTL signals, with alleles and betas "
+                "aligned to the AD risk allele."
             )
 
             # smr_display carries every protein ever run through SMR, including ones that
@@ -4051,7 +4222,7 @@ def dashboard(db_name: str, port_number: str, phenotype: str, pqtl_dataset: str)
             # own "passed cis-MR + COLOC + safety + SMR/HEIDI" claim above
             base_targets = smr_display.copy()
             identity_cols = [
-                col for col in ["topsnp", "topsnp_chr", "topsnp_bp", "a1", "a2", "b_gwas", "b_eqtl"]
+                col for col in ["topsnp", "topsnp_chr", "topsnp_bp", "a1", "a2", "b_gwas", "b_qtl"]
                 if col in base_targets.columns
             ]
             base_targets = base_targets.drop(columns=identity_cols)
@@ -4062,13 +4233,13 @@ def dashboard(db_name: str, port_number: str, phenotype: str, pqtl_dataset: str)
             snp_info = select_hyprcoloc_candidate_rows(hyprcoloc_display, hyprcoloc_pp_threshold)
             snp_info_cols = available_cols(
                 snp_info,
-                ["protein", "cell_type", "data_type", "candidate_snp", "a1", "a2",
-                 "gwas_beta", "gwas_p", "pqtl_beta", "pqtl_p", "eqtl_beta", "eqtl_p", "posterior_prob"]
+                ["protein", "cell_type", "data_type", "qtl_type", "candidate_snp", "a1", "a2",
+                 "gwas_beta", "gwas_p", "pqtl_beta", "pqtl_p", "qtl_beta", "qtl_p", "posterior_prob"]
             )
             snp_info = snp_info[snp_info_cols].rename(columns={
                 "candidate_snp": "topsnp",
                 "gwas_beta": "b_gwas",
-                "eqtl_beta": "b_eqtl",
+                "qtl_beta": "b_qtl",
                 "posterior_prob": "hyprcoloc_posterior_prob"
             })
 
@@ -4091,14 +4262,13 @@ def dashboard(db_name: str, port_number: str, phenotype: str, pqtl_dataset: str)
             )
         else:
             st.info(
-                "**Proteogenomic-only targets** - passed cis-MR, COLOC/PWCoCo and FinnGen/UKB "
-                "safety on the pQTL + GWAS layers alone (proteomics + genomics). This view "
-                "stops deliberately *before* SMR - SMR/HEIDI already draws on eQTL data, so a "
-                "target that reaches SMR (whether or not it goes on to pass HyPrColoc) shows "
-                "up in the **Multi-omics** view instead, not here. 1 row per target (there is "
-                "no cell-type/tissue dimension without SMR/eQTL data). **Top SNP** is always "
-                "the target's own top cis-pQTL SNP, aligned to the AD risk allele (p-values "
-                "are only ever floored to 1e-300 when reported as exactly 0)."
+                "**Proteogenomic-only targets**: passed cis-MR, COLOC/PWCoCo and FinnGen/UKB "
+                "safety on the pQTL and GWAS layers alone (proteomics and genomics). This view "
+                "stops deliberately before SMR, since SMR/HEIDI already draws on eQTL data: any "
+                "target that reaches SMR appears in the **Multi-omics** view instead, not here. "
+                "1 row per target (no cell-type/tissue dimension without SMR/eQTL data). **Top "
+                "SNP** is always the target's own top cis-pQTL SNP, aligned to the AD risk "
+                "allele. P-values are only ever floored to 1e-300 when reported as exactly 0."
             )
 
             # target-level only (no cell_type/eQTL dimension at all - this view never
@@ -4155,8 +4325,8 @@ def dashboard(db_name: str, port_number: str, phenotype: str, pqtl_dataset: str)
                 "gwas_p",
                 "pqtl_beta",
                 "pqtl_p",
-                "b_eqtl",
-                "eqtl_p",
+                "b_qtl",
+                "qtl_p",
                 "hyprcoloc_posterior_prob",
                 "b_smr",
                 "p_smr",
@@ -4180,8 +4350,8 @@ def dashboard(db_name: str, port_number: str, phenotype: str, pqtl_dataset: str)
                 "gwas_p": "GWAS p-value",
                 "pqtl_beta": "pQTL beta",
                 "pqtl_p": "pQTL p-value",
-                "b_eqtl": "eQTL beta",
-                "eqtl_p": "eQTL p-value",
+                "b_qtl": "QTL beta",
+                "qtl_p": "QTL p-value",
                 "hyprcoloc_posterior_prob": "HyPrColoc posterior probability",
                 "b_smr": "SMR beta",
                 "p_smr": "SMR p-value",
@@ -4206,9 +4376,9 @@ def dashboard(db_name: str, port_number: str, phenotype: str, pqtl_dataset: str)
                     "GWAS p-value": st.column_config.NumberColumn(format="%.3e"),
                     "pQTL beta": st.column_config.NumberColumn(format="%.4f"),
                     "pQTL p-value": st.column_config.NumberColumn(format="%.3e"),
-                    "eQTL beta": st.column_config.NumberColumn(format="%.4f"),
-                    "eQTL p-value": st.column_config.NumberColumn(format="%.3e"),
-                    "HyPrColoc posterior probability": st.column_config.NumberColumn(format="%.4f"),
+                    "QTL beta": st.column_config.NumberColumn(format="%.4f"),
+                    "QTL p-value": st.column_config.NumberColumn(format="%.3e"),
+                    "HyPrColoc posterior probability": st.column_config.ProgressColumn(format="%.4f", min_value=0.0, max_value=1.0),
                     "SMR beta": st.column_config.NumberColumn(format="%.4f"),
                     "SMR p-value": st.column_config.NumberColumn(format="%.3e"),
                     "SMR FDR": st.column_config.NumberColumn(format="%.3e"),
@@ -4233,7 +4403,7 @@ def dashboard(db_name: str, port_number: str, phenotype: str, pqtl_dataset: str)
             "conditional analysis, which can separate multiple independent causal signals "
             "at a locus that standard pairwise COLOC (**Evidence by Stage → 2. pQTL–GWAS "
             "COLOC**) assumes is a single signal. It runs alongside standard COLOC on the "
-            "same cis-MR-passing targets, not instead of it - a target that colocalises "
+            "same cis-MR-passing targets, not instead of it. A target that colocalises "
             "under either method is carried forward as a prioritised target (see the "
             "**Overview** tab), annotated with which method(s) supported it. It's kept as "
             "its own tab here, rather than nested under Evidence by Stage, since it's a "
@@ -4257,11 +4427,11 @@ def dashboard(db_name: str, port_number: str, phenotype: str, pqtl_dataset: str)
                 metric2.metric("Conditional signal rows", len(pwcoco_filtered))
                 metric3.metric("Passing PP.H4 threshold", len(pwcoco_pass_rows))
                 metric4.metric("Median PP.H4", safe_median(pwcoco_filtered, "h4"))
-            st.caption("\"Unique targets tested\" above is every protein PWCoCo ran on - no cis-MR gate applied yet.")
+            st.caption("\"Unique targets tested\" above is every protein PWCoCo ran on. No cis-MR gate applied yet.")
 
             st.divider()
             st.subheader("Concordance with standard COLOC")
-            st.caption("Scoped to targets that already passed cis-MR *and* cleared PP.H4 via COLOC and/or PWCoCo - not the broader \"tested\" count above.")
+            st.caption("Scoped to targets that already passed cis-MR *and* cleared PP.H4 via COLOC and/or PWCoCo, not the broader \"tested\" count above.")
 
             if "coloc_support" in mr_coloc_pass.columns and not mr_coloc_pass.empty:
                 support_counts = mr_coloc_pass.drop_duplicates("protein")["coloc_support"].value_counts()
@@ -4278,8 +4448,8 @@ def dashboard(db_name: str, port_number: str, phenotype: str, pqtl_dataset: str)
                         st.badge("PWCoCo only", color="orange")
                 st.caption(
                     "\"COLOC only\" / \"PWCoCo only\" targets are discordant between the two "
-                    "methods but are still carried forward as prioritised targets, not dropped - "
-                    "the disagreement usually reflects a genuine methodological difference "
+                    "methods but are still carried forward as prioritised targets, not dropped. "
+                    "The disagreement usually reflects a genuine methodological difference "
                     "(single- vs multi-signal locus assumption), not necessarily absence of a "
                     "true target."
                 )
@@ -4342,11 +4512,11 @@ def dashboard(db_name: str, port_number: str, phenotype: str, pqtl_dataset: str)
                 width="stretch",
                 hide_index=True,
                 column_config={
-                    "PP.H0": st.column_config.NumberColumn(format="%.4f"),
-                    "PP.H1": st.column_config.NumberColumn(format="%.4f"),
-                    "PP.H2": st.column_config.NumberColumn(format="%.4f"),
-                    "PP.H3": st.column_config.NumberColumn(format="%.4f"),
-                    "PP.H4": st.column_config.NumberColumn(format="%.4f")
+                    "PP.H0": st.column_config.ProgressColumn(format="%.4f", min_value=0.0, max_value=1.0),
+                    "PP.H1": st.column_config.ProgressColumn(format="%.4f", min_value=0.0, max_value=1.0),
+                    "PP.H2": st.column_config.ProgressColumn(format="%.4f", min_value=0.0, max_value=1.0),
+                    "PP.H3": st.column_config.ProgressColumn(format="%.4f", min_value=0.0, max_value=1.0),
+                    "PP.H4": st.column_config.ProgressColumn(format="%.4f", min_value=0.0, max_value=1.0)
                 }
             )
 
@@ -4371,7 +4541,7 @@ def dashboard(db_name: str, port_number: str, phenotype: str, pqtl_dataset: str)
             "(pQTL-GWAS, eQTL-pQTL, eQTL-GWAS), each allowing more than 1 causal variant per "
             "trait via conditioning. A target is **triangulated** only when the exact same "
             "conditionally independent SNP clears the PP.H4 threshold in **all 3** of those "
-            "pairwise analyses at once, not just some of them - anything less is not counted."
+            "pairwise analyses at once. Anything less is not counted."
         )
         st.caption(
             "The 2 methods run side by side, not one after the other: a target reaches "
@@ -4411,7 +4581,7 @@ def dashboard(db_name: str, port_number: str, phenotype: str, pqtl_dataset: str)
                 metric2.metric("Targets tested (eQTL-GWAS)", safe_nunique(pwcoco_eqtl_gwas_display, "protein"))
                 metric3.metric("Targets triangulated (all 3 combos)", len(triangulated_proteins))
             st.caption(
-                "\"Targets tested\" is every protein PWCoCo was run on for that combo - no "
+                "\"Targets tested\" is every protein PWCoCo was run on for that combo. No "
                 "PP.H4 threshold applied yet. \"Triangulated\" requires all 3 combos to agree "
                 "on 1 SNP, per the definition above."
             )
@@ -4421,7 +4591,7 @@ def dashboard(db_name: str, port_number: str, phenotype: str, pqtl_dataset: str)
             st.caption(
                 "1 row per (target, SNP) pair where the same SNP clears the PP.H4 threshold "
                 "(sidebar slider, currently "
-                f"{pp4:.2f}) in pQTL-GWAS, eQTL-pQTL AND eQTL-GWAS simultaneously - every row "
+                f"{pp4:.2f}) in pQTL-GWAS, eQTL-pQTL AND eQTL-GWAS simultaneously. Every row "
                 "here is a triangulated target, recomputed live as you move that slider."
             )
 
@@ -4430,7 +4600,7 @@ def dashboard(db_name: str, port_number: str, phenotype: str, pqtl_dataset: str)
             else:
                 shared_cols = available_cols(
                     shared_snp_table,
-                    ["protein", "snp", "pqtl_gwas_h4", "eqtl_pqtl_h4", "eqtl_gwas_h4"]
+                    ["protein", "snp", "pqtl_gwas_h4", "qtl_pqtl_h4", "qtl_gwas_h4"]
                 )
                 shared_table = shared_snp_table[shared_cols].copy()
 
@@ -4438,12 +4608,12 @@ def dashboard(db_name: str, port_number: str, phenotype: str, pqtl_dataset: str)
                     "protein": "Target",
                     "snp": "Shared SNP",
                     "pqtl_gwas_h4": "PP.H4 (pQTL-GWAS)",
-                    "eqtl_pqtl_h4": "PP.H4 (eQTL-pQTL)",
-                    "eqtl_gwas_h4": "PP.H4 (eQTL-GWAS)",
+                    "qtl_pqtl_h4": "PP.H4 (QTL-pQTL)",
+                    "qtl_gwas_h4": "PP.H4 (QTL-GWAS)",
                 }
                 shared_table = shared_table.rename(columns=shared_column_names)
 
-                st.dataframe(shared_table, width="stretch", hide_index=True)
+                st.dataframe(for_display(shared_table), width="stretch", hide_index=True)
 
                 st.download_button(
                     label="Download shared-SNP triangulation",
@@ -4465,13 +4635,14 @@ def dashboard(db_name: str, port_number: str, phenotype: str, pqtl_dataset: str)
             )
 
             pwcoco_qtl_cols = [
-                "protein", "eqtl_dataset", "cell_type",
+                "protein", "qtl_dataset", "qtl_type", "cell_type",
                 "snp1", "snp2", "nsnps", "h0", "h1", "h2", "h3", "h4", "log_abf_all"
             ]
 
             pwcoco_qtl_column_names = {
                 "protein": "Target",
-                "eqtl_dataset": "eQTL dataset",
+                "qtl_dataset": "QTL dataset",
+                "qtl_type": "QTL type",
                 "cell_type": "Tissue / cell type",
                 "snp1": "Top SNP (dataset 1)",
                 "snp2": "Top SNP (dataset 2)",
@@ -4496,7 +4667,7 @@ def dashboard(db_name: str, port_number: str, phenotype: str, pqtl_dataset: str)
                     if "h4" in table.columns:
                         table = table.sort_values("h4", ascending=False, na_position="last")
                     table = table.rename(columns=pwcoco_qtl_column_names)
-                    st.dataframe(table, width="stretch", hide_index=True)
+                    st.dataframe(for_display(table), width="stretch", hide_index=True)
                     st.download_button(
                         label="Download eQTL-pQTL PWCoCo results",
                         data=table.to_csv(index=False, sep="\t"),
@@ -4516,7 +4687,7 @@ def dashboard(db_name: str, port_number: str, phenotype: str, pqtl_dataset: str)
                     if "h4" in table.columns:
                         table = table.sort_values("h4", ascending=False, na_position="last")
                     table = table.rename(columns=pwcoco_qtl_column_names)
-                    st.dataframe(table, width="stretch", hide_index=True)
+                    st.dataframe(for_display(table), width="stretch", hide_index=True)
                     st.download_button(
                         label="Download eQTL-GWAS PWCoCo results",
                         data=table.to_csv(index=False, sep="\t"),

@@ -19,17 +19,17 @@ workflow HYPRCOLOC_WF {
         .map { key, meta, targets_file, dirs -> tuple(meta, targets_file, dirs) }
 
     ch_hyprcoloc_in = ch_joined
-        .filter { meta, targets_file, dirs -> meta.run_smr && (meta.bulk_eqtl_datasets || meta.sc_eqtl_dataset) }
+        .filter { meta, targets_file, dirs -> meta.run_smr && (meta.bulk_qtl_datasets || meta.sc_qtl_dataset) }
         .flatMap { meta, targets_file, dirs ->
-            def eqtl_datasets = (meta.bulk_eqtl_datasets ?: []) + (meta.sc_eqtl_dataset ? [meta.sc_eqtl_dataset] : [])
-            eqtl_datasets.collect { ds -> tuple(meta, ds, targets_file, dirs) }
+            def qtl_datasets = (meta.bulk_qtl_datasets ?: []) + (meta.sc_qtl_dataset ? [meta.sc_qtl_dataset] : [])
+            qtl_datasets.collect { ds -> tuple(meta, ds, targets_file, dirs) }
         }
 
     HYPRCOLOC(ch_hyprcoloc_in)
 
 
     ch_merge_in = HYPRCOLOC.out.hyprcoloc_results
-        .map { meta, eqtl_dataset, dataset_file, pdfs -> tuple([meta.pheno_id, meta.pqtl_dataset], meta, eqtl_dataset, dataset_file) }
+        .map { meta, qtl_dataset, dataset_file, pdfs -> tuple([meta.pheno_id, meta.pqtl_dataset], meta, qtl_dataset, dataset_file) }
         .groupTuple(by: 0)
         .map { key, metas, labels, files -> tuple(metas[0], labels, files) }
 

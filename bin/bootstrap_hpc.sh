@@ -16,7 +16,7 @@ set -euo pipefail
 
 
 REPO_URL="https://github.com/guillermocomesanacimadevila/drugMR.git"
-REPO_DIR="$HOME/drugMR"
+REPO_DIR="${1:-$HOME/drugMR}"
 SIF_DIR="$REPO_DIR/env"
 SIF_FILE="$SIF_DIR/drugmr.sif"
 IMAGE_URI="docker://ghcr.io/guillermocomesanacimadevila/drugmr:latest"

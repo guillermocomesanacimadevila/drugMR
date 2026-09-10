@@ -1,5 +1,6 @@
 import tomllib
 from pathlib import Path
+from urllib.parse import quote_plus
 
 from sqlalchemy import create_engine
 from sqlalchemy.engine import Engine
@@ -27,7 +28,7 @@ def get_connections_url(db_id: str = None) -> dict:
 
     creds = load_credentials()
     database = db_id or creds["database"]
-    auth = f"{creds['username']}:{creds['password']}@" if creds["username"] else ""
+    auth = f"{quote_plus(creds['username'])}:{quote_plus(creds['password'])}@" if creds["username"] else ""
     return f"postgresql://{auth}{creds['host']}:{creds['port']}/{database}"
 
 

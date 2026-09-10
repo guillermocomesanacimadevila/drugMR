@@ -33,7 +33,7 @@ gates:
     cochran_q_pval: 0.05
     egger_intercept_pval_min: 0
     min_instruments_for_ivw: 3
-    apply_steiger_filter: false
+    apply_steiger_filter: true
     clump_kb: 10000
     clump_r2: 0.001
     instrument_pval_threshold: 5.0e-8

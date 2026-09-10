@@ -21,7 +21,7 @@ class SMRUtils:
 
     """
     Take single parquet or a sum of parquets within a dir (/*.parquet)
-    and transform to ESD/BESD/EPI format for later intake during eQTL-informed workflows
+    and transform to ESD/BESD/EPI format for later intake during QTL-informed workflows
     * Stuff to bare in mind *
     - bulk vs single-cell
     - multiple regions within 1 dataset (e.g. GTEx)
@@ -69,7 +69,13 @@ class SMRUtils:
             "--query", "1",
             "--out", str(out_prefix)
         ]
-        subprocess.run(cmd, check=True, capture_output=True, text=True)
+        try:
+            subprocess.run(cmd, check=True, capture_output=True, text=True)
+        except subprocess.CalledProcessError as error:
+            raise RuntimeError(
+                f"smr --query failed for {file} (exit {error.returncode}):\n"
+                f"stdout: {error.stdout}\nstderr: {error.stderr}"
+            ) from error
 
         # smr's --query output never has an N column at all (real production
         # BESD and self-built BESD alike) - N is filled in downstream from the
@@ -122,14 +128,14 @@ class SMRUtils:
             groups.setdefault(group, {})[label] = prefix
         return groups
 
-    def resolve_bulk_eqtl_file(self, eqtl_dataset: str, cell_type: str, esd_dir: Path = None) -> Path | None:
-        # single-file datasets (MetaBrain) are registered under eqtl_dataset alone;
+    def resolve_bulk_qtl_file(self, qtl_dataset: str, cell_type: str, esd_dir: Path = None) -> Path | None:
+        # single-file datasets (MetaBrain) are registered under qtl_dataset alone;
         # multi-region datasets (GTEx_v10) are registered 1 manifest row per
         # region/tissue, named after the exact cell_type value results already
         # carry (e.g. "gtex_brain_amygdala_v10") - try the plain dataset name
         # first, fall back to cell_type. No hardcoded dataset names either way.
         try:
-            manifest_row = self.qtl_manifest.get_row(eqtl_dataset.lower())
+            manifest_row = self.qtl_manifest.get_row(qtl_dataset.lower())
         except ValueError:
             manifest_row = self.qtl_manifest.get_row(cell_type.lower())
 
@@ -167,73 +173,73 @@ class SMRUtils:
 
         return self.ensure_sumstats_parquet(group_prefixes, out_parquet, sample_size=manifest_row.get("sample_size"))
 
-    def resolve_sc_eqtl_file(self, eqtl_dataset: str, cell_type: str) -> Path | None:
-        # manifest-driven (case-insensitive on eqtl_dataset, matching the
-        # convention everywhere else) instead of hardcoding "dat/sc-eQTL/{eqtl_dataset}/"
+    def resolve_sc_qtl_file(self, qtl_dataset: str, cell_type: str) -> Path | None:
+        # manifest-driven (case-insensitive on qtl_dataset, matching the
+        # convention everywhere else) instead of hardcoding "dat/sc-eQTL/{qtl_dataset}/"
         # - that hardcoded form only worked when the caller's casing happened to
         # match the real directory name (e.g. "SingleBrain") exactly
-        manifest_row = self.qtl_manifest.get_row(eqtl_dataset.lower())
+        manifest_row = self.qtl_manifest.get_row(qtl_dataset.lower())
         matched_files = sorted(glob.glob(manifest_row["path"]))
         for f in matched_files:
             if Path(f).stem.lower() == cell_type.lower():
                 return Path(f)
         return None
 
-    def load_eqtl_rows(self, data_type: str, eqtl_dataset: str, cell_type: str, base_gene_id: str, esd_dir: Path = None) -> pl.DataFrame | None:
+    def load_qtl_rows(self, data_type: str, qtl_dataset: str, cell_type: str, base_gene_id: str, esd_dir: Path = None) -> pl.DataFrame | None:
         """
-        1 dataset/cell-type/tissue's eQTL rows for 1 gene, standardised onto
+        1 dataset/cell-type/tissue's QTL rows for 1 gene, standardised onto
         SNP/A1(effect allele)/A2/BETA/SE/P/FRQ/N - single shared implementation for
         bin/hyprcoloc_targets.py and bin/pwcoco_qtl_wrapper.py, which each
         previously re-implemented this separately. Pass esd_dir to allow building
         the parquet from BESD on demand if it doesn't exist yet (rare - all 3
-        registered eQTL datasets already have it pre-built as of 2026-09).
+        registered QTL datasets already have it pre-built as of 2026-09).
         """
         if data_type == "single_cell":
-            eqtl_file = self.resolve_sc_eqtl_file(eqtl_dataset, cell_type)
-            if eqtl_file is None:
+            qtl_file = self.resolve_sc_qtl_file(qtl_dataset, cell_type)
+            if qtl_file is None:
                 if esd_dir is None:
-                    print(f"[CONCERN] Missing {eqtl_dataset} eQTL file for {cell_type}")
+                    print(f"[CONCERN] Missing {qtl_dataset} QTL file for {cell_type}")
                     return None
 
-                manifest_row = self.qtl_manifest.get_row(eqtl_dataset.lower())
-                besd_prefixes = self.ensure_besd(eqtl_dataset.lower(), esd_dir)
+                manifest_row = self.qtl_manifest.get_row(qtl_dataset.lower())
+                besd_prefixes = self.ensure_besd(qtl_dataset.lower(), esd_dir)
                 group_prefixes = {label: prefix for label, prefix in besd_prefixes.items() if cell_type in label}
                 if not group_prefixes:
-                    print(f"[CONCERN] No BESD prefix found for {eqtl_dataset}/{cell_type}")
+                    print(f"[CONCERN] No BESD prefix found for {qtl_dataset}/{cell_type}")
                     return None
                 # target path for the freshly-built parquet, derived from the
                 # manifest's own registered directory rather than a hardcoded
-                # dat/sc-eQTL/{eqtl_dataset}/ guess
-                eqtl_file = Path(manifest_row["path"]).parent / f"{cell_type}.parquet"
-                self.ensure_sumstats_parquet(group_prefixes, eqtl_file, sample_size=manifest_row.get("sample_size"))
+                # dat/sc-eQTL/{qtl_dataset}/ guess
+                qtl_file = Path(manifest_row["path"]).parent / f"{cell_type}.parquet"
+                self.ensure_sumstats_parquet(group_prefixes, qtl_file, sample_size=manifest_row.get("sample_size"))
 
-            # sc-eQTL files carry ref/alt as A1/A2 and the actual effect allele as EA -
+            # single-cell QTL files carry ref/alt as A1/A2 and the actual effect allele as EA -
             # re-point A1/A2 so A1 is always the effect allele BETA belongs to
             return (
-                pl.scan_parquet(eqtl_file)
+                pl.scan_parquet(qtl_file)
                 .filter(pl.col("GENE").str.split(".").list.first() == base_gene_id)
                 .select(["SNP", "A1", "A2", "EA", "BETA", "SE", "P", "FRQ", "N"])
                 .with_columns(
-                    pl.col("EA").alias("eqtl_a1"),
-                    pl.when(pl.col("EA") == pl.col("A2")).then(pl.col("A1")).otherwise(pl.col("A2")).alias("eqtl_a2")
+                    pl.col("EA").alias("qtl_a1"),
+                    pl.when(pl.col("EA") == pl.col("A2")).then(pl.col("A1")).otherwise(pl.col("A2")).alias("qtl_a2")
                 )
-                .select(["SNP", pl.col("eqtl_a1").alias("A1"), pl.col("eqtl_a2").alias("A2"), "BETA", "SE", "P", "FRQ", "N"])
+                .select(["SNP", pl.col("qtl_a1").alias("A1"), pl.col("qtl_a2").alias("A2"), "BETA", "SE", "P", "FRQ", "N"])
                 .sort("P")
                 .unique(subset="SNP", keep="first")
                 .collect()
             )
 
         if data_type == "bulk":
-            eqtl_file = self.resolve_bulk_eqtl_file(eqtl_dataset, cell_type, esd_dir=esd_dir)
-            if eqtl_file is None or not eqtl_file.exists():
-                print(f"[CONCERN] Missing {eqtl_dataset} bulk eQTL file for {cell_type}: {eqtl_file}")
+            qtl_file = self.resolve_bulk_qtl_file(qtl_dataset, cell_type, esd_dir=esd_dir)
+            if qtl_file is None or not qtl_file.exists():
+                print(f"[CONCERN] Missing {qtl_dataset} bulk QTL file for {cell_type}: {qtl_file}")
                 return None
 
-            # bulk eQTL parquets come straight from an SMR besd/esi/epi query, so A1 is
+            # bulk QTL parquets come straight from an SMR besd/esi/epi query, so A1 is
             # already the effect allele b belongs to (SMR's own convention) - no
             # re-pointing needed, just rename onto the pipeline's BETA/P/FRQ convention
             return (
-                pl.scan_parquet(eqtl_file)
+                pl.scan_parquet(qtl_file)
                 .filter(pl.col("Probe").str.split(".").list.first() == base_gene_id)
                 .select(
                     "SNP", "A1", "A2",
@@ -309,7 +315,7 @@ class SMRUtils:
                     esd_df.write_csv(esd_path, separator="\t")
 
                     # ProbeID is the Ensembl ID (matching real production BESD's
-                    # native convention, which load_eqtl_rows()'s Probe-based
+                    # native convention, which load_qtl_rows()'s Probe-based
                     # filtering assumes) when the NCBI ref has one for this gene;
                     # falls back to the symbol otherwise rather than hard-failing,
                     # since ~30% of NCBI ref genes have no GENCODE symbol match
@@ -380,9 +386,9 @@ class SMRUtils:
             sumstats: str,
             ref_bfile: str,
             beqtl_summary: str,
-            eqtl_dataset: str,
-            peqtl_smr: float,
-            peqtl_heidi: float,
+            qtl_dataset: str,
+            p_qtl_smr: float,
+            p_qtl_heidi: float,
             thread_num: int,
             maf: float,
             out_dir: str = "synthesis"
@@ -391,17 +397,17 @@ class SMRUtils:
         sumstats = Path(sumstats)
         beqtl_summary = Path(beqtl_summary)
 
-        # eqtl_dataset can be stuff like SingleBrain/Ast
+        # qtl_dataset can be stuff like SingleBrain/Ast
         # use full path for directory but only cell name for output prefix
-        eqtl_dataset = Path(eqtl_dataset)
-        # SMR(GWAS x eQTL) result for a given (pheno_id, eqtl_dataset) never depends on
+        qtl_dataset = Path(qtl_dataset)
+        # SMR(GWAS x QTL) result for a given (pheno_id, qtl_dataset) never depends on
         # pqtl_dataset, so this defaults to the shared synthesis/ tree rather than a
         # per-run out_dir - every pqtl_dataset run reuses the same computation instead
         # of re-running the smr binary from scratch
-        raw_out_dir = paths.smr_raw_dir(eqtl_dataset, pheno_id, out_dir)
+        raw_out_dir = paths.smr_raw_dir(qtl_dataset, pheno_id, out_dir)
         os.makedirs(raw_out_dir, exist_ok=True)
-        out_file = paths.smr_raw_prefix(eqtl_dataset, pheno_id, out_dir)
-        print(f"[TRACKING] Running SMR on {pheno_id} using {eqtl_dataset}")
+        out_file = paths.smr_raw_prefix(qtl_dataset, pheno_id, out_dir)
+        print(f"[TRACKING] Running SMR on {pheno_id} using {qtl_dataset}")
 
         cmd_smr = [
             "smr",
@@ -409,8 +415,8 @@ class SMRUtils:
             "--gwas-summary", str(sumstats),
             "--beqtl-summary", str(beqtl_summary),
             "--maf", str(maf),
-            "--peqtl-smr", str(peqtl_smr),
-            "--peqtl-heidi", str(peqtl_heidi),
+            "--peqtl-smr", str(p_qtl_smr),
+            "--peqtl-heidi", str(p_qtl_heidi),
             "--thread-num", str(thread_num),
             "--out", str(out_file),
         ]

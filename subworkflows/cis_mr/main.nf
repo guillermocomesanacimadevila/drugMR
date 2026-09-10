@@ -11,11 +11,13 @@ workflow MR_ON_CIS_REGIONS {
 
     main:
 
-    // phase 1 - tuple("AD", meta, qc_tsv, dirs) -> join on AD
+    // keyed on (pheno_id, pqtl_dataset), not pheno_id alone -> a run is always
+    // exactly 1 dataset x 1 trait, and pheno_id-only would wrongly cross-join
+    // two different pqtl_datasets sharing the same outcome trait
     ch_in = qc_out
-        .map { meta, qc_tsv -> tuple(meta.pheno_id, meta, qc_tsv) } // meta, qc_tsv -> AD, meta, qc_tsv
-        .join(protein_dirs.map { meta, dirs -> tuple(meta.pheno_id, dirs) }) // so like meta, [dirs], becomes AD, [dirs] -> then joins above...
-        .map { pheno_id, meta, qc_tsv, dirs -> tuple(meta, qc_tsv, dirs) } // drop AD -> just useful for join
+        .map { meta, qc_tsv -> tuple([meta.pheno_id, meta.pqtl_dataset], meta, qc_tsv) }
+        .join(protein_dirs.map { meta, dirs -> tuple([meta.pheno_id, meta.pqtl_dataset], dirs) })
+        .map { key, meta, qc_tsv, dirs -> tuple(meta, qc_tsv, dirs) }
 
     CIS_MR(ch_in)
 

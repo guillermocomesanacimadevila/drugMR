@@ -94,26 +94,68 @@ def impute_ld_matrix(snps, out_prefix, ref_bfile):
     return ld, snp_order
 
 
-def grab_cis_mr_hits(csv_file, cochran_q_thresh: float, causal_thresh: float):
-    targets = []
-    df = pl.read_csv(csv_file, separator="\t")
-    for row in df.iter_rows(named=True):
-        protein = row["protein"]
-        n_instruments = row["n_instruments"]
-        ivw_fdr_q = row["IVW_FDR_q"]
-        q_pval = row["Q_pval"]
-        wald_fdr_q = row["Wald_FDR_q"]
-        if int(n_instruments) == 1:
-            if wald_fdr_q < causal_thresh:
-                targets.append(protein)
-        elif int(n_instruments) == 2:
-            if ivw_fdr_q < causal_thresh:
-                targets.append(protein)
-        else:
-            if int(n_instruments) >= 3:
-                if ivw_fdr_q < causal_thresh and q_pval > cochran_q_thresh:
-                    targets.append(protein)
-    return targets
+# canonical cis-MR pass/fail rule - shared by standard COLOC's own protein
+# selection (bin/coloc_targets.py's pairwise_coloc()) and PWCoCo's (below), so
+# a target that fails cis-MR for one method can't still silently reach the
+# other via 2 independently-drifted copies of this filter.
+def select_cis_mr_passing_proteins(
+    df: pl.DataFrame,
+    wald_fdr_q: float = 0.05,
+    ivw_fdr_q: float = 0.05,
+    cochran_q_pval: float = 0.05,
+    egger_intercept_pval_min: float = 0,
+    min_instruments_for_ivw: int = 3,
+) -> list[str]:
+    return (
+        df
+        .filter(
+            (
+                (pl.col("n_instruments") >= min_instruments_for_ivw) &
+                (pl.col("IVW_FDR_q") < ivw_fdr_q) &
+                (pl.col("egger_intercept_pval") > egger_intercept_pval_min) &
+                (pl.col("Q_pval") > cochran_q_pval)
+            )
+            |
+            (
+                (pl.col("n_instruments") == 1) &
+                (pl.col("Wald_FDR_q") < wald_fdr_q)
+            )
+        )
+        .select("protein")
+        .unique()
+        .get_column("protein")
+        .to_list()
+    )
+
+
+def grab_cis_mr_hits(
+    csv_file,
+    wald_fdr_q: float = 0.05,
+    ivw_fdr_q: float = 0.05,
+    cochran_q_pval: float = 0.05,
+    egger_intercept_pval_min: float = 0,
+    min_instruments_for_ivw: int = 3,
+):
+    df = pl.read_csv(
+        csv_file,
+        separator="\t",
+        infer_schema_length=None,
+        schema_overrides={
+            "n_instruments": pl.Int64,
+            "IVW_FDR_q": pl.Float64,
+            "egger_intercept_pval": pl.Float64,
+            "Q_pval": pl.Float64,
+            "Wald_FDR_q": pl.Float64,
+        },
+    )
+    return select_cis_mr_passing_proteins(
+        df,
+        wald_fdr_q=wald_fdr_q,
+        ivw_fdr_q=ivw_fdr_q,
+        cochran_q_pval=cochran_q_pval,
+        egger_intercept_pval_min=egger_intercept_pval_min,
+        min_instruments_for_ivw=min_instruments_for_ivw,
+    )
 
 
 def extract_coloc_or_pwcoco_targets(coloc_csv_file, pwcoco_csv_file, pp4_thresh: float, method: tuple[str, ...] = ("pwcoco", "coloc")):

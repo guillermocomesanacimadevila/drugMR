@@ -36,13 +36,44 @@ FINNGEN_R13_ICD_ENDPOINTS = 2511
 # ------ THEN BONFERRONI CORRECT ACROSS ALL ESTIMATES REGARDLESS OF METHOD
 
 
+def resolve_finngen_variant(chromosome: str, position: int, A1: str, A2: str, rsid: str):
+    # FinnGen requires chromosome-position-reference-alternative - try both
+    # allele orders and retain whichever FinnGen accepts. Same
+    # try/except-per-attempt convention as bin/ukb_phewas.py's
+    # resolve_ukbb_variant(): a transient network failure on one order just
+    # falls through to the next attempt instead of crashing the whole run.
+    snp_first_order = f"{chromosome}-{position}-{A1}-{A2}"
+    snp_second_order = f"{chromosome}-{position}-{A2}-{A1}"
+    for snp, finngen_ref, finngen_alt in [(snp_first_order, A1, A2), (snp_second_order, A2, A1)]:
+        try:
+            response = requests.get(f"https://r13.finngen.fi/api/variant/{snp}", timeout=60)
+            if response.status_code != 200:
+                continue
+            if len(response.json().get("results", [])) > 0:
+                return snp, finngen_ref, finngen_alt
+        except (requests.RequestException, ValueError):
+            continue
+    print(
+        f"[TRACKING] FinnGen variant could not be resolved for {rsid}. "
+        f"Tried {snp_first_order} and {snp_second_order}..."
+    )
+    return None, None, None
+
+
 def clean_phewas_hit(snp: str, rsid: str):
     # snp = "10-96304051-A-G" # chromosome-position-reference-alternative format
-    # query SNP using the FinnGen API
-    response = requests.get(f"https://r13.finngen.fi/api/variant/{snp}", timeout=60)
-    response.raise_for_status()
-    data = response.json()
-    results = data["results"]
+    # query SNP using the FinnGen API - returns None on any network/parsing
+    # failure (matches bin/ukb_phewas.py's resolve_ukbb_variant() convention),
+    # so a transient FinnGen outage skips this instrument rather than crashing
+    # the whole PheWAS run and losing every result already computed.
+    try:
+        response = requests.get(f"https://r13.finngen.fi/api/variant/{snp}", timeout=60)
+        response.raise_for_status()
+        data = response.json()
+        results = data["results"]
+    except (requests.RequestException, ValueError, KeyError) as error:
+        print(f"[CONCERN] FinnGen PheWAS lookup failed for {rsid} ({snp}) - skipping: {error}")
+        return None
     df = pd.DataFrame(results)
     df = df.dropna(subset=["beta", "sebeta", "pval", "phenocode", "phenostring", "category"])
     print(f"[TRACKING] Number of phenotypes in PheWAS for {rsid}: {len(df)} across {df['category'].nunique()} categories...")
@@ -65,14 +96,11 @@ def clean_phewas_hit(snp: str, rsid: str):
     return df
 
 
-coloc_threshold = 0
-
-
 # this script runs AFTER cis-MR + pairwise pQTL-GWAS COLOC
-def phewas_for_compelling_targets(pheno_id: str, pqtl_dataset: str, local_results_dir: str = "results", cis_regions_dir: str | None = None):
+def phewas_for_compelling_targets(pheno_id: str, pqtl_dataset: str, local_results_dir: str = "results", cis_regions_dir: str | None = None, coloc_file: str | None = None, coloc_threshold: float = 0, bonferroni_alpha: float = 0.05):
     # COLOC defines the targets only
     # each protein_id == its own protein assay / aptamer
-    coloc_file = paths.coloc_out(pqtl_dataset, pheno_id, local_results_dir)
+    coloc_file = coloc_file or paths.coloc_out(pqtl_dataset, pheno_id, local_results_dir)
     df_coloc = pl.read_csv(coloc_file, separator="\t")
 
     if "protein_id" in df_coloc.columns:
@@ -91,7 +119,7 @@ def phewas_for_compelling_targets(pheno_id: str, pqtl_dataset: str, local_result
     # matters even more now that UKB is a fallback keyed off THIS script's coverage
     # manifest: a PWCoCo-only target absent here would never appear in that
     # manifest and would silently get zero PheWAS coverage in either source.
-    # pwcoco_out() may not exist - PWCoCo runs non-fatally in local.py/hpc.py, so a
+    # pwcoco_out() may not exist - PWCoCo runs non-fatally in local.py/falcon.py, so a
     # failed or not-yet-run PWCoCo step must not break this.
     pwcoco_file = paths.pwcoco_out(pqtl_dataset, pheno_id, local_results_dir)
     if Path(pwcoco_file).exists():
@@ -291,41 +319,9 @@ def phewas_for_compelling_targets(pheno_id: str, pqtl_dataset: str, local_result
                 f"AD flipped={ad_A1_flipped}..."
             )
 
-            # FinnGen requires chromosome-position-reference-alternative
-            # try both allele orders and retain whichever FinnGen accepts
-            snp_first_order = (
-                f"{chromosome}-{position}-"
-                f"{A1}-{A2}"
-            )
-            snp_second_order = (
-                f"{chromosome}-{position}-"
-                f"{A2}-{A1}"
-            )
-            response = requests.get(
-                f"https://r13.finngen.fi/api/variant/{snp_first_order}",
-                timeout=60
-            )
-
-            if response.status_code == 200 and len(response.json().get("results", [])) > 0:
-                snp = snp_first_order
-                finngen_ref = A1
-                finngen_alt = A2
-            else:
-                response = requests.get(
-                    f"https://r13.finngen.fi/api/variant/{snp_second_order}",
-                    timeout=60
-                )
-
-                if response.status_code == 200 and len(response.json().get("results", [])) > 0:
-                    snp = snp_second_order
-                    finngen_ref = A2
-                    finngen_alt = A1
-                else:
-                    print(
-                        f"[TRACKING] FinnGen variant could not be resolved for {rsid}. "
-                        f"Tried {snp_first_order} and {snp_second_order}..."
-                    )
-                    continue
+            snp, finngen_ref, finngen_alt = resolve_finngen_variant(chromosome, position, A1, A2, rsid)
+            if snp is None:
+                continue
 
             print(
                 f"[TRACKING] FinnGen REF/ALT resolved for {rsid}: "
@@ -335,6 +331,8 @@ def phewas_for_compelling_targets(pheno_id: str, pqtl_dataset: str, local_result
 
             # query to phewas db and clean
             df_phewas = clean_phewas_hit(snp=snp, rsid=rsid)
+            if df_phewas is None:
+                continue
             df_phewas.to_csv(os.path.join(temp_dir, f"{protein}_{rsid}_raw_hits.csv"), index=False)
             df_phewas = pl.from_pandas(df_phewas)
 
@@ -669,7 +667,7 @@ def phewas_for_compelling_targets(pheno_id: str, pqtl_dataset: str, local_result
                 pl.lit(1.0)
             ).alias("p_bonferroni"),
             (
-                pl.col("p_mr") < (0.05 / n_endpoints_tested)
+                pl.col("p_mr") < (bonferroni_alpha / n_endpoints_tested)
             ).alias("bonferroni_significant")
         ])
 
@@ -712,12 +710,18 @@ def main():
     p.add_argument("--pqtl_dataset", required=True)
     p.add_argument("--local_results_dir", default="results")
     p.add_argument("--cis_regions_dir", default=None)
+    p.add_argument("--coloc_file", default=None)
+    p.add_argument("--coloc_threshold", type=float, default=0)
+    p.add_argument("--bonferroni_alpha", type=float, default=0.05)
     args = p.parse_args()
     phewas_for_compelling_targets(
         pheno_id=args.pheno_id,
         pqtl_dataset=args.pqtl_dataset,
         local_results_dir=args.local_results_dir,
-        cis_regions_dir=args.cis_regions_dir
+        cis_regions_dir=args.cis_regions_dir,
+        coloc_file=args.coloc_file,
+        coloc_threshold=args.coloc_threshold,
+        bonferroni_alpha=args.bonferroni_alpha
     )
 
 

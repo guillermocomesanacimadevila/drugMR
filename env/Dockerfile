@@ -104,7 +104,9 @@ RUN pip install \
     synapseclient \
     pyyaml \
     statsmodels \
-    liftover
+    liftover \
+    jsonschema==4.26.0 \
+    requests==2.34.2
 
 # sc-sQTLs -> https://www.synapse.org/Synapse:syn69670647
 # Add this separately whenever you want it:
@@ -117,11 +119,10 @@ RUN R -q -e "install.packages(c('remotes','BiocManager'), repos='https://cloud.r
     R -q -e "install.packages('ieugwasr', repos=c('https://mrcieu.r-universe.dev','https://cloud.r-project.org'))" && \
     R -q -e "remotes::install_github('clagiamba/moloc', build_vignettes=FALSE, upgrade='never')" && \
     R -q -e "install.packages(c('RadialMR','TwoSampleMR','MRPRESSO'), repos=c('https://mrcieu.r-universe.dev','https://cloud.r-project.org'))" && \
-    R -q -e "remotes::install_github('n-mounier/MRlap', build_vignettes=FALSE, upgrade='never')" && \
     R -q -e "remotes::install_version('RcppEigen', version='0.3.3.9.3', repos='https://cloud.r-project.org')" && \
     R -q -e "remotes::install_github('jrs95/hyprcoloc', build_vignettes=FALSE, upgrade = 'never')" && \
     R -q -e "remotes::install_github('StatFunGen/colocboost', build_vignettes=FALSE, upgrade = 'never')" && \
-    R -q -e "stopifnot(all(sapply(c('susieR','GenomicRanges','genetics.binaRies','ieugwasr','moloc','RadialMR','TwoSampleMR','MRPRESSO','MRlap','hyprcoloc'), requireNamespace, quietly=TRUE)))"
+    R -q -e "stopifnot(all(sapply(c('susieR','GenomicRanges','genetics.binaRies','ieugwasr','moloc','RadialMR','TwoSampleMR','MRPRESSO','hyprcoloc'), requireNamespace, quietly=TRUE)))"
 
 ENV PATH="/opt/conda/envs/drugmr/bin:$PATH"
 

@@ -14,14 +14,14 @@ SELECT
     mr.run_id, mr.protein, mr.pqtl_dataset,
     mr.primary_beta AS mr_beta, mr.primary_fdr_q,
     c.pp_h4_abf, c.coloc_pass,
-    smr.eqtl_dataset, smr.cell_type,
-    smr.b_gwas, smr.b_eqtl, smr.b_smr, smr.p_smr, smr.p_heidi,
+    smr.qtl_dataset, smr.cell_type,
+    smr.b_gwas, smr.b_qtl, smr.b_smr, smr.p_smr, smr.p_heidi,
     hc.posterior_prob AS hyprcoloc_pp, hc.candidate_snp
 FROM cis_mr_results mr
 JOIN coloc_results c ON c.run_id = mr.run_id AND c.protein = mr.protein
 JOIN smr_results smr ON smr.run_id = mr.run_id AND smr.protein = mr.protein
 LEFT JOIN hyprcoloc_results hc
-    ON hc.run_id = mr.run_id AND hc.protein = mr.protein AND hc.eqtl_dataset = smr.eqtl_dataset;
+    ON hc.run_id = mr.run_id AND hc.protein = mr.protein AND hc.qtl_dataset = smr.qtl_dataset;
 
 */
 
@@ -136,7 +136,8 @@ CREATE TABLE pwcoco_eqtl_pqtl_results (
     run_id VARCHAR NOT NULL REFERENCES runs(run_id),
     protein VARCHAR NOT NULL,
     pqtl_dataset VARCHAR NOT NULL,
-    eqtl_dataset VARCHAR NOT NULL,
+    qtl_dataset VARCHAR NOT NULL,
+    qtl_type VARCHAR,
     cell_type VARCHAR,
     snp1 VARCHAR,
     snp2 VARCHAR,
@@ -156,7 +157,8 @@ CREATE TABLE pwcoco_eqtl_gwas_results (
     protein VARCHAR NOT NULL,
     pqtl_dataset VARCHAR NOT NULL,
     outcome_trait VARCHAR NOT NULL,
-    eqtl_dataset VARCHAR NOT NULL,
+    qtl_dataset VARCHAR NOT NULL,
+    qtl_type VARCHAR,
     cell_type VARCHAR,
     snp1 VARCHAR,
     snp2 VARCHAR,
@@ -177,7 +179,8 @@ CREATE TABLE smr_results (
     protein VARCHAR NOT NULL,
     pqtl_dataset VARCHAR NOT NULL,
     phenotype VARCHAR NOT NULL,
-    eqtl_dataset VARCHAR NOT NULL,
+    qtl_dataset VARCHAR NOT NULL,
+    qtl_type VARCHAR,
     cell_type VARCHAR,
     data_type VARCHAR,
     gene VARCHAR,
@@ -195,9 +198,9 @@ CREATE TABLE smr_results (
     b_gwas DOUBLE PRECISION,
     se_gwas DOUBLE PRECISION,
     p_gwas DOUBLE PRECISION,
-    b_eqtl DOUBLE PRECISION,
-    se_eqtl DOUBLE PRECISION,
-    p_eqtl DOUBLE PRECISION,
+    b_qtl DOUBLE PRECISION,
+    se_qtl DOUBLE PRECISION,
+    p_qtl DOUBLE PRECISION,
     b_smr DOUBLE PRECISION,
     se_smr DOUBLE PRECISION,
     p_smr DOUBLE PRECISION,
@@ -222,7 +225,8 @@ CREATE TABLE hyprcoloc_results (
     protein VARCHAR NOT NULL,
     pqtl_dataset VARCHAR NOT NULL,
     outcome_trait VARCHAR NOT NULL,
-    eqtl_dataset VARCHAR NOT NULL,
+    qtl_dataset VARCHAR NOT NULL,
+    qtl_type VARCHAR,
     cell_type VARCHAR,
     data_type VARCHAR,
     iteration INTEGER,
@@ -239,8 +243,8 @@ CREATE TABLE hyprcoloc_results (
     gwas_p DOUBLE PRECISION,
     pqtl_beta DOUBLE PRECISION,
     pqtl_p DOUBLE PRECISION,
-    eqtl_beta DOUBLE PRECISION,
-    eqtl_p DOUBLE PRECISION
+    qtl_beta DOUBLE PRECISION,
+    qtl_p DOUBLE PRECISION
 );
 
 CREATE INDEX idx_hyprcoloc_run ON hyprcoloc_results (run_id);

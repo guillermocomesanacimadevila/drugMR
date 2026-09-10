@@ -9,9 +9,6 @@ nextflow.enable.dsl = 2
 ----------------------------------------------------------------------------------------
 */
 
-// nextflow run main.nf -profile docker -params-file tests/nf/params.qc_test.yaml --manifest_path tests/dat/qtl_manifest_toy.csv
-// nextflow run main.nf -profile docker -params-file tests/nf/params.qc_test.yaml --manifest_path tests/dat/qtl_manifest_toy.csv -resume
-
 include { DRUGMR } from './workflows/drugmr.nf'
 
 workflow {
@@ -20,15 +17,26 @@ workflow {
     DRUGMR()
 
     onComplete:
-    if (workflow.success) {
+    if (workflow.preview) {
+        println "[TRACKING] -preview run - registry NOT updated for run_id=${params.run_id}"
+    } else if (workflow.success) {
         def pheno_id = params.inputs[0].pheno_id
         def pqtl_dataset = params.inputs[0].pqtl_dataset
+        def host
+        try {
+            host = InetAddress.getLocalHost().getHostName()
+        } catch (Exception e) {
+            host = "unknown"
+        }
         def cmd = [
             "python3", "${projectDir}/bin/record_run.py",
             "--pheno_id", pheno_id,
             "--pqtl_dataset", pqtl_dataset,
             "--run_id", params.run_id,
-            "--root", "${params.runs_root}"
+            "--root", "${params.runs_root}",
+            "--git_sha7", "${workflow.commitId ?: 'unknown'}",
+            "--image_name", "${params.image_name}",
+            "--host", host
         ]
         def proc = cmd.execute(["PYTHONPATH=${projectDir}"], new File("${projectDir}"))
         proc.waitFor()

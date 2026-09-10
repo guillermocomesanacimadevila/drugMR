@@ -3,7 +3,8 @@ nextflow.enable.dsl=2
 
 process PWCOCO {
 
-    tag "pwcoco_targets_in_phase1"
+    tag "pwcoco_targets_in_phase1_${meta.pheno_id}_${meta.pqtl_dataset}"
+    label "process_massive"
 
     publishDir { "${params.runs_root}/${params.run_id}/results/pwcoco" }, mode: "copy"
 
@@ -31,6 +32,11 @@ process PWCOCO {
         --n_cases ${meta.n_cases} \\
         --n_controls ${meta.n_controls} \\
         --local_results_dir . \\
-        --cis_regions_dir protein_dirs
+        --cis_regions_dir protein_dirs \\
+        --wald_fdr_q ${meta.gates.cis_mr.wald_fdr_q} \\
+        --ivw_fdr_q ${meta.gates.cis_mr.ivw_fdr_q} \\
+        --cochran_q_pval ${meta.gates.cis_mr.cochran_q_pval} \\
+        --egger_intercept_pval_min ${meta.gates.cis_mr.egger_intercept_pval_min} \\
+        --min_instruments_for_ivw ${meta.gates.cis_mr.min_instruments_for_ivw}
     """
 }

@@ -3,7 +3,8 @@ nextflow.enable.dsl=2
 
 process PAIRWISE_COLOC {
 
-    tag "pairwise_coloc"
+    tag "pairwise_coloc_${meta.pheno_id}_${meta.pqtl_dataset}"
+    label "process_low"
 
     publishDir { "${params.runs_root}/${params.run_id}/results/coloc" }, mode: "copy"
 
@@ -21,6 +22,9 @@ process PAIRWISE_COLOC {
     output:
     tuple val(meta), path("coloc/${meta.pqtl_dataset}_${meta.pheno_id}_all_coloc.tsv"), path("coloc/coloc_sensitivity.tsv"), emit: coloc_results
 
+    // no --repo_root/--manifest_path: coloc_targets.py never touches the QTL
+    // manifest at all, it only reads already-extracted cis-region parquet
+    // files passed in via protein_dirs.
     script:
     """
     export PYTHONPATH=${projectDir}
@@ -30,30 +34,16 @@ process PAIRWISE_COLOC {
         --pqtl_dir protein_dirs \\
         --pheno_id ${meta.pheno_id} \\
         --n_cases ${meta.n_cases} \\
-        --n_controls ${meta.n_controls}
+        --n_controls ${meta.n_controls} \\
+        --wald_fdr_q ${meta.gates.cis_mr.wald_fdr_q} \\
+        --ivw_fdr_q ${meta.gates.cis_mr.ivw_fdr_q} \\
+        --cochran_q_pval ${meta.gates.cis_mr.cochran_q_pval} \\
+        --egger_intercept_pval_min ${meta.gates.cis_mr.egger_intercept_pval_min} \\
+        --min_instruments_for_ivw ${meta.gates.cis_mr.min_instruments_for_ivw} \\
+        --pp4_threshold ${meta.gates.coloc.pp4_threshold} \\
+        --p1 ${meta.gates.coloc.p1} \\
+        --p2 ${meta.gates.coloc.p2} \\
+        --p12 ${meta.gates.coloc.p12}
     """
 
 }
-
-
-/*
-cmd_coloc = [
-        "docker", "run", "--rm",
-        "-v", f"{project_root}:/work",
-        "-w", "/work",
-        "-e", "PYTHONPATH=.",
-        image_name,
-        "python", "bin/coloc_targets.py",
-        "--pqtl_dataset", pqtl_dataset, - meta
-        "--local_results_dir", out_dir, - **
-        "--pqtl_dir", f"dat/cis_regions/{pqtl_dataset}",
-        "--pheno_id", pheno_id, - meta
-        "--n_cases", str(n_cases), - meta
-        "--n_controls", str(n_controls), - meta
-        "--wald_fdr_q", str(wald_fdr_q), - mr_res
-        "--ivw_fdr_q", str(ivw_fdr_q), - mr_res
-        "--cochran_q_pval", str(cochran_q_pval),
-        "--egger_intercept_pval_min", str(egger_intercept_pval_min), - mr_res
-        "--min_instruments_for_ivw", str(min_instruments_for_ivw), - mr_res
-    ]
-*/

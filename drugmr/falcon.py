@@ -6,6 +6,11 @@ from pathlib import Path
 from drugmr import paths, registry
 from drugmr.config import Config
 
+# overridden by hpc()'s own host/remote_repo_root arguments, read by every
+# ssh()/scp/get_remote_paths() call below
+_SSH_HOST = "falconlogin.cf.ac.uk"
+_REMOTE_REPO_ROOT = "/shared/home1/{falcon_user}/drugMR"
+
 # * Notes for myself before going to Greece
 # the git clone thingy
 # remember QC run for GWAS as well
@@ -23,20 +28,20 @@ def ssh(cmd: str, falcon_user: str, allowed_returncodes: tuple = (0,)):
     # which is inherent to how ssh runs a command - that's expected, not a shell=True
     # concern (cmd is our own multi-line bash script, not untrusted external input).
     result = subprocess.run(
-        ["ssh", f"{falcon_user}@falconlogin.cf.ac.uk", cmd],
+        ["ssh", f"{falcon_user}@{_SSH_HOST}", cmd],
         capture_output=True,
         text=True,
     )
     if result.stdout:
         print(result.stdout)
     if result.returncode not in allowed_returncodes:
-        print("[ERROR] Falcon command failed.")
+        print("[ERROR] Remote command failed.")
         print(result.stderr)
         raise subprocess.CalledProcessError(result.returncode, cmd)
     return result
 
 def get_remote_paths(falcon_user: str):
-    remote = f"/shared/home1/{falcon_user}/drugMR"
+    remote = _REMOTE_REPO_ROOT.format(falcon_user=falcon_user)
     sif = f"{remote}/env/drugmr.sif"
     return remote, sif
 
@@ -131,15 +136,17 @@ echo "[TRACKING] Required {step} output found for {required_for}"
 """, falcon_user)
 
 def clone_repo(falcon_user: str):
-    ssh("""
+    remote, _ = get_remote_paths(falcon_user)
+
+    ssh(f"""
 set -euo pipefail
 
-echo 'Hello Falcon HPC!'
-if [ -d "$HOME/drugMR" ]; then
+echo 'Hello HPC!'
+if [ -d "{remote}" ]; then
     echo "[TRACKING] I found the directory!"
-    cd "$HOME/drugMR"
+    cd "{remote}"
 
-    echo "[TRACKING] Resetting Falcon repo to GitHub main..."
+    echo "[TRACKING] Resetting remote repo to GitHub main..."
     git fetch origin main
     git reset --hard origin/main
     git clean -fd \
@@ -151,23 +158,25 @@ if [ -d "$HOME/drugMR" ]; then
 else
     echo "[CONCERN] Yowza! I cannot see the drugMR directory..."
     echo "[TRACKING] Cloning from GitHub..."
-    git clone https://github.com/guillermocomesanacimadevila/drugMR.git "$HOME/drugMR"
+    git clone https://github.com/guillermocomesanacimadevila/drugMR.git "{remote}"
 fi
 """, falcon_user)
 
 def container_checks(falcon_user: str):
-    ssh("""
+    remote, _ = get_remote_paths(falcon_user)
+
+    ssh(f"""
 set -euo pipefail
 
-if [ ! -d "$HOME/drugMR" ]; then
-    git clone https://github.com/guillermocomesanacimadevila/drugMR.git "$HOME/drugMR"
+if [ ! -d "{remote}" ]; then
+    git clone https://github.com/guillermocomesanacimadevila/drugMR.git "{remote}"
 fi
 
-cd "$HOME/drugMR"
+cd "{remote}"
 # git pull
 
 chmod +x bin/bootstrap_hpc.sh
-bash bin/bootstrap_hpc.sh
+bash bin/bootstrap_hpc.sh "{remote}"
 """, falcon_user)
 
 
@@ -268,7 +277,7 @@ bash -c "cd /work && python bin/prep_cis_regions.py \\
 """, falcon_user)
 
 
-# RUN MR 
+# RUN MR
 def run_cis_mr(
     falcon_user: str,
     pqtl_dataset: str,
@@ -276,7 +285,13 @@ def run_cis_mr(
     pheno_id: str,
     pheno_gwas: str,
     ref_bfile: str,
-    out_dir: str = "results"
+    out_dir: str = "results",
+    clump_kb: int = 10000,
+    clump_r2: float = 0.001,
+    instrument_pval_threshold: float = 5.0e-8,
+    min_f_stat: float = 10,
+    apply_steiger_filter: bool = False,
+    maf: float = 0.01,
 ):
     remote, sif = get_remote_paths(falcon_user)
 
@@ -291,7 +306,13 @@ bash -c "cd /work && Rscript bin/cis_mr.R \\
   {pheno_id} \\
   {pheno_gwas} \\
   {ref_bfile} \\
-  {out_dir}"
+  {out_dir} \\
+  {clump_kb} \\
+  {clump_r2} \\
+  {instrument_pval_threshold} \\
+  {min_f_stat} \\
+  {apply_steiger_filter} \\
+  {maf}"
 """, falcon_user)
 
 # RUN COLOC
@@ -307,6 +328,10 @@ def run_coloc(
     cochran_q_pval: float = 0.05,
     egger_intercept_pval_min: float = 0,
     min_instruments_for_ivw: int = 3,
+    pp4_threshold: float = 0.7,
+    p1: float = 1e-4,
+    p2: float = 1e-4,
+    p12: float = 1e-5,
 ):
     remote, sif = get_remote_paths(falcon_user)
 
@@ -328,7 +353,11 @@ apptainer exec --bind "{remote}:/work" \\
     --ivw_fdr_q {ivw_fdr_q} \\
     --cochran_q_pval {cochran_q_pval} \\
     --egger_intercept_pval_min {egger_intercept_pval_min} \\
-    --min_instruments_for_ivw {min_instruments_for_ivw}"
+    --min_instruments_for_ivw {min_instruments_for_ivw} \\
+    --pp4_threshold {pp4_threshold} \\
+    --p1 {p1} \\
+    --p2 {p2} \\
+    --p12 {p12}"
 """, falcon_user)
 
 
@@ -341,8 +370,11 @@ def run_pwcoco(
     n_cases: int,
     n_controls: int,
     local_results_dir: str = "results",
-    cochran_q_pval: float = 0.05,
     wald_fdr_q: float = 0.05,
+    ivw_fdr_q: float = 0.05,
+    cochran_q_pval: float = 0.05,
+    egger_intercept_pval_min: float = 0,
+    min_instruments_for_ivw: int = 3,
 ):
     remote, sif = get_remote_paths(falcon_user)
 
@@ -360,12 +392,15 @@ apptainer exec --bind "{remote}:/work" \\
     --n_cases {n_cases} \\
     --n_controls {n_controls} \\
     --local_results_dir {local_results_dir} \\
+    --wald_fdr_q {wald_fdr_q} \\
+    --ivw_fdr_q {ivw_fdr_q} \\
     --cochran_q_pval {cochran_q_pval} \\
-    --wald_fdr_q {wald_fdr_q}"
+    --egger_intercept_pval_min {egger_intercept_pval_min} \\
+    --min_instruments_for_ivw {min_instruments_for_ivw}"
 """, falcon_user)
 
 
-# RUN PWCoCo (eQTL-informed) - eQTL-pQTL / eQTL-GWAS PWCoCo on every SMR-passing
+# RUN PWCoCo (QTL-informed) - QTL-pQTL / QTL-GWAS PWCoCo on every SMR-passing
 # target, then compared for shared colocalising SNPs against the pQTL-GWAS PWCoCo
 # above (see project_pwcoco_wiring memory / bin/pwcoco_qtl_wrapper.py)
 def run_pwcoco_qtl(
@@ -376,6 +411,7 @@ def run_pwcoco_qtl(
     n_cases: int,
     n_controls: int,
     local_results_dir: str = "results",
+    pp4_threshold: float = 0.7,
 ):
     remote, sif = get_remote_paths(falcon_user)
 
@@ -392,22 +428,30 @@ apptainer exec --bind "{remote}:/work" \\
     --ref_bfile {ref_bfile} \\
     --n_cases {n_cases} \\
     --n_controls {n_controls} \\
-    --local_results_dir {local_results_dir}"
+    --local_results_dir {local_results_dir} \\
+    --pp4_threshold {pp4_threshold}"
 """, falcon_user)
 
 
-# RUN SMR (bulk or single-cell, depending on eqtl_mode)
+# RUN SMR (bulk or single-cell, depending on qtl_mode)
 # named run_smr_step (not run_smr) to avoid clashing with the run_smr config flag in hpc()
 def run_smr_step(
     falcon_user: str,
     pqtl_dataset: str,
-    eqtl_dataset: str,
-    eqtl_mode: str,
+    qtl_dataset: str,
+    qtl_mode: str,
     pheno_id: str,
     sumstats: str,
     ref_bfile: str,
     maf: float,
-    local_results_dir: str = "results"
+    local_results_dir: str = "results",
+    wald_fdr_q: float = 0.05,
+    ivw_fdr_q: float = 0.05,
+    cochran_q_pval: float = 0.05,
+    p_qtl_smr: float = 5.0e-8,
+    p_qtl_heidi: float = 1.57e-3,
+    p_smr_threshold: float = 0.05,
+    p_heidi_threshold: float = 0.01,
 ):
     remote, sif = get_remote_paths(falcon_user)
 
@@ -422,25 +466,40 @@ apptainer exec --bind "{remote}:/work" \\
     --pheno_id {pheno_id} \\
     --sumstats {sumstats} \\
     --pqtl_dataset {pqtl_dataset} \\
-    --eqtl_dataset {eqtl_dataset} \\
-    --eqtl_mode {eqtl_mode} \\
+    --qtl_dataset {qtl_dataset} \\
+    --qtl_mode {qtl_mode} \\
     --ref_bfile {ref_bfile} \\
     --maf {maf} \\
-    --local_results_dir {local_results_dir}"
+    --local_results_dir {local_results_dir} \\
+    --wald_fdr_q {wald_fdr_q} \\
+    --ivw_fdr_q {ivw_fdr_q} \\
+    --cochran_q_pval {cochran_q_pval} \\
+    --p_qtl_smr {p_qtl_smr} \\
+    --p_qtl_heidi {p_qtl_heidi} \\
+    --p_smr_threshold {p_smr_threshold} \\
+    --p_heidi_threshold {p_heidi_threshold}"
 """, falcon_user)
 
 
-# RUN HyPrColoc (bulk and/or single-cell eQTL) - for every target x cell-type/tissue
-# hit in the combined final multi-omics target table for the given eqtl_dataset, runs
-# a 3-trait (pQTL / GWAS / eQTL) HyPrColoc restricted to that target's cis-region
+# RUN HyPrColoc (bulk and/or single-cell QTL) - for every target x cell-type/tissue
+# hit in the combined final multi-omics target table for the given qtl_dataset, runs
+# a 3-trait (pQTL / GWAS / QTL) HyPrColoc restricted to that target's cis-region
 def run_hyprcoloc_step(
     falcon_user: str,
     pqtl_dataset: str,
     pheno_id: str,
-    eqtl_dataset: str,
-    local_results_dir: str = "results"
+    qtl_dataset: str,
+    local_results_dir: str = "results",
+    prior_1: float = 1e-4,
+    prior_c: list[float] = (0.05, 0.02, 0.01, 0.005),
+    reg_thresh: list[float] = (0.5, 0.6, 0.7),
+    align_thresh: list[float] = (0.5, 0.6, 0.7),
+    equal_thresholds: bool = True,
 ):
     remote, sif = get_remote_paths(falcon_user)
+    prior_c_arg = ",".join(str(v) for v in prior_c)
+    reg_thresh_arg = ",".join(str(v) for v in reg_thresh)
+    align_thresh_arg = ",".join(str(v) for v in align_thresh)
 
     ssh(f"""
 set -euo pipefail
@@ -452,8 +511,13 @@ apptainer exec --bind "{remote}:/work" \\
   bash -c "cd /work && python bin/hyprcoloc_targets.py \\
     --pqtl_dataset {pqtl_dataset} \\
     --pheno_id {pheno_id} \\
-    --eqtl_dataset {eqtl_dataset} \\
-    --local_results_dir {local_results_dir}"
+    --qtl_dataset {qtl_dataset} \\
+    --local_results_dir {local_results_dir} \\
+    --prior_1 {prior_1} \\
+    --prior_c {prior_c_arg} \\
+    --reg_thresh {reg_thresh_arg} \\
+    --align_thresh {align_thresh_arg} \\
+    --equal_thresholds {equal_thresholds}"
 """, falcon_user)
 
 
@@ -486,7 +550,9 @@ def phewas_safety_finngen(
     pheno_id: str,
     pqtl_dataset: str,
     local_results_dir: str = "results",
-    overwrite: bool = False
+    overwrite: bool = False,
+    coloc_threshold: float = 0,
+    bonferroni_alpha: float = 0.05,
 ):
     project_root = Path(__file__).resolve().parents[1]
     local_results_dir = Path(local_results_dir)
@@ -524,6 +590,8 @@ def phewas_safety_finngen(
         "--pheno_id", pheno_id,
         "--pqtl_dataset", pqtl_dataset,
         "--local_results_dir", str(local_results_dir),
+        "--coloc_threshold", str(coloc_threshold),
+        "--bonferroni_alpha", str(bonferroni_alpha),
     ]
 
     print(f"[TRACKING] FinnGen PheWAS pairwise COLOC input found: {top_snp_file}")
@@ -536,7 +604,9 @@ def phewas_safety_ukbb(
     pheno_id: str,
     pqtl_dataset: str,
     local_results_dir: str = "results",
-    overwrite: bool = False
+    overwrite: bool = False,
+    coloc_threshold: float = 0,
+    bonferroni_alpha: float = 0.05,
 ):
     project_root = Path(__file__).resolve().parents[1]
     local_results_dir = Path(local_results_dir)
@@ -583,6 +653,8 @@ def phewas_safety_ukbb(
         "--pheno_id", pheno_id,
         "--pqtl_dataset", pqtl_dataset,
         "--local_results_dir", str(local_results_dir),
+        "--coloc_threshold", str(coloc_threshold),
+        "--bonferroni_alpha", str(bonferroni_alpha),
     ]
 
     print(f"[TRACKING] UKBB PheWAS pairwise COLOC input found: {top_snp_file}")
@@ -676,7 +748,7 @@ def pull_results_local(
         if local_file.exists() and overwrite:
             print(f"[TRACKING] {local_file} already exists locally. Overwriting...")
 
-        cmd = ["scp", f"{falcon_user}@falconlogin.cf.ac.uk:{remote_file}", str(local_file)]
+        cmd = ["scp", f"{falcon_user}@{_SSH_HOST}:{remote_file}", str(local_file)]
         print(cmd)
         subprocess.run(cmd, check=True)
         print(f"[DONE] Pulled results into {local_file}")
@@ -694,14 +766,14 @@ def pull_results_local(
         )
 
         if remote_smr_check:
-            cmd = ["scp", f"{falcon_user}@falconlogin.cf.ac.uk:{remote_smr}", str(local_smr)]
+            cmd = ["scp", f"{falcon_user}@{_SSH_HOST}:{remote_smr}", str(local_smr)]
             print(cmd)
             subprocess.run(cmd, check=True)
             print(f"[DONE] Pulled results into {local_smr}")
         else:
             print("[TRACKING] No remote SMR output found - skipping SMR pull.")
 
-    # HyPrColoc is also optional (gated by bulk_eqtl_datasets / sc_eqtl_dataset)
+    # HyPrColoc is also optional (gated by bulk_qtl_datasets / sc_qtl_dataset)
     # so only pull it down if it was actually produced remotely
     if local_hyprcoloc.exists() and not overwrite:
         print(f"[TRACKING] {local_hyprcoloc} already exists locally. Skipping pull.")
@@ -714,7 +786,7 @@ def pull_results_local(
         )
 
         if remote_hyprcoloc_check:
-            cmd = ["scp", f"{falcon_user}@falconlogin.cf.ac.uk:{remote_hyprcoloc}", str(local_hyprcoloc)]
+            cmd = ["scp", f"{falcon_user}@{_SSH_HOST}:{remote_hyprcoloc}", str(local_hyprcoloc)]
             print(cmd)
             subprocess.run(cmd, check=True)
             print(f"[DONE] Pulled results into {local_hyprcoloc}")
@@ -807,17 +879,35 @@ fi
 
 
 # Function to run all the HPC gist
-def hpc(config: str, run_id: str = None):
+def hpc(
+    config: str,
+    falcon_user: str,
+    run_id: str = None,
+    host: str = "falconlogin.cf.ac.uk",
+    remote_repo_root: str = "/shared/home1/{falcon_user}/drugMR",
+):
     # config has no default on purpose - there's no single correct params file
     # anymore now that each (pheno_id, pqtl_dataset) pair has its own under
     # params/ (e.g. params/AD.wingo_brain.yaml) - pass one explicitly.
+    #
+    # falcon_user is a per-invocation credential, not an analysis parameter -
+    # it doesn't belong in a (pheno_id, pqtl_dataset) params file, so it's a
+    # real argument here instead of cfg.falcon_user.
     #
     # run_id defaults to None, which keeps the deterministic
     # (pheno_id, pqtl_dataset, day, remote commit) behaviour below. Pass an
     # existing runs/<run_id> value explicitly to resume/retry into that same
     # run dir instead of starting a fresh one.
+    #
+    # host/remote_repo_root default to Falcon but any SLURM+Apptainer cluster
+    # reachable over ssh works - every ssh()/scp/get_remote_paths() call in
+    # this module reads the shared _SSH_HOST/_REMOTE_REPO_ROOT rather than a
+    # hardcoded hostname or path. remote_repo_root can use {falcon_user} as a
+    # placeholder for the actual username.
+    global _SSH_HOST, _REMOTE_REPO_ROOT
+    _SSH_HOST = host
+    _REMOTE_REPO_ROOT = remote_repo_root
     cfg = Config(config)
-    falcon_user = cfg.falcon_user
     pheno_id = cfg.pheno_id
     sumstats = cfg.sumstats
     n_cases = cfg.n_cases
@@ -842,8 +932,8 @@ def hpc(config: str, run_id: str = None):
     remove_apoe = getattr(cfg, "remove_apoe", False)
     overwrite = getattr(cfg, "overwrite", False)
     run_smr = getattr(cfg, "run_smr", True)
-    bulk_eqtl_datasets = getattr(cfg, "bulk_eqtl_datasets", [])
-    sc_eqtl_dataset = getattr(cfg, "sc_eqtl_dataset", "")
+    bulk_qtl_datasets = getattr(cfg, "bulk_qtl_datasets", [])
+    sc_qtl_dataset = getattr(cfg, "sc_qtl_dataset", "")
 
     # cis-MR / coloc gate thresholds - see params/schema.json's gates block;
     # defaults match what bin/coloc_targets.py used to hardcode
@@ -852,12 +942,32 @@ def hpc(config: str, run_id: str = None):
     cochran_q_pval = cfg.gate("cis_mr", "cochran_q_pval", 0.05)
     egger_intercept_pval_min = cfg.gate("cis_mr", "egger_intercept_pval_min", 0)
     min_instruments_for_ivw = cfg.gate("cis_mr", "min_instruments_for_ivw", 3)
+    apply_steiger_filter = cfg.gate("cis_mr", "apply_steiger_filter", False)
+    clump_kb = cfg.gate("cis_mr", "clump_kb", 10000)
+    clump_r2 = cfg.gate("cis_mr", "clump_r2", 0.001)
+    instrument_pval_threshold = cfg.gate("cis_mr", "instrument_pval_threshold", 5.0e-8)
+    min_f_stat = cfg.gate("cis_mr", "min_f_stat", 10)
     pp4_threshold = cfg.gate("coloc", "pp4_threshold", 0.7)
+    p1 = cfg.gate("coloc", "p1", 1e-4)
+    p2 = cfg.gate("coloc", "p2", 1e-4)
+    p12 = cfg.gate("coloc", "p12", 1e-5)
+    p_qtl_smr = cfg.gate("smr", "p_qtl_smr", 5.0e-8)
+    p_qtl_heidi = cfg.gate("smr", "p_qtl_heidi", 1.57e-3)
+    p_smr_threshold = cfg.gate("smr", "p_smr_threshold", 0.05)
+    p_heidi_threshold = cfg.gate("smr", "p_heidi_threshold", 0.01)
+    hc_prior_1 = cfg.gate("hyprcoloc", "prior_1", 1e-4)
+    hc_prior_c = cfg.gate("hyprcoloc", "prior_c", [0.05, 0.02, 0.01, 0.005])
+    hc_reg_thresh = cfg.gate("hyprcoloc", "reg_thresh", [0.5, 0.6, 0.7])
+    hc_align_thresh = cfg.gate("hyprcoloc", "align_thresh", [0.5, 0.6, 0.7])
+    hc_equal_thresholds = cfg.gate("hyprcoloc", "equal_thresholds", True)
+    pwcoco_pp4_threshold = cfg.gate("pwcoco", "pp4_threshold", 0.7)
+    bonferroni_alpha = cfg.gate("phewas", "bonferroni_alpha", 0.05)
+    phewas_coloc_threshold = cfg.gate("phewas", "coloc_threshold", 0)
 
-    print("[TRACKING] Preparing Falcon repo...")
+    print("[TRACKING] Preparing remote repo...")
     clone_repo(falcon_user)
 
-    print("[TRACKING] Preparing Falcon env...")
+    print("[TRACKING] Preparing remote env...")
     container_checks(falcon_user)
 
     # run_id uses the REMOTE repo's HEAD (post clone_repo() reset), since that's the
@@ -894,17 +1004,17 @@ def hpc(config: str, run_id: str = None):
     # annotation on top of it
     pwcoco_out = str(paths.pwcoco_out(pqtl_dataset, pheno_id, out_dir))
 
-    # PWCoCo (eQTL-informed) - eQTL-pQTL / eQTL-GWAS on SMR-passing targets, gated
+    # PWCoCo (QTL-informed) - QTL-pQTL / QTL-GWAS on SMR-passing targets, gated
     # on the same complementary-not-required basis as pwcoco_out above
     pwcoco_qtl_out = str(paths.pwcoco_eqtl_pqtl_out(pqtl_dataset, pheno_id, out_dir))
 
     target_stats_out = str(paths.target_stats_out(pqtl_dataset, pheno_id, out_dir))
 
-    # SMR (bulk and/or single-cell) - promising target output per eQTL mode
-    # bulk_eqtl_datasets is a list (MetaBrain / GTEx_v10 etc. are pre-computed
+    # SMR (bulk and/or single-cell) - promising target output per QTL mode
+    # bulk_qtl_datasets is a list (MetaBrain / GTEx_v10 etc. are pre-computed
     # separately under results/SMR/bulk/{dataset}/) so its per-dataset outputs are built
     # inside the SMR step below rather than up front here
-    smr_sc_out = str(paths.smr_sc_out(pqtl_dataset, pheno_id, sc_eqtl_dataset, out_dir))
+    smr_sc_out = str(paths.smr_sc_out(pqtl_dataset, pheno_id, sc_qtl_dataset, out_dir))
 
     if not check_remote_output(
         falcon_user=falcon_user,
@@ -972,6 +1082,12 @@ def hpc(config: str, run_id: str = None):
             pheno_gwas=qc_out,
             ref_bfile=ref_bfile,
             out_dir=out_dir,
+            clump_kb=clump_kb,
+            clump_r2=clump_r2,
+            instrument_pval_threshold=instrument_pval_threshold,
+            min_f_stat=min_f_stat,
+            apply_steiger_filter=apply_steiger_filter,
+            maf=maf,
         )
 
     require_remote_output(
@@ -999,7 +1115,11 @@ def hpc(config: str, run_id: str = None):
             ivw_fdr_q=ivw_fdr_q,
             cochran_q_pval=cochran_q_pval,
             egger_intercept_pval_min=egger_intercept_pval_min,
-            min_instruments_for_ivw=min_instruments_for_ivw
+            min_instruments_for_ivw=min_instruments_for_ivw,
+            pp4_threshold=pp4_threshold,
+            p1=p1,
+            p2=p2,
+            p12=p12,
         )
 
     require_remote_output(
@@ -1029,8 +1149,11 @@ def hpc(config: str, run_id: str = None):
                 n_cases=n_cases,
                 n_controls=n_controls,
                 local_results_dir=out_dir,
-                cochran_q_pval=cochran_q_pval,
                 wald_fdr_q=wald_fdr_q,
+                ivw_fdr_q=ivw_fdr_q,
+                cochran_q_pval=cochran_q_pval,
+                egger_intercept_pval_min=egger_intercept_pval_min,
+                min_instruments_for_ivw=min_instruments_for_ivw,
             )
         except subprocess.CalledProcessError as error:
             print(f"[CONCERN] PWCoCo run failed - continuing without it: {error}")
@@ -1057,14 +1180,14 @@ def hpc(config: str, run_id: str = None):
         required_for="Dashboard target information"
     )
 
-    # SMR module (bulk and/or single-cell eQTL, run right after coloc + top-cis-hit compilation)
+    # SMR module (bulk and/or single-cell QTL, run right after coloc + top-cis-hit compilation)
     # -> targets which survive cis-MR + COLOC are checked against SMR + HEIDI in the
-    #    configured eQTL dataset(s), alleles aligned to the AD risk allele
+    #    configured QTL dataset(s), alleles aligned to the AD risk allele
     if run_smr:
-        if bulk_eqtl_datasets:
-            # bulk eQTL SMR (MetaBrain / GTEx_v10) is pre-computed elsewhere -
+        if bulk_qtl_datasets:
+            # bulk QTL SMR (MetaBrain / GTEx_v10) is pre-computed elsewhere -
             # bin/sort_smr.py ingests results/SMR/bulk/{dataset}/ rather than re-running SMR
-            for bulk_dataset in bulk_eqtl_datasets:
+            for bulk_dataset in bulk_qtl_datasets:
                 smr_bulk_out = str(paths.smr_bulk_out(pqtl_dataset, pheno_id, bulk_dataset, out_dir))
 
                 if not check_remote_output(
@@ -1073,46 +1196,60 @@ def hpc(config: str, run_id: str = None):
                     step=f"Bulk SMR ({bulk_dataset})",
                     overwrite=overwrite
                 ):
-                    print(f"[TRACKING] Ingesting pre-computed bulk eQTL SMR for {bulk_dataset}...")
+                    print(f"[TRACKING] Ingesting pre-computed bulk QTL SMR for {bulk_dataset}...")
                     run_smr_step(
                         falcon_user=falcon_user,
                         pqtl_dataset=pqtl_dataset,
-                        eqtl_dataset=bulk_dataset,
-                        eqtl_mode="bulk",
+                        qtl_dataset=bulk_dataset,
+                        qtl_mode="bulk",
                         pheno_id=pheno_id,
                         sumstats=qc_out,
                         ref_bfile=ref_bfile,
                         maf=maf,
-                        local_results_dir=out_dir
+                        local_results_dir=out_dir,
+                        wald_fdr_q=wald_fdr_q,
+                        ivw_fdr_q=ivw_fdr_q,
+                        cochran_q_pval=cochran_q_pval,
+                        p_qtl_smr=p_qtl_smr,
+                        p_qtl_heidi=p_qtl_heidi,
+                        p_smr_threshold=p_smr_threshold,
+                        p_heidi_threshold=p_heidi_threshold,
                     )
         else:
-            print("[TRACKING] No bulk_eqtl_datasets specified, skipping bulk SMR.")
+            print("[TRACKING] No bulk_qtl_datasets specified, skipping bulk SMR.")
 
-        if sc_eqtl_dataset:
+        if sc_qtl_dataset:
             if not check_remote_output(
                 falcon_user=falcon_user,
                 path=smr_sc_out,
                 step="Single-cell SMR",
                 overwrite=overwrite
             ):
-                print("[TRACKING] Running single-cell eQTL SMR...")
+                print("[TRACKING] Running single-cell QTL SMR...")
                 run_smr_step(
                     falcon_user=falcon_user,
                     pqtl_dataset=pqtl_dataset,
-                    eqtl_dataset=sc_eqtl_dataset,
-                    eqtl_mode="single_cell",
+                    qtl_dataset=sc_qtl_dataset,
+                    qtl_mode="single_cell",
                     pheno_id=pheno_id,
                     sumstats=qc_out,
                     ref_bfile=ref_bfile,
                     maf=maf,
-                    local_results_dir=out_dir
+                    local_results_dir=out_dir,
+                    wald_fdr_q=wald_fdr_q,
+                    ivw_fdr_q=ivw_fdr_q,
+                    cochran_q_pval=cochran_q_pval,
+                    p_qtl_smr=p_qtl_smr,
+                    p_qtl_heidi=p_qtl_heidi,
+                    p_smr_threshold=p_smr_threshold,
+                    p_heidi_threshold=p_heidi_threshold,
                 )
         else:
-            print("[TRACKING] No sc_eqtl_dataset specified, skipping single-cell SMR.")
+            print("[TRACKING] No sc_qtl_dataset specified, skipping single-cell SMR.")
     else:
         print("[TRACKING] run_smr is False, skipping SMR entirely.")
 
-    # PWCoCo (eQTL-informed) - eQTL-pQTL / eQTL-GWAS PWCoCo on every SMR-passing
+    # PWCoCo (QTL-informed) - QTL-pQTL / QTL-GWAS PWCoCo on every SMR-passing
     # target, then compared for shared colocalising SNPs against the pQTL-GWAS
     # PWCoCo above (see project_pwcoco_wiring memory) - runs only when SMR did,
     # since it depends on smr_final_targets_out; non-fatal like PWCoCo above.
@@ -1120,10 +1257,10 @@ def hpc(config: str, run_id: str = None):
         if not check_remote_output(
             falcon_user=falcon_user,
             path=pwcoco_qtl_out,
-            step="PWCoCo (eQTL)",
+            step="PWCoCo (QTL)",
             overwrite=overwrite
         ):
-            print("[TRACKING] Running PWCoCo (eQTL)...")
+            print("[TRACKING] Running PWCoCo (QTL)...")
             try:
                 run_pwcoco_qtl(
                     falcon_user=falcon_user,
@@ -1133,17 +1270,18 @@ def hpc(config: str, run_id: str = None):
                     n_cases=n_cases,
                     n_controls=n_controls,
                     local_results_dir=out_dir,
+                    pp4_threshold=pwcoco_pp4_threshold,
                 )
             except subprocess.CalledProcessError as error:
-                print(f"[CONCERN] PWCoCo (eQTL) run failed - continuing without it: {error}")
+                print(f"[CONCERN] PWCoCo (QTL) run failed - continuing without it: {error}")
 
-    # HyPrColoc (bulk and/or single-cell eQTL) - run right after SMR so the
+    # HyPrColoc (bulk and/or single-cell QTL) - run right after SMR so the
     # combined final multi-omics target table (bulk + single-cell) is complete.
     # Each dataset is run (and gated) independently so bulk and single-cell compose.
-    hyprcoloc_eqtl_datasets = list(bulk_eqtl_datasets) + ([sc_eqtl_dataset] if sc_eqtl_dataset else [])
+    hyprcoloc_qtl_datasets = list(bulk_qtl_datasets) + ([sc_qtl_dataset] if sc_qtl_dataset else [])
 
-    if run_smr and hyprcoloc_eqtl_datasets:
-        for hc_dataset in hyprcoloc_eqtl_datasets:
+    if run_smr and hyprcoloc_qtl_datasets:
+        for hc_dataset in hyprcoloc_qtl_datasets:
             hc_dataset_out = str(paths.hyprcoloc_dataset_out(pqtl_dataset, hc_dataset, pheno_id, out_dir))
 
             if not check_remote_output(
@@ -1157,11 +1295,16 @@ def hpc(config: str, run_id: str = None):
                     falcon_user=falcon_user,
                     pqtl_dataset=pqtl_dataset,
                     pheno_id=pheno_id,
-                    eqtl_dataset=hc_dataset,
-                    local_results_dir=out_dir
+                    qtl_dataset=hc_dataset,
+                    local_results_dir=out_dir,
+                    prior_1=hc_prior_1,
+                    prior_c=hc_prior_c,
+                    reg_thresh=hc_reg_thresh,
+                    align_thresh=hc_align_thresh,
+                    equal_thresholds=hc_equal_thresholds,
                 )
     else:
-        print("[TRACKING] No bulk_eqtl_datasets or sc_eqtl_dataset specified (or run_smr is False), skipping HyPrColoc.")
+        print("[TRACKING] No bulk_qtl_datasets or sc_qtl_dataset specified (or run_smr is False), skipping HyPrColoc.")
 
     print("[TRACKING] Checking outputs...")
     check_outputs(
@@ -1186,6 +1329,8 @@ def hpc(config: str, run_id: str = None):
         pqtl_dataset=pqtl_dataset,
         local_results_dir=local_results_dir,
         overwrite=overwrite,
+        coloc_threshold=phewas_coloc_threshold,
+        bonferroni_alpha=bonferroni_alpha,
     )
 
     print("[TRACKING] Running UKBB PheWAS safety analysis locally...")
@@ -1194,6 +1339,8 @@ def hpc(config: str, run_id: str = None):
         pqtl_dataset=pqtl_dataset,
         local_results_dir=local_results_dir,
         overwrite=overwrite,
+        coloc_threshold=phewas_coloc_threshold,
+        bonferroni_alpha=bonferroni_alpha,
     )
 
     print(f"[TRACKING] Expected cis-MR output: {mr_out}")

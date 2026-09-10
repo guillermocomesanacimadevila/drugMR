@@ -9,7 +9,7 @@ suppressPackageStartupMessages({
 args <- commandArgs(trailingOnly = TRUE)
 
 if (length(args) < 7) {
-  stop("Usage: Rscript coloc.R <pqtl_dataset> <protein_id> <pheno_id> <gwas_parquet> <pqtl_parquet> <n_cases> <n_controls> [results_dir]")
+  stop("Usage: Rscript coloc.R <pqtl_dataset> <protein_id> <pheno_id> <gwas_parquet> <pqtl_parquet> <n_cases> <n_controls> [results_dir] [pp4_threshold] [p1] [p2] [p12]")
 }
 
 # we have defined that the exposure pQTL == quant ALWAYS
@@ -27,7 +27,13 @@ n_controls   <- as.numeric(args[7])
 results_dir  <- ifelse(length(args) >= 8, args[8], "results")
 
 exposure_def <- "quant"
-pp4_thresh   <- 0.70
+# matches params/schema.json's gates.coloc.pp4_threshold default - overridable
+# so a user's configured gate value actually reaches this script
+pp4_thresh   <- ifelse(length(args) >= 9, as.numeric(args[9]), 0.70)
+# coloc.abf priors - same overridable convention as pp4_thresh above
+p1           <- ifelse(length(args) >= 10, as.numeric(args[10]), 1e-4)
+p2           <- ifelse(length(args) >= 11, as.numeric(args[11]), 1e-4)
+p12          <- ifelse(length(args) >= 12, as.numeric(args[12]), 1e-5)
 outcome_def  <- "cc"   # might have to change this at some other stage
 out_dir <- file.path(results_dir, "coloc")
 dir.create(out_dir, showWarnings = FALSE, recursive = TRUE)
@@ -46,8 +52,11 @@ gwas <- gwas[!duplicated(SNP)]
 top_snp <- protein$SNP[1]
 
 # conform Ns
-n_protein <- max(protein$N)
+n_protein <- max(protein$N, na.rm = TRUE)
 n_gwas <- n_cases + n_controls
+if (n_gwas == 0) {
+  stop("n_cases + n_controls is 0 - a GWAS needs at least 1 case or control.")
+}
 s_gwas <- n_cases / n_gwas
 
 # no of SNPs
@@ -92,9 +101,9 @@ dataset2 <- list(
 res <- coloc.abf(
   dataset1 = dataset1,
   dataset2 = dataset2,
-  p1 = 1e-4,
-  p2 = 1e-4,
-  p12 = 1e-5
+  p1 = p1,
+  p2 = p2,
+  p12 = p12
 )
 
 

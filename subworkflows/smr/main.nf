@@ -24,18 +24,18 @@ workflow SMR {
         .join(ch_pwcoco)
         .map { key, meta, qc_tsv, mr_tsv, coloc_tsv, pwcoco_tsv -> tuple(meta, qc_tsv, mr_tsv, coloc_tsv, pwcoco_tsv) }
 
-    // bulk: one task per entry in meta.bulk_eqtl_datasets, matching local.py's
+    // bulk: one task per entry in meta.bulk_qtl_datasets, matching local.py's
     ch_bulk_in = ch_joined
-        .filter { meta, qc_tsv, mr_tsv, coloc_tsv, pwcoco_tsv -> meta.run_smr && meta.bulk_eqtl_datasets }
+        .filter { meta, qc_tsv, mr_tsv, coloc_tsv, pwcoco_tsv -> meta.run_smr && meta.bulk_qtl_datasets }
         .flatMap { meta, qc_tsv, mr_tsv, coloc_tsv, pwcoco_tsv ->
-            meta.bulk_eqtl_datasets.collect { ds -> tuple(meta, ds, qc_tsv, mr_tsv, coloc_tsv, pwcoco_tsv) }
+            meta.bulk_qtl_datasets.collect { ds -> tuple(meta, ds, qc_tsv, mr_tsv, coloc_tsv, pwcoco_tsv) }
         }
 
     SMR_BULK(ch_bulk_in)
 
-    // single-cell: at most 1 task, only when meta.sc_eqtl_dataset is actually set
+    // single-cell: at most 1 task, only when meta.sc_qtl_dataset is actually set
     ch_sc_in = ch_joined
-        .filter { meta, qc_tsv, mr_tsv, coloc_tsv, pwcoco_tsv -> meta.run_smr && meta.sc_eqtl_dataset }
+        .filter { meta, qc_tsv, mr_tsv, coloc_tsv, pwcoco_tsv -> meta.run_smr && meta.sc_qtl_dataset }
 
     SMR_SC(ch_sc_in)
 

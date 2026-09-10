@@ -3,7 +3,8 @@ nextflow.enable.dsl=2
 
 process EXTRACT_CIS_REGIONS {
 
-    tag "extract_cis_regions"
+    tag "extract_cis_regions_${meta.pheno_id}_${meta.pqtl_dataset}"
+    label "process_medium"
 
     publishDir { "./dat/cis_regions/${meta.pqtl_dataset}"}, mode: "copy"
 

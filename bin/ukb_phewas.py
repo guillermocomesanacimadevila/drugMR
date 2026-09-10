@@ -14,7 +14,6 @@ from drugmr.twosamplemr import PyTwoSampleMR
 # were actually tested for that protein - NOT a fixed constant (see
 # n_endpoints_tested below). Kept only as a documentation reference.
 UKB_TOPMED_TOTAL_PHENOS = 1419
-coloc_threshold = 0
 
 def grab_phewas_info(snp: str, rsid: str):
     snp = snp.replace(":", "-")
@@ -79,8 +78,8 @@ def resolve_ukbb_variant(chromosome: str, position: int, A1: str, A2: str, rsid:
     return None, None, None
 
 
-def phewas_mr_on_ukbb(pqtl_dataset: str, pheno_id: str, local_results_dir: str = "results", cis_regions_dir: str | None = None):
-    coloc_file = paths.coloc_out(pqtl_dataset, pheno_id, local_results_dir)
+def phewas_mr_on_ukbb(pqtl_dataset: str, pheno_id: str, local_results_dir: str = "results", cis_regions_dir: str | None = None, coloc_file: str | None = None, coloc_threshold: float = 0, bonferroni_alpha: float = 0.05):
+    coloc_file = coloc_file or paths.coloc_out(pqtl_dataset, pheno_id, local_results_dir)
     df_coloc = pl.read_csv(coloc_file, separator="\t")
     if "protein_id" in df_coloc.columns:
         df_coloc = df_coloc.rename({"protein_id": "protein"})
@@ -97,7 +96,7 @@ def phewas_mr_on_ukbb(pqtl_dataset: str, pheno_id: str, local_results_dir: str =
     # replacement (see project_pwcoco_wiring memory): a target that colocalises
     # under EITHER method should reach UKB PheWAS, so PWCoCo-passing proteins are
     # unioned in below. pwcoco_out() may not exist - PWCoCo runs non-fatally in
-    # local.py/hpc.py, so a failed or not-yet-run PWCoCo step must not break this.
+    # local.py/falcon.py, so a failed or not-yet-run PWCoCo step must not break this.
     pwcoco_file = paths.pwcoco_out(pqtl_dataset, pheno_id, local_results_dir)
     if Path(pwcoco_file).exists():
         df_pwcoco = pl.read_csv(pwcoco_file, separator="\t")
@@ -505,7 +504,7 @@ def phewas_mr_on_ukbb(pqtl_dataset: str, pheno_id: str, local_results_dir: str =
         df_protein_results = df_protein_results.with_columns(
             pl.lit(n_endpoints_tested).alias("n_endpoints_tested"),
             pl.min_horizontal(pl.col("p_mr") * n_endpoints_tested, pl.lit(1.0)).alias("p_bonferroni"),
-            (pl.col("p_mr") < (0.05 / n_endpoints_tested)).alias("bonferroni_significant")
+            (pl.col("p_mr") < (bonferroni_alpha / n_endpoints_tested)).alias("bonferroni_significant")
         )
         results.extend(df_protein_results.to_dicts())
     if len(results) == 0:
@@ -523,8 +522,11 @@ def main():
     p.add_argument("--pqtl_dataset", required=True)
     p.add_argument("--local_results_dir", default="results")
     p.add_argument("--cis_regions_dir", default=None)
+    p.add_argument("--coloc_file", default=None)
+    p.add_argument("--coloc_threshold", type=float, default=0)
+    p.add_argument("--bonferroni_alpha", type=float, default=0.05)
     args = p.parse_args()
-    phewas_mr_on_ukbb(pheno_id=args.pheno_id, pqtl_dataset=args.pqtl_dataset, local_results_dir=args.local_results_dir, cis_regions_dir=args.cis_regions_dir)
+    phewas_mr_on_ukbb(pheno_id=args.pheno_id, pqtl_dataset=args.pqtl_dataset, local_results_dir=args.local_results_dir, cis_regions_dir=args.cis_regions_dir, coloc_file=args.coloc_file, coloc_threshold=args.coloc_threshold, bonferroni_alpha=args.bonferroni_alpha)
 
 
 if __name__ == "__main__":

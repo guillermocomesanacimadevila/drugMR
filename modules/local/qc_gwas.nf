@@ -8,8 +8,9 @@ for nextflow-informed module
 
 process GWAS_QC {
 
-    tag "gwas_qc"
-    
+    tag "gwas_qc_${meta.pheno_id}_${meta.pqtl_dataset}"
+    label "process_medium"
+
     publishDir { "dat/derived/${meta.pheno_id}/qc_gwas" }, mode: 'copy'
     container {
         if (params.image_name) {
@@ -44,6 +45,10 @@ process GWAS_QC {
         apoe_flag = "--remove_apoe"
     }
 
+    // "--falcon-user nf" is a deliberate sentinel, not a placeholder left
+    // behind - bin/qc_gwas.py requires --falcon-user (it mirrors falcon.py's
+    // real SSH username elsewhere), and "nf" labels this run as having
+    // originated from Nextflow rather than the SSH-based falcon.py path.
     """
     python ${projectDir}/bin/qc_gwas.py \\
         --pheno-id ${meta.pheno_id} \\

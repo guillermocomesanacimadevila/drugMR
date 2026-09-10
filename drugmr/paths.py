@@ -21,7 +21,7 @@ def mr_instruments_out(pqtl_dataset: str, pheno_id: str, out_dir: str = "results
 
 
 def coloc_out(pqtl_dataset: str, pheno_id: str, out_dir: str = "results") -> Path:
-    return Path(out_dir) / "coloc" / "coloc.tsv"
+    return Path(out_dir) / "coloc" / f"{pqtl_dataset}_{pheno_id}_all_coloc.tsv"
 
 
 def coloc_susie_out(pqtl_dataset: str, pheno_id: str, out_dir: str = "results") -> Path:
@@ -73,8 +73,8 @@ def smr_bulk_out(pqtl_dataset: str, pheno_id: str, bulk_dataset: str, out_dir: s
     return Path(out_dir) / "smr" / "bulk" / bulk_dataset / "promising_targets.tsv"
 
 
-def smr_sc_out(pqtl_dataset: str, pheno_id: str, sc_eqtl_dataset: str, out_dir: str = "results") -> Path:
-    return Path(out_dir) / "smr" / "sc" / sc_eqtl_dataset / "promising_targets.tsv"
+def smr_sc_out(pqtl_dataset: str, pheno_id: str, sc_qtl_dataset: str, out_dir: str = "results") -> Path:
+    return Path(out_dir) / "smr" / "sc" / sc_qtl_dataset / "promising_targets.tsv"
 
 
 def smr_final_targets_out(pqtl_dataset: str, pheno_id: str, out_dir: str = "results") -> Path:
@@ -114,17 +114,17 @@ def phewas_finngen_coverage_out(pqtl_dataset: str, pheno_id: str, out_dir: str =
     return Path(out_dir) / "phewas" / "finngen" / "phewas_coverage.tsv"
 
 
-def smr_raw_dir(eqtl_dataset, pheno_id: str, out_dir: str = "results") -> Path:
+def smr_raw_dir(qtl_dataset, pheno_id: str, out_dir: str = "results") -> Path:
     """Directory for the raw `smr` binary's own output (drugmr.smr.SMR()'s
-    --out prefix lives inside this dir - see smr_raw_prefix). eqtl_dataset
+    --out prefix lives inside this dir - see smr_raw_prefix). qtl_dataset
     may be a compound relative path (e.g. "bulk_raw/GTEx_v10/label/chr1").
     UNCHANGED - synthesis/ tier, dataset-independent (see module docstring)."""
-    return Path(out_dir) / "SMR" / Path(eqtl_dataset) / pheno_id
+    return Path(out_dir) / "SMR" / Path(qtl_dataset) / pheno_id
 
 
-def smr_raw_prefix(eqtl_dataset, pheno_id: str, out_dir: str = "results") -> Path:
-    eqtl_name = Path(eqtl_dataset).name
-    return smr_raw_dir(eqtl_dataset, pheno_id, out_dir) / f"{pheno_id}_{eqtl_name}"
+def smr_raw_prefix(qtl_dataset, pheno_id: str, out_dir: str = "results") -> Path:
+    qtl_name = Path(qtl_dataset).name
+    return smr_raw_dir(qtl_dataset, pheno_id, out_dir) / f"{pheno_id}_{qtl_name}"
 
 
 def make_run_id(pheno_id: str, pqtl_dataset: str, date_str: str, git_sha7: str) -> str:
@@ -185,22 +185,22 @@ def synthesis_manifest_path(pheno_id: str, root: str = "synthesis") -> Path:
 
 
 def pwcoco_qtl_raw_dir(combo: str, pqtl_dataset: str, out_dir: str = "results") -> Path:
-    """Per-(protein, eqtl_source) PWCoCo --out prefix dir for the eQTL-informed combos
+    """Per-(protein, qtl_source) PWCoCo --out prefix dir for the QTL-informed combos
     (combo: "eqtl_pqtl" or "eqtl_gwas") bin/pwcoco_qtl_wrapper.py runs on SMR-passing
     targets - complements pwcoco_raw_dir() above (the pQTL-GWAS PWCoCo). Sibling of
     cis_pqtl/ under the same pwcoco/ stage - same tool, different trait pairs."""
     return Path(out_dir) / "pwcoco" / combo
 
 
-def pwcoco_qtl_raw_prefix(combo: str, pqtl_dataset: str, protein: str, eqtl_source: str, out_dir: str = "results") -> Path:
+def pwcoco_qtl_raw_prefix(combo: str, pqtl_dataset: str, protein: str, qtl_source: str, out_dir: str = "results") -> Path:
     # nested 1 extra level, same reasoning as pwcoco_raw_prefix() above
-    name = f"{protein}_{eqtl_source}"
+    name = f"{protein}_{qtl_source}"
     return pwcoco_qtl_raw_dir(combo, pqtl_dataset, out_dir) / name / name
 
 
 def pwcoco_eqtl_pqtl_out(pqtl_dataset: str, pheno_id: str, out_dir: str = "results") -> Path:
     """Aggregated eQTL-pQTL PWCoCo results (1 row per PWCoCo output row - unconditioned
-    plus any conditioned rows - across every SMR-passing protein x eqtl_source pair)."""
+    plus any conditioned rows - across every SMR-passing protein x qtl_source pair)."""
     return Path(out_dir) / "pwcoco" / "summary" / "pwcoco_eqtl_pqtl.tsv"
 
 

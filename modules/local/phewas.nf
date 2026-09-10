@@ -4,6 +4,8 @@ nextflow.enable.dsl=2
 process PHEWAS_FINNGEN {
 
     tag "phewas_finngen_${meta.pheno_id}_${meta.pqtl_dataset}"
+    label "process_low"
+    label "process_long"
 
     publishDir { "${params.runs_root}/${params.run_id}/results/phewas" }, mode: "copy"
 
@@ -29,13 +31,18 @@ process PHEWAS_FINNGEN {
         --pheno_id ${meta.pheno_id} \\
         --pqtl_dataset ${meta.pqtl_dataset} \\
         --local_results_dir . \\
-        --cis_regions_dir protein_dirs
+        --cis_regions_dir protein_dirs \\
+        --coloc_file coloc/coloc.tsv \\
+        --coloc_threshold ${meta.gates.phewas.coloc_threshold} \\
+        --bonferroni_alpha ${meta.gates.phewas.bonferroni_alpha}
     """
 }
 
 process PHEWAS_UKB {
 
     tag "phewas_ukb_${meta.pheno_id}_${meta.pqtl_dataset}"
+    label "process_low"
+    label "process_long"
 
     publishDir { "${params.runs_root}/${params.run_id}/results/phewas" }, mode: "copy"
 
@@ -60,6 +67,9 @@ process PHEWAS_UKB {
         --pheno_id ${meta.pheno_id} \\
         --pqtl_dataset ${meta.pqtl_dataset} \\
         --local_results_dir . \\
-        --cis_regions_dir protein_dirs
+        --cis_regions_dir protein_dirs \\
+        --coloc_file coloc/coloc.tsv \\
+        --coloc_threshold ${meta.gates.phewas.coloc_threshold} \\
+        --bonferroni_alpha ${meta.gates.phewas.bonferroni_alpha}
     """
 }

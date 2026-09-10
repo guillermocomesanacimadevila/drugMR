@@ -138,7 +138,7 @@ def perform_qc(
     path = sumstats
     bases = ["A", "T", "C", "G"]
     # --out-dir is the exact directory {pheno_id}.tsv is written into - the
-    # caller (drugmr/local.py, drugmr/hpc.py) is responsible for pointing it
+    # caller (drugmr/local.py, drugmr/falcon.py) is responsible for pointing it
     # at the right place (see drugmr/paths.py)
     qc_dir = Path(out_dir)
     qc_dir.mkdir(parents=True, exist_ok=True)
@@ -192,7 +192,6 @@ def perform_qc(
     neff = (4 * n_cases * n_controls) / (n_cases + n_controls)
     df = df.with_columns(pl.lit(neff).alias("N"))
 
-    # file is in /shared/home1/{falcon_user}/genSEM/ref/hg19_38
     if genome_build == target_build:
         print(f"Input GWAS already in {target_build}")
     elif genome_build == "GRCh38" and target_build == "GRCh37":

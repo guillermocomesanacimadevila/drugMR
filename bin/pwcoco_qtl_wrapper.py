@@ -66,132 +66,144 @@ def pwcoco_qtl_wrapper(
     bulk = smr_targets.filter(pl.col("data_type") == "bulk")
     sc = smr_targets.filter(pl.col("data_type") == "single_cell")
 
-    eqtl_pqtl_rows = []
-    eqtl_gwas_rows = []
+    qtl_pqtl_rows = []
+    qtl_gwas_rows = []
 
     # bulk hits first
     for row in bulk.iter_rows(named=True):
         p = row["protein"]
-        dataset = row["eqtl_dataset"]
+        dataset = row["qtl_dataset"]
+        qtl_type = row.get("qtl_type", "eqtl")
         qtl_name = row["qtl_name"]
         cell_type = row["cell_type"]
         probe = row["probe_id"]
 
-        # cis regions
-        dir = Path(cis_regions_dir) / p if cis_regions_dir else Path(f"./dat/cis_regions/{pqtl_dataset}/{p}")
-        pqtl = dir / "pqtl.parquet"
-        gwas = dir / "gwas.parquet"
+        # 1 bad target must not lose every other already-computed target -
+        # same reasoning as cis_mr.R's own per-protein tryCatch
+        try:
+            # cis regions
+            dir = Path(cis_regions_dir) / p if cis_regions_dir else Path(f"./dat/cis_regions/{pqtl_dataset}/{p}")
+            pqtl = dir / "pqtl.parquet"
+            gwas = dir / "gwas.parquet"
 
-        pqtl_df = pl.read_parquet(pqtl)
-        chr = pqtl_df["CHR"].to_list()[0]
-        pos = min(pqtl_df["BP"].to_list())
-        start = min(pqtl_df["BP"].to_list())
-        end = max(pqtl_df["BP"].to_list())
+            pqtl_df = pl.read_parquet(pqtl)
+            chr = pqtl_df["CHR"].to_list()[0]
+            pos = min(pqtl_df["BP"].to_list())
+            start = min(pqtl_df["BP"].to_list())
+            end = max(pqtl_df["BP"].to_list())
 
-        base_gene = probe.split(".")[0]
-        eqtl_df = _smr.load_eqtl_rows("bulk", dataset, cell_type, base_gene)
+            base_gene = probe.split(".")[0]
+            qtl_df = _smr.load_qtl_rows("bulk", dataset, cell_type, base_gene)
 
-        if eqtl_df is None or eqtl_df.height == 0:
-            continue
+            if qtl_df is None or qtl_df.height == 0:
+                continue
 
-        gwas_df = pl.read_parquet(gwas)
+            gwas_df = pl.read_parquet(gwas)
 
-        pqtl_h = pwcoco.harmonise_sumstats(pqtl_df, "SNP", "A1", "A2", resolve_maf_col(pqtl_df), "BETA", "SE", "P", "N")
-        gwas_h = pwcoco.harmonise_sumstats(gwas_df, "SNP", "A1", "A2", resolve_maf_col(gwas_df), "BETA", "SE", "P", "N")
-        eqtl_h = pwcoco.harmonise_sumstats(eqtl_df, "SNP", "A1", "A2", "FRQ", "BETA", "SE", "P", "N")
+            pqtl_h = pwcoco.harmonise_sumstats(pqtl_df, "SNP", "A1", "A2", resolve_maf_col(pqtl_df), "BETA", "SE", "P", "N")
+            gwas_h = pwcoco.harmonise_sumstats(gwas_df, "SNP", "A1", "A2", resolve_maf_col(gwas_df), "BETA", "SE", "P", "N")
+            qtl_h = pwcoco.harmonise_sumstats(qtl_df, "SNP", "A1", "A2", "FRQ", "BETA", "SE", "P", "N")
 
-        eqtl_n = int(eqtl_h["n"][0])
-        pqtl_n = int(pqtl_h["n"][0])
-        eqtl_source = f"{dataset}_{cell_type}"
+            qtl_n = int(qtl_h["n"][0])
+            pqtl_n = int(pqtl_h["n"][0])
+            qtl_source = f"{dataset}_{cell_type}"
 
-        # eQTL - pQTL: both quantitative traits, n2_case=0
-        out_ep = pwcoco_qtl_raw_prefix("eqtl_pqtl", pqtl_dataset, p, eqtl_source, out_dir)
-        out_ep.parent.mkdir(parents=True, exist_ok=True)
-        pwcoco.pwcoco(
-            ref_bfile=ref_bfile, sumstats_1=eqtl_h, sumstats_2=pqtl_h,
-            n_1=eqtl_n, n_2=pqtl_n, n2_case=0, out_dir=str(out_ep), threads=8
-        )
-        if Path(f"{out_ep}.coloc").exists():
-            eqtl_pqtl_rows.append(
-                pl.read_csv(f"{out_ep}.coloc", separator="\t").with_columns(pl.lit(p).alias("protein"), pl.lit(dataset).alias("eqtl_dataset"), pl.lit(cell_type).alias("cell_type"))
+            # eQTL - pQTL: both quantitative traits, n2_case=0
+            out_ep = pwcoco_qtl_raw_prefix("eqtl_pqtl", pqtl_dataset, p, qtl_source, out_dir)
+            out_ep.parent.mkdir(parents=True, exist_ok=True)
+            pwcoco.pwcoco(
+                ref_bfile=ref_bfile, sumstats_1=qtl_h, sumstats_2=pqtl_h,
+                n_1=qtl_n, n_2=pqtl_n, n2_case=0, out_dir=str(out_ep), threads=8
             )
+            if Path(f"{out_ep}.coloc").exists():
+                qtl_pqtl_rows.append(
+                    pl.read_csv(f"{out_ep}.coloc", separator="\t").with_columns(pl.lit(p).alias("protein"), pl.lit(dataset).alias("qtl_dataset"), pl.lit(cell_type).alias("cell_type"), pl.lit(qtl_type).alias("qtl_type"))
+                )
 
-        # eQTL - GWAS: GWAS is case-control
-        out_eg = pwcoco_qtl_raw_prefix("eqtl_gwas", pqtl_dataset, p, eqtl_source, out_dir)
-        out_eg.parent.mkdir(parents=True, exist_ok=True)
-        pwcoco.pwcoco(
-            ref_bfile=ref_bfile, sumstats_1=eqtl_h, sumstats_2=gwas_h,
-            n_1=eqtl_n, n_2=n_cases + n_controls, n2_case=n_cases, out_dir=str(out_eg), threads=8
-        )
-        if Path(f"{out_eg}.coloc").exists():
-            eqtl_gwas_rows.append(
-                pl.read_csv(f"{out_eg}.coloc", separator="\t").with_columns(pl.lit(p).alias("protein"), pl.lit(dataset).alias("eqtl_dataset"), pl.lit(cell_type).alias("cell_type"), pl.lit(pheno_id).alias("outcome_trait"))
+            # eQTL - GWAS: GWAS is case-control
+            out_eg = pwcoco_qtl_raw_prefix("eqtl_gwas", pqtl_dataset, p, qtl_source, out_dir)
+            out_eg.parent.mkdir(parents=True, exist_ok=True)
+            pwcoco.pwcoco(
+                ref_bfile=ref_bfile, sumstats_1=qtl_h, sumstats_2=gwas_h,
+                n_1=qtl_n, n_2=n_cases + n_controls, n2_case=n_cases, out_dir=str(out_eg), threads=8
             )
+            if Path(f"{out_eg}.coloc").exists():
+                qtl_gwas_rows.append(
+                    pl.read_csv(f"{out_eg}.coloc", separator="\t").with_columns(pl.lit(p).alias("protein"), pl.lit(dataset).alias("qtl_dataset"), pl.lit(cell_type).alias("cell_type"), pl.lit(pheno_id).alias("outcome_trait"), pl.lit(qtl_type).alias("qtl_type"))
+                )
+        except Exception as error:
+            print(f"[CONCERN] PWCoCo-QTL (bulk) failed for {p} x {cell_type} - continuing without it: {error}")
 
     # single-cell hits
     for row in sc.iter_rows(named=True):
         p = row["protein"]
-        dataset = row["eqtl_dataset"]
+        dataset = row["qtl_dataset"]
+        qtl_type = row.get("qtl_type", "eqtl")
         cell_type = row["cell_type"]
         probe = row["probe_id"]
 
-        dir = Path(cis_regions_dir) / p if cis_regions_dir else Path(f"./dat/cis_regions/{pqtl_dataset}/{p}")
-        pqtl = dir / "pqtl.parquet"
-        gwas = dir / "gwas.parquet"
+        # 1 bad target must not lose every other already-computed target -
+        # same reasoning as cis_mr.R's own per-protein tryCatch
+        try:
+            dir = Path(cis_regions_dir) / p if cis_regions_dir else Path(f"./dat/cis_regions/{pqtl_dataset}/{p}")
+            pqtl = dir / "pqtl.parquet"
+            gwas = dir / "gwas.parquet"
 
-        pqtl_df = pl.read_parquet(pqtl)
-        gwas_df = pl.read_parquet(gwas)
+            pqtl_df = pl.read_parquet(pqtl)
+            gwas_df = pl.read_parquet(gwas)
 
-        base_gene = probe.split(".")[0]
-        eqtl_df = _smr.load_eqtl_rows("single_cell", dataset, cell_type, base_gene)
+            base_gene = probe.split(".")[0]
+            qtl_df = _smr.load_qtl_rows("single_cell", dataset, cell_type, base_gene)
 
-        if eqtl_df is None or eqtl_df.height == 0:
-            continue
+            if qtl_df is None or qtl_df.height == 0:
+                continue
 
-        pqtl_h = pwcoco.harmonise_sumstats(pqtl_df, "SNP", "A1", "A2", resolve_maf_col(pqtl_df), "BETA", "SE", "P", "N")
-        gwas_h = pwcoco.harmonise_sumstats(gwas_df, "SNP", "A1", "A2", resolve_maf_col(gwas_df), "BETA", "SE", "P", "N")
-        eqtl_h = pwcoco.harmonise_sumstats(eqtl_df, "SNP", "A1", "A2", "FRQ", "BETA", "SE", "P", "N")
+            pqtl_h = pwcoco.harmonise_sumstats(pqtl_df, "SNP", "A1", "A2", resolve_maf_col(pqtl_df), "BETA", "SE", "P", "N")
+            gwas_h = pwcoco.harmonise_sumstats(gwas_df, "SNP", "A1", "A2", resolve_maf_col(gwas_df), "BETA", "SE", "P", "N")
+            qtl_h = pwcoco.harmonise_sumstats(qtl_df, "SNP", "A1", "A2", "FRQ", "BETA", "SE", "P", "N")
 
-        eqtl_n = int(eqtl_h["n"][0])
-        pqtl_n = int(pqtl_h["n"][0])
-        eqtl_source = f"{dataset}_{cell_type}"
+            qtl_n = int(qtl_h["n"][0])
+            pqtl_n = int(pqtl_h["n"][0])
+            qtl_source = f"{dataset}_{cell_type}"
 
-        out_ep = pwcoco_qtl_raw_prefix("eqtl_pqtl", pqtl_dataset, p, eqtl_source, out_dir)
-        out_ep.parent.mkdir(parents=True, exist_ok=True)
-        pwcoco.pwcoco(
-            ref_bfile=ref_bfile, sumstats_1=eqtl_h, sumstats_2=pqtl_h,
-            n_1=eqtl_n, n_2=pqtl_n, n2_case=0, out_dir=str(out_ep), threads=8
-        )
-        if Path(f"{out_ep}.coloc").exists():
-            eqtl_pqtl_rows.append(
-                pl.read_csv(f"{out_ep}.coloc", separator="\t").with_columns(pl.lit(p).alias("protein"), pl.lit(dataset).alias("eqtl_dataset"), pl.lit(cell_type).alias("cell_type"))
+            out_ep = pwcoco_qtl_raw_prefix("eqtl_pqtl", pqtl_dataset, p, qtl_source, out_dir)
+            out_ep.parent.mkdir(parents=True, exist_ok=True)
+            pwcoco.pwcoco(
+                ref_bfile=ref_bfile, sumstats_1=qtl_h, sumstats_2=pqtl_h,
+                n_1=qtl_n, n_2=pqtl_n, n2_case=0, out_dir=str(out_ep), threads=8
             )
+            if Path(f"{out_ep}.coloc").exists():
+                qtl_pqtl_rows.append(
+                    pl.read_csv(f"{out_ep}.coloc", separator="\t").with_columns(pl.lit(p).alias("protein"), pl.lit(dataset).alias("qtl_dataset"), pl.lit(cell_type).alias("cell_type"), pl.lit(qtl_type).alias("qtl_type"))
+                )
 
-        out_eg = pwcoco_qtl_raw_prefix("eqtl_gwas", pqtl_dataset, p, eqtl_source, out_dir)
-        out_eg.parent.mkdir(parents=True, exist_ok=True)
-        pwcoco.pwcoco(
-            ref_bfile=ref_bfile, sumstats_1=eqtl_h, sumstats_2=gwas_h,
-            n_1=eqtl_n, n_2=n_cases + n_controls, n2_case=n_cases, out_dir=str(out_eg), threads=8
-        )
-        if Path(f"{out_eg}.coloc").exists():
-            eqtl_gwas_rows.append(
-                pl.read_csv(f"{out_eg}.coloc", separator="\t").with_columns(pl.lit(p).alias("protein"), pl.lit(dataset).alias("eqtl_dataset"), pl.lit(cell_type).alias("cell_type"), pl.lit(pheno_id).alias("outcome_trait"))
+            out_eg = pwcoco_qtl_raw_prefix("eqtl_gwas", pqtl_dataset, p, qtl_source, out_dir)
+            out_eg.parent.mkdir(parents=True, exist_ok=True)
+            pwcoco.pwcoco(
+                ref_bfile=ref_bfile, sumstats_1=qtl_h, sumstats_2=gwas_h,
+                n_1=qtl_n, n_2=n_cases + n_controls, n2_case=n_cases, out_dir=str(out_eg), threads=8
             )
+            if Path(f"{out_eg}.coloc").exists():
+                qtl_gwas_rows.append(
+                    pl.read_csv(f"{out_eg}.coloc", separator="\t").with_columns(pl.lit(p).alias("protein"), pl.lit(dataset).alias("qtl_dataset"), pl.lit(cell_type).alias("cell_type"), pl.lit(pheno_id).alias("outcome_trait"), pl.lit(qtl_type).alias("qtl_type"))
+                )
+        except Exception as error:
+            print(f"[CONCERN] PWCoCo-QTL (single-cell) failed for {p} x {cell_type} - continuing without it: {error}")
 
-    eqtl_pqtl_df = pl.concat(eqtl_pqtl_rows, how="diagonal_relaxed") if eqtl_pqtl_rows else pl.DataFrame()
-    eqtl_gwas_df = pl.concat(eqtl_gwas_rows, how="diagonal_relaxed") if eqtl_gwas_rows else pl.DataFrame()
+    qtl_pqtl_df = pl.concat(qtl_pqtl_rows, how="diagonal_relaxed") if qtl_pqtl_rows else pl.DataFrame()
+    qtl_gwas_df = pl.concat(qtl_gwas_rows, how="diagonal_relaxed") if qtl_gwas_rows else pl.DataFrame()
 
     ep_out = pwcoco_eqtl_pqtl_out(pqtl_dataset, pheno_id, out_dir)
     ep_out.parent.mkdir(parents=True, exist_ok=True)
-    if eqtl_pqtl_df.height > 0:
-        eqtl_pqtl_df = eqtl_pqtl_df.drop([c for c in ("Dataset1", "Dataset2") if c in eqtl_pqtl_df.columns])
-        eqtl_pqtl_df.write_csv(ep_out, separator="\t")
+    if qtl_pqtl_df.height > 0:
+        qtl_pqtl_df = qtl_pqtl_df.drop([c for c in ("Dataset1", "Dataset2") if c in qtl_pqtl_df.columns])
+        qtl_pqtl_df.write_csv(ep_out, separator="\t")
 
     eg_out = pwcoco_eqtl_gwas_out(pqtl_dataset, pheno_id, out_dir)
     eg_out.parent.mkdir(parents=True, exist_ok=True)
-    if eqtl_gwas_df.height > 0:
-        eqtl_gwas_df = eqtl_gwas_df.drop([c for c in ("Dataset1", "Dataset2") if c in eqtl_gwas_df.columns])
-        eqtl_gwas_df.write_csv(eg_out, separator="\t")
+    if qtl_gwas_df.height > 0:
+        qtl_gwas_df = qtl_gwas_df.drop([c for c in ("Dataset1", "Dataset2") if c in qtl_gwas_df.columns])
+        qtl_gwas_df.write_csv(eg_out, separator="\t")
 
     # triangulation across all 3 combos (pQTL-GWAS from pwcoco_out(), eQTL-pQTL,
     # eQTL-GWAS) - a target only counts when the SAME SNP clears pp4_thresh in ALL
@@ -203,8 +215,8 @@ def pwcoco_qtl_wrapper(
     pqtl_gwas_df = pl.read_csv(pg_file, separator="\t") if Path(pg_file).exists() else pl.DataFrame()
 
     pg_map = snp_h4_map(pqtl_gwas_df, pp4_thresh) if pqtl_gwas_df.height > 0 else {}
-    ep_map = snp_h4_map(eqtl_pqtl_df, pp4_thresh) if eqtl_pqtl_df.height > 0 else {}
-    eg_map = snp_h4_map(eqtl_gwas_df, pp4_thresh) if eqtl_gwas_df.height > 0 else {}
+    ep_map = snp_h4_map(qtl_pqtl_df, pp4_thresh) if qtl_pqtl_df.height > 0 else {}
+    eg_map = snp_h4_map(qtl_gwas_df, pp4_thresh) if qtl_gwas_df.height > 0 else {}
 
     shared_rows = []
     for protein in set(pg_map) & set(ep_map) & set(eg_map):
@@ -214,8 +226,8 @@ def pwcoco_qtl_wrapper(
                 "protein": protein,
                 "snp": snp,
                 "pqtl_gwas_h4": pg_map[protein][snp],
-                "eqtl_pqtl_h4": ep_map[protein][snp],
-                "eqtl_gwas_h4": eg_map[protein][snp],
+                "qtl_pqtl_h4": ep_map[protein][snp],
+                "qtl_gwas_h4": eg_map[protein][snp],
             })
 
     if shared_rows:

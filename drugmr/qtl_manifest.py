@@ -11,23 +11,53 @@ class QTLManifest:
         self.manifest_path = str(self.base_dir / manifest_path) if self.base_dir else manifest_path
         self._manifest = pl.read_csv(self.manifest_path)
 
+    def _resolve_row_path(self, row: dict) -> dict:
+        # every caller (get_row/get_rows_by_parent) that hands back a manifest
+        # row must return an already-resolved `path`, not the raw CSV value -
+        # several call sites in drugmr/smr.py read row["path"] directly (glob.glob
+        # or Path()) without ever calling resolve(), so applying base_dir only
+        # inside resolve() left those call sites broken under a foreign CWD
+        # (e.g. a Nextflow task sandbox). Resolving it once, here, fixes every
+        # consumer at once instead of patching each call site individually.
+        if self.base_dir and row.get("path"):
+            row = dict(row)
+            row["path"] = str(self.base_dir / row["path"])
+        return row
+
     def get_row(self, dataset: str) -> dict:
-        rows = self._manifest.filter(pl.col("dataset") == dataset)
+        rows = self._manifest.filter(pl.col("dataset").str.to_lowercase() == dataset.lower())
         if rows.height == 0:
             raise ValueError(f"'{dataset}' not found in manifest: {self.manifest_path}")
-        return rows.row(0, named=True)
+        return self._resolve_row_path(rows.row(0, named=True))
 
     def get_rows_by_parent(self, parent_dataset: str) -> list[dict]:
-        # case-insensitive on both sides - parent_dataset is stored mixed-case
-        # (e.g. "GTEx_v10", matching the eqtl_dataset convention used elsewhere
-        # in results/params), but every other manifest lookup (get_row) is
-        # effectively case-insensitive too (callers lowercase before calling,
-        # and "dataset" values are always stored lowercase) - this matches that
+        # case-insensitive on both sides, same as get_row(), since parent_dataset
+        # is stored mixed-case (e.g. "GTEx_v10", matching the qtl_dataset
+        # convention used elsewhere in results/params)
         rows = self._manifest.filter(pl.col("parent_dataset").str.to_lowercase() == parent_dataset.lower())
-        return rows.to_dicts()
+        return [self._resolve_row_path(row) for row in rows.to_dicts()]
+
+    @staticmethod
+    def _read_qtl_file(path: str) -> pl.DataFrame:
+        suffix = Path(path).suffix.lower()
+        if suffix == ".parquet":
+            return pl.read_parquet(path)
+        if suffix == ".csv":
+            return pl.read_csv(path, separator=",")
+        if suffix in (".tsv", ".txt"):
+            return pl.read_csv(path, separator="\t")
+        raise ValueError(f"Unsupported QTL file extension '{suffix}' for {path}")
 
     @staticmethod
     def normalise_columns(df: pl.DataFrame, manifest_row: dict) -> pl.DataFrame:
+        required_cols = ["snp_col", "a1_col", "a2_col", "beta_col", "se_col", "p_col", "chr_col", "pos_col"]
+        blank = [col for col in required_cols if not manifest_row.get(col)]
+        if blank:
+            raise ValueError(
+                f"Manifest row for dataset '{manifest_row.get('dataset')}' has blank "
+                f"{', '.join(blank)} - fill these in assets/qtl_manifest.csv"
+            )
+
         rename_map = {
             manifest_row["snp_col"]: "SNP",
             manifest_row["a1_col"]: "A1",
@@ -56,15 +86,14 @@ class QTLManifest:
 
         manifest_row = self.get_row(dataset)
         key_col = manifest_row.get("key_col") or None
-        glob_path = str(self.base_dir / manifest_row["path"]) if self.base_dir else manifest_row["path"]
-        matched_files = sorted(glob.glob(glob_path))
+        matched_files = sorted(glob.glob(manifest_row["path"]))
         if not matched_files:
             raise FileNotFoundError(f"No files matched path: {manifest_row['path']}")
 
         results = {}
         for f in matched_files:
             label = Path(f).stem
-            df = self.normalise_columns(pl.read_parquet(f), manifest_row)
+            df = self.normalise_columns(self._read_qtl_file(f), manifest_row)
 
             if gene is not None:
                 if key_col:

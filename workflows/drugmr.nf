@@ -15,6 +15,15 @@ include { PHEWAS_WF } from '../subworkflows/phewas/main.nf'
 workflow DRUGMR {
 
     main:
+    // a run is always exactly 1 dataset x 1 trait (see subworkflows/target_hits)
+    if (params.inputs.size() != 1) {
+        error(
+            "drugMR takes exactly 1 input per run, got ${params.inputs.size()}. " +
+            "Each (pheno_id, pqtl_dataset) pair needs its own `nextflow run` " +
+            "invocation -> see README's Configuration section."
+        )
+    }
+
     QC_GWAS()
     PREP_CIS_REGIONS(QC_GWAS.out.qc_tsv)
     MR_ON_CIS_REGIONS(QC_GWAS.out.qc_tsv, PREP_CIS_REGIONS.out.protein_dirs)

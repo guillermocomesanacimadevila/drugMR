@@ -8,7 +8,7 @@ import polars as pl
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from hyprcoloc_targets import (
     CANDIDATE_SNP_STAT_COLS,
-    load_eqtl_table,
+    load_qtl_table,
     resolve_candidate_snp_stats,
 )
 
@@ -21,10 +21,10 @@ from hyprcoloc_targets import (
 # SNP it already found is taken as-is.
 #
 # Older master files don't carry every join key HyPrColoc itself now stamps on each row
-# (probeID never made it in; some pre-multi-eqtl-dataset runs are also missing data_type/
-# eqtl_dataset) - whichever of [protein, cell_type, data_type, eqtl_dataset] a file DOES
+# (probe_id never made it in; some pre-multi-eqtl-dataset runs are also missing data_type/
+# qtl_dataset) - whichever of [protein, cell_type, data_type, qtl_dataset] a file DOES
 # have is used to look up the rest from that pQTL dataset's SMR final_multi_omics_targets
-# table, which still carries probeID for every target x cell-type/tissue hit.
+# table, which still carries probe_id for every target x cell-type/tissue hit.
 
 
 def load_smr_lookup(pqtl_dataset: str, pheno_id: str):
@@ -33,11 +33,11 @@ def load_smr_lookup(pqtl_dataset: str, pheno_id: str):
     if not smr_file.exists():
         return None
 
-    lookup_cols = ["protein", "cell_type", "data_type", "eqtl_dataset", "probeID"]
+    lookup_cols = ["protein", "cell_type", "data_type", "qtl_dataset", "probe_id"]
     return pl.read_csv(smr_file, separator="\t", null_values=["NA"]).select(lookup_cols).unique()
 
 
-def load_trio(pqtl_dataset: str, protein: str, cell_type: str, data_type: str, eqtl_dataset: str, probe_id: str):
+def load_trio(pqtl_dataset: str, protein: str, cell_type: str, data_type: str, qtl_dataset: str, probe_id: str):
     cis_region = Path(f"./dat/cis_regions/{pqtl_dataset}/{protein}")
     gwas_file = cis_region / "gwas.parquet"
     pqtl_file = cis_region / "pqtl.parquet"
@@ -47,7 +47,7 @@ def load_trio(pqtl_dataset: str, protein: str, cell_type: str, data_type: str, e
         return None
 
     base_gene_id = str(probe_id).split(".")[0]
-    eqtl = load_eqtl_table(data_type, eqtl_dataset, cell_type, base_gene_id)
+    eqtl = load_qtl_table(data_type, qtl_dataset, cell_type, base_gene_id)
 
     if eqtl is None or eqtl.height == 0:
         print(f"[CONCERN] No {cell_type} eQTL rows found for probe {probe_id}")
@@ -90,14 +90,14 @@ def backfill_dataset(pqtl_dataset: str, pheno_id: str):
     smr_lookup = load_smr_lookup(pqtl_dataset, pheno_id)
 
     if smr_lookup is None:
-        print(f"[CONCERN] No SMR final targets file for {pqtl_dataset} - cannot recover probeID, skipping")
+        print(f"[CONCERN] No SMR final targets file for {pqtl_dataset} - cannot recover probe_id, skipping")
         return
 
-    join_keys = [key for key in ["protein", "cell_type", "data_type", "eqtl_dataset"] if key in hypr.columns]
+    join_keys = [key for key in ["protein", "cell_type", "data_type", "qtl_dataset"] if key in hypr.columns]
     hypr = hypr.join(smr_lookup, on=join_keys, how="left")
 
-    if "probeID" not in hypr.columns or hypr.get_column("probeID").null_count() == hypr.height:
-        print(f"[CONCERN] Could not resolve probeID for any {pqtl_dataset} row via {join_keys} - skipping")
+    if "probe_id" not in hypr.columns or hypr.get_column("probe_id").null_count() == hypr.height:
+        print(f"[CONCERN] Could not resolve probe_id for any {pqtl_dataset} row via {join_keys} - skipping")
         return
 
     trio_cache = {}
@@ -105,13 +105,13 @@ def backfill_dataset(pqtl_dataset: str, pheno_id: str):
 
     for row in hypr.iter_rows(named=True):
         candidate_snp = row.get("candidate_snp")
-        probe_id = row.get("probeID")
+        probe_id = row.get("probe_id")
 
         if candidate_snp is None or probe_id is None:
             stat_rows.append(None)
             continue
 
-        trio_key = (row["protein"], row["cell_type"], row.get("data_type"), row.get("eqtl_dataset"), probe_id)
+        trio_key = (row["protein"], row["cell_type"], row.get("data_type"), row.get("qtl_dataset"), probe_id)
 
         if trio_key not in trio_cache:
             trio_cache[trio_key] = load_trio(pqtl_dataset, *trio_key)
@@ -125,11 +125,11 @@ def backfill_dataset(pqtl_dataset: str, pheno_id: str):
             "a1": pl.Utf8, "a2": pl.Utf8,
             "gwas_beta": pl.Float64, "gwas_p": pl.Float64,
             "pqtl_beta": pl.Float64, "pqtl_p": pl.Float64,
-            "eqtl_beta": pl.Float64, "eqtl_p": pl.Float64
+            "qtl_beta": pl.Float64, "qtl_p": pl.Float64
         }
     )
 
-    result = pl.concat([hypr.drop("probeID"), stats_df], how="horizontal")
+    result = pl.concat([hypr.drop("probe_id"), stats_df], how="horizontal")
     n_resolved = hypr.height - stat_rows.count(None)
     print(f"[DONE] {pqtl_dataset}: resolved candidate SNP stats for {n_resolved}/{hypr.height} rows")
     result.write_csv(master_file, separator="\t")

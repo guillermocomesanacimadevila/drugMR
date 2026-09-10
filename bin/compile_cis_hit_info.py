@@ -7,6 +7,15 @@ import polars as pl
 
 from drugmr import paths
 
+# matches the dict keys appended to top_hits below - used only when zero
+# targets survive, so the written file still has the columns the dashboard
+# expects, instead of a schema-less empty file that raises
+# polars.exceptions.NoDataError on the very next read.
+_TARGET_STATS_COLUMNS = [
+    "protein", "SNP", "A1", "A2", "FRQ", "GWAS_BETA", "GWAS_P",
+    "pQTL_BETA", "pQTL_P", "outcome_trait",
+]
+
 # TO DO'S
 # Coloc outdir for pqtl dataset X
 # Map the original ingo fro mthe original pQTL -> define risk allele 
@@ -14,8 +23,8 @@ from drugmr import paths
 # map Ps - Betas - A1 - A2
 # slap onto results/info 
 
-def compile_top_cis_hits(pheno_id: str, pqtl_dataset: str, local_results_dir: str = "results", cis_regions_dir: str | None = None):
-    coloc_res = pl.read_csv(paths.coloc_out(pqtl_dataset, pheno_id, local_results_dir), separator="\t")
+def compile_top_cis_hits(pheno_id: str, pqtl_dataset: str, local_results_dir: str = "results", cis_regions_dir: str | None = None, coloc_file: str | None = None):
+    coloc_res = pl.read_csv(coloc_file or paths.coloc_out(pqtl_dataset, pheno_id, local_results_dir), separator="\t")
     if "protein_id" in coloc_res.columns:
         coloc_res = coloc_res.rename({"protein_id": "protein"})
 
@@ -106,7 +115,11 @@ def compile_top_cis_hits(pheno_id: str, pqtl_dataset: str, local_results_dir: st
             "outcome_trait": pheno_id,
         })
 
-    top_hits = pl.DataFrame(top_hits)
+    if top_hits:
+        top_hits = pl.DataFrame(top_hits)
+    else:
+        print("[TRACKING] No targets survived - writing an empty target_stats table")
+        top_hits = pl.DataFrame(schema=_TARGET_STATS_COLUMNS)
     output = paths.target_stats_out(pqtl_dataset, pheno_id, local_results_dir)
     output.parent.mkdir(parents=True, exist_ok=True)
     top_hits.write_csv(output, separator="\t")
@@ -118,12 +131,14 @@ def main():
     p.add_argument("--pqtl_dataset", required=True)
     p.add_argument("--local_results_dir", default="results")
     p.add_argument("--cis_regions_dir", default=None)
+    p.add_argument("--coloc_file", default=None)
     args = p.parse_args()
     compile_top_cis_hits(
         pheno_id=args.pheno_id,
         pqtl_dataset=args.pqtl_dataset,
         local_results_dir=args.local_results_dir,
         cis_regions_dir=args.cis_regions_dir,
+        coloc_file=args.coloc_file,
     )
 
 if __name__ == "__main__":

@@ -4,6 +4,7 @@ nextflow.enable.dsl = 2
 process EXTRACT_TWO_OMICS_HITS {
 
     tag "extract_targets_from_first_two_layers"
+    label "process_single"
 
     publishDir { "${params.runs_root}/${params.run_id}/results/target_stats" }, mode: "copy"
 
@@ -28,6 +29,7 @@ process EXTRACT_TWO_OMICS_HITS {
         --pheno_id ${meta.pheno_id} \\
         --pqtl_dataset ${meta.pqtl_dataset} \\
         --local_results_dir . \\
-        --cis_regions_dir protein_dirs
+        --cis_regions_dir protein_dirs \\
+        --coloc_file coloc/coloc.tsv
     """
 }

@@ -15,6 +15,9 @@ from scipy.stats import norm
 # WE ASSUME NO SAMPLE OVERLAP 
 def PheWAS(B_X, B_Y, SE_X, SE_Y):
 
+    if B_X == 0:
+        raise ValueError("B_X (exposure beta) is 0 - Wald ratio is undefined.")
+
     # Wald ratio
     B_XY = B_Y / B_X
 

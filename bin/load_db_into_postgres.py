@@ -101,11 +101,13 @@ class PostgresLoader:
             pl.lit(pqtl_dataset).alias("pqtl_dataset"),
         )
 
-        # re-runs of the same run_id replace just that run's rows, not the whole table
+        # re-runs of the same run_id replace just that run's rows, not the whole table -
+        # delete + insert share 1 transaction (not 2 separate engine.begin() calls) so
+        # a concurrent reader (e.g. the dashboard) can never observe the zero-rows
+        # window between the delete committing and the insert landing
         with self.engine.begin() as conn:
             conn.execute(text(f"DELETE FROM {table} WHERE run_id = :run_id"), {"run_id": self.run_id})
-
-        df.to_pandas().to_sql(table, self.engine, if_exists="append", index=False)
+            df.to_pandas().to_sql(table, conn, if_exists="append", index=False)
         print(f"[DONE] Loaded {df.height:,} rows into {table} for run_id={self.run_id}")
 
 

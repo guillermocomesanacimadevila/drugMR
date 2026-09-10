@@ -9,7 +9,7 @@ suppressPackageStartupMessages({
 args <- commandArgs(trailingOnly = TRUE)
 
 if (length(args) < 6) {
-  stop("Usage: Rscript hyprcoloc.R <pqtl_dataset> <protein> <cell_type> <pheno_id> <trio_dir> <local_results_dir>")
+  stop("Usage: Rscript hyprcoloc.R <pqtl_dataset> <protein> <cell_type> <pheno_id> <trio_dir> <local_results_dir> [prior_1] [prior_c] [reg_thresh] [align_thresh] [equal_thresholds] [qtl_type]")
 }
 
 # trio_dir holds pqtl.parquet / gwas.parquet / eqtl.parquet for this protein x
@@ -21,6 +21,21 @@ cell_type         <- args[3]
 pheno_id          <- args[4]
 trio_dir          <- args[5]
 local_results_dir <- args[6]
+
+# HyPrColoc sensitivity plot tuning (params/*.yaml gates.hyprcoloc) - prior_c/reg_thresh/align_thresh
+# are comma-separated vectors on the command line
+HC_PRIOR_1          <- ifelse(length(args) >= 7, as.numeric(args[7]), 1e-4)
+HC_PRIOR_C          <- if (length(args) >= 8) as.numeric(strsplit(args[8], ",")[[1]]) else c(0.05, 0.02, 0.01, 0.005)
+HC_REG_THRESH       <- if (length(args) >= 9) as.numeric(strsplit(args[9], ",")[[1]]) else c(0.5, 0.6, 0.7)
+HC_ALIGN_THRESH     <- if (length(args) >= 10) as.numeric(strsplit(args[10], ",")[[1]]) else c(0.5, 0.6, 0.7)
+HC_EQUAL_THRESHOLDS <- ifelse(length(args) >= 11, as.logical(args[11]), TRUE)
+QTL_TYPE            <- ifelse(length(args) >= 12, args[12], "eqtl")
+
+# known qtl_type values get their real published abbreviation casing (eQTL,
+# sQTL, mQTL, caQTL); an unregistered future type still gets a sane label
+# instead of failing here
+QTL_TYPE_LABELS <- c(eqtl = "eQTL", sqtl = "sQTL", mqtl = "mQTL", caqtl = "caQTL", pqtl = "pQTL")
+QTL_LABEL <- if (QTL_TYPE %in% names(QTL_TYPE_LABELS)) QTL_TYPE_LABELS[[QTL_TYPE]] else toupper(QTL_TYPE)
 
 # must match paths.hyprcoloc_dataset_out(...).parent.parent in
 # bin/hyprcoloc_targets.py, which is where the caller looks for out_file
@@ -42,7 +57,7 @@ hyprcoloc_runner <- function(pqtl_dataset, protein, cell_type, pheno_id, trio_di
   rsid <- dfs$gwas$SNP
   n_snps <- length(rsid)
 
-  print(paste0("[TRACKING] Matched pQTL/GWAS/eQTL SNPs: ", n_snps))
+  print(paste0("[TRACKING] Matched pQTL/GWAS/", QTL_LABEL, " SNPs: ", n_snps))
 
   if (n_snps < 2) {
     print(paste0("[CONCERN] Fewer than 2 matched SNPs for ", protein, " x ", cell_type, " - skipping"))
@@ -56,7 +71,7 @@ hyprcoloc_runner <- function(pqtl_dataset, protein, cell_type, pheno_id, trio_di
   trait_names <- c(
     paste0("pQTL_", protein),
     paste0("GWAS_", pheno_id),
-    paste0("eQTL_", cell_type)
+    paste0(QTL_LABEL, "_", cell_type)
   )
 
   betas <- cbind(dfs$pqtl$BETA, dfs$gwas$BETA, dfs$eqtl$BETA)
@@ -90,11 +105,11 @@ hyprcoloc_runner <- function(pqtl_dataset, protein, cell_type, pheno_id, trio_di
     effect.se        = ses,
     trait.names      = trait_names,
     snp.id           = rsid,
-    prior.1          = 1e-4,
-    prior.c          = c(0.05, 0.02, 0.01, 0.005),
-    reg.thresh       = c(0.5, 0.6, 0.7),
-    align.thresh     = c(0.5, 0.6, 0.7),
-    equal.thresholds = TRUE
+    prior.1          = HC_PRIOR_1,
+    prior.c          = HC_PRIOR_C,
+    reg.thresh       = HC_REG_THRESH,
+    align.thresh     = HC_ALIGN_THRESH,
+    equal.thresholds = HC_EQUAL_THRESHOLDS
   )
   dev.off()
   print(paste0("[DONE] Saved HyPrColoc sensitivity plot: ", sensitivity_file))

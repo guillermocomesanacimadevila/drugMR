@@ -1,4 +1,5 @@
 import os
+import shutil
 import subprocess
 import tempfile
 
@@ -73,6 +74,7 @@ class PWCoCo:
 
             return subprocess.run(cmd, check=True)
         finally:
-            os.unlink(sumstats_1_path)
-            os.unlink(sumstats_2_path)
-            os.rmdir(work_dir)
+            # ignore_errors: a real failure above (e.g. one sumstats file never
+            # got written) must propagate as-is, not get replaced by a cleanup
+            # exception raised in this finally block
+            shutil.rmtree(work_dir, ignore_errors=True)

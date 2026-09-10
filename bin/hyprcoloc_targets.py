@@ -13,35 +13,35 @@ _smr = SMRUtils(manifest_path=paths.DEFAULT_QTL_MANIFEST_PATH)
 
 # HyPrColoc for the final multi-omics targets
 # -> for every target x cell-type/tissue hit that passed cis-MR + COLOC + SMR + HEIDI
-#    in a bulk or single-cell eQTL dataset, run a 3-trait (pQTL / GWAS / eQTL) HyPrColoc
+#    in a bulk or single-cell QTL dataset, run a 3-trait (pQTL / GWAS / QTL) HyPrColoc
 #    in that target's cis-region, restricted to the SNPs shared across all three
 #    and aligned onto a common effect allele (drugmr.extract_common_snps aligns
 #    onto the GWAS A1, same "align to GWAS" convention as compile_cis_hit_info.py
 #    / sort_smr.py's align_to_risk_allele)
 # both bulk (dat/bulk-eQTL/{GTEx_v10,MetaBrain}/...) and single-cell (dat/sc-eQTL/...)
-# eQTL sources are supported - which one is used is driven entirely by the "data_type"
+# QTL sources are supported - which one is used is driven entirely by the "data_type"
 # tag already carried on each row of the combined SMR target table
 
 
 # candidate_snp's own alleles/betas, aligned to the AD risk allele (b_GWAS > 0) -
 # same "make A1 the GWAS risk allele" convention as bin/compile_cis_hit_info.py,
-# extended from 2 traits (GWAS/pQTL) to 3 (GWAS/pQTL/eQTL). Looks the SNP up in the
-# pre-alignment gwas/pqtl/eqtl tables (which still carry each trait's own A1/A2/P -
+# extended from 2 traits (GWAS/pQTL) to 3 (GWAS/pQTL/QTL). Looks the SNP up in the
+# pre-alignment gwas/pqtl/qtl tables (which still carry each trait's own A1/A2/P -
 # extract_common_snps' output drops those) rather than the post-alignment `matched`
-# tables. Returns None if the SNP is missing from any trait or its pQTL/eQTL allele
+# tables. Returns None if the SNP is missing from any trait or its pQTL/QTL allele
 # pair doesn't match the GWAS one either way round (shouldn't happen for a SNP that
 # HyPrColoc was run on, but guards against a silent mismatch if it ever does).
-def resolve_candidate_snp_stats(snp: str, gwas: pl.DataFrame, pqtl: pl.DataFrame, eqtl: pl.DataFrame):
+def resolve_candidate_snp_stats(snp: str, gwas: pl.DataFrame, pqtl: pl.DataFrame, qtl: pl.DataFrame):
     gwas_row = gwas.filter(pl.col("SNP") == snp)
     pqtl_row = pqtl.filter(pl.col("SNP") == snp)
-    eqtl_row = eqtl.filter(pl.col("SNP") == snp)
+    qtl_row = qtl.filter(pl.col("SNP") == snp)
 
-    if gwas_row.height == 0 or pqtl_row.height == 0 or eqtl_row.height == 0:
+    if gwas_row.height == 0 or pqtl_row.height == 0 or qtl_row.height == 0:
         return None
 
     gwas_row = gwas_row.row(0, named=True)
     pqtl_row = pqtl_row.row(0, named=True)
-    eqtl_row = eqtl_row.row(0, named=True)
+    qtl_row = qtl_row.row(0, named=True)
 
     a1, a2 = str(gwas_row["A1"]).upper(), str(gwas_row["A2"]).upper()
     gwas_beta, gwas_p = float(gwas_row["BETA"]), float(gwas_row["P"])
@@ -60,9 +60,9 @@ def resolve_candidate_snp_stats(snp: str, gwas: pl.DataFrame, pqtl: pl.DataFrame
         return None, None
 
     pqtl_beta, pqtl_p = realign(pqtl_row)
-    eqtl_beta, eqtl_p = realign(eqtl_row)
+    qtl_beta, qtl_p = realign(qtl_row)
 
-    if pqtl_beta is None or eqtl_beta is None:
+    if pqtl_beta is None or qtl_beta is None:
         print(f"[CONCERN] Allele mismatch at candidate SNP {snp} against GWAS {a1}/{a2} - skipping SNP-level stats")
         return None
 
@@ -73,23 +73,23 @@ def resolve_candidate_snp_stats(snp: str, gwas: pl.DataFrame, pqtl: pl.DataFrame
         "gwas_p": 1e-300 if gwas_p == 0 else gwas_p,
         "pqtl_beta": pqtl_beta,
         "pqtl_p": 1e-300 if pqtl_p == 0 else pqtl_p,
-        "eqtl_beta": eqtl_beta,
-        "eqtl_p": 1e-300 if eqtl_p == 0 else eqtl_p,
+        "qtl_beta": qtl_beta,
+        "qtl_p": 1e-300 if qtl_p == 0 else qtl_p,
     }
 
 
 # attaches, for every result row, the candidate SNP's own aligned alleles/betas (see
 # resolve_candidate_snp_stats) - null-filled where the SNP is missing or a row has no
 # candidate_snp at all (e.g. a cluster HyPrColoc couldn't resolve to a single SNP)
-CANDIDATE_SNP_STAT_COLS = ["a1", "a2", "gwas_beta", "gwas_p", "pqtl_beta", "pqtl_p", "eqtl_beta", "eqtl_p"]
+CANDIDATE_SNP_STAT_COLS = ["a1", "a2", "gwas_beta", "gwas_p", "pqtl_beta", "pqtl_p", "qtl_beta", "qtl_p"]
 
 
-def attach_candidate_snp_stats(result_df: pl.DataFrame, gwas: pl.DataFrame, pqtl: pl.DataFrame, eqtl: pl.DataFrame):
+def attach_candidate_snp_stats(result_df: pl.DataFrame, gwas: pl.DataFrame, pqtl: pl.DataFrame, qtl: pl.DataFrame):
     if result_df.height == 0 or "candidate_snp" not in result_df.columns:
         return result_df
 
     stat_rows = [
-        resolve_candidate_snp_stats(snp, gwas, pqtl, eqtl) if snp is not None else None
+        resolve_candidate_snp_stats(snp, gwas, pqtl, qtl) if snp is not None else None
         for snp in result_df.get_column("candidate_snp").to_list()
     ]
     stats_df = pl.DataFrame(
@@ -98,40 +98,42 @@ def attach_candidate_snp_stats(result_df: pl.DataFrame, gwas: pl.DataFrame, pqtl
             "a1": pl.Utf8, "a2": pl.Utf8,
             "gwas_beta": pl.Float64, "gwas_p": pl.Float64,
             "pqtl_beta": pl.Float64, "pqtl_p": pl.Float64,
-            "eqtl_beta": pl.Float64, "eqtl_p": pl.Float64
+            "qtl_beta": pl.Float64, "qtl_p": pl.Float64
         }
     )
     return pl.concat([result_df, stats_df], how="horizontal")
 
 
-# loads the 1 gene's eQTL rows (bulk or single-cell), aligned onto the pipeline's own
+# loads the 1 gene's QTL rows (bulk or single-cell), aligned onto the pipeline's own
 # SNP/A1/A2/BETA/SE/P convention - shared by the main HyPrColoc loop below and
 # bin/backfill_hyprcoloc_snp_stats.py, which needs the exact same table to
 # re-resolve a candidate SNP's stats for older result files without re-running
-# HyPrColoc itself. drugmr.smr.SMRUtils.load_eqtl_rows() carries the actual bulk
+# HyPrColoc itself. drugmr.smr.SMRUtils.load_qtl_rows() carries the actual bulk
 # vs single-cell file-resolution logic (manifest-driven, no hardcoded dataset
 # names) - this just narrows its 8-column output down onto the 6 columns this
 # pipeline's downstream code expects. Returns None (with a printed [CONCERN]) on
 # any missing file or unrecognised data_type.
-def load_eqtl_table(data_type: str, eqtl_dataset: str, cell_type: str, base_gene_id: str):
-    eqtl = _smr.load_eqtl_rows(data_type, eqtl_dataset, cell_type, base_gene_id)
-    if eqtl is None:
+def load_qtl_table(data_type: str, qtl_dataset: str, cell_type: str, base_gene_id: str):
+    qtl = _smr.load_qtl_rows(data_type, qtl_dataset, cell_type, base_gene_id)
+    if qtl is None:
         return None
-    return eqtl.select(["SNP", "A1", "A2", "BETA", "SE", "P"])
+    return qtl.select(["SNP", "A1", "A2", "BETA", "SE", "P"])
 
 
-def hyprcoloc_targets(pqtl_dataset: str, pheno_id: str, eqtl_dataset: str, local_results_dir: str = "results", skip_merge: bool = False):
+def hyprcoloc_targets(pqtl_dataset: str, pheno_id: str, qtl_dataset: str, local_results_dir: str = "results", skip_merge: bool = False, prior_1: float = 1e-4, prior_c: list[float] = (0.05, 0.02, 0.01, 0.005), reg_thresh: list[float] = (0.5, 0.6, 0.7), align_thresh: list[float] = (0.5, 0.6, 0.7), equal_thresholds: bool = True):
     hyprcoloc_script = str(Path(os.environ.get("PYTHONPATH", ".")) / "bin" / "hyprcoloc.R")
     work_dir = paths.work_dir_for_results_dir(local_results_dir) / "hyprcoloc"
     work_dir.mkdir(parents=True, exist_ok=True)
-    out_dir = paths.hyprcoloc_dataset_out(pqtl_dataset, eqtl_dataset, pheno_id, local_results_dir).parent.parent
+    out_dir = paths.hyprcoloc_dataset_out(pqtl_dataset, qtl_dataset, pheno_id, local_results_dir).parent.parent
     out_dir.mkdir(parents=True, exist_ok=True)
     targets_file = paths.smr_final_targets_out(pqtl_dataset, pheno_id, local_results_dir)
     targets = pl.read_csv(targets_file, separator="\t", null_values=["NA"])
+    if "qtl_type" not in targets.columns:
+        targets = targets.with_columns(pl.lit("eqtl").alias("qtl_type"))
     targets = (
         targets
-        .filter(pl.col("eqtl_dataset") == eqtl_dataset)
-        .select(["protein", "cell_type", "probe_id", "data_type"])
+        .filter(pl.col("qtl_dataset").str.to_lowercase() == qtl_dataset.lower())
+        .select(["protein", "cell_type", "probe_id", "data_type", "qtl_type"])
         .unique()
         .sort(["protein", "cell_type"])
     )
@@ -145,7 +147,7 @@ def hyprcoloc_targets(pqtl_dataset: str, pheno_id: str, eqtl_dataset: str, local
     # project_pwcoco_wiring memory). A protein supported by BOTH methods still gets exactly 1
     # row here (targets is already deduped on protein x cell_type x probeID x data_type), so
     # it is not run twice.
-    print(f"[TRACKING] {targets.height} target x cell-type/tissue hit(s) found for HyPrColoc in {eqtl_dataset}")
+    print(f"[TRACKING] {targets.height} target x cell-type/tissue hit(s) found for HyPrColoc in {qtl_dataset}")
 
     results = []
 
@@ -154,6 +156,7 @@ def hyprcoloc_targets(pqtl_dataset: str, pheno_id: str, eqtl_dataset: str, local
         cell_type = row["cell_type"]
         probe_id = row["probe_id"]
         data_type = row["data_type"]
+        qtl_type = row["qtl_type"]
         cis_region = Path(f"./dat/cis_regions/{pqtl_dataset}/{protein}")
         gwas_file = cis_region / "gwas.parquet"
         pqtl_file = cis_region / "pqtl.parquet"
@@ -162,15 +165,15 @@ def hyprcoloc_targets(pqtl_dataset: str, pheno_id: str, eqtl_dataset: str, local
             print(f"[CONCERN] Missing cis-region parquet(s) for {protein}")
             continue
 
-        # probeID (from the SMR .epi annotation) and the eQTL parquet's own gene ID
+        # probeID (from the SMR .epi annotation) and the QTL parquet's own gene ID
         # column can carry different Ensembl release versions for the same gene
         # (e.g. ENSG00000095585.20 vs ENSG00000095585.17) - match on the
         # version-stripped base ID rather than the raw string
         base_gene_id = probe_id.split(".")[0]
 
-        eqtl = load_eqtl_table(data_type, eqtl_dataset, cell_type, base_gene_id)
+        qtl = load_qtl_table(data_type, qtl_dataset, cell_type, base_gene_id)
 
-        if eqtl is None:
+        if qtl is None:
             continue
 
         # 1 row per SNP, most significant kept - same pattern as coloc.R
@@ -188,17 +191,17 @@ def hyprcoloc_targets(pqtl_dataset: str, pheno_id: str, eqtl_dataset: str, local
             .unique(subset="SNP", keep="first")
         )
 
-        if eqtl.height == 0:
-            print(f"[CONCERN] No {cell_type} eQTL rows found for probe {probe_id}")
+        if qtl.height == 0:
+            print(f"[CONCERN] No {cell_type} QTL rows found for probe {probe_id}")
             continue
 
         matched = extract_common_snps(
-            {"pqtl": pqtl, "gwas": gwas, "eqtl": eqtl},
+            {"pqtl": pqtl, "gwas": gwas, "eqtl": qtl},
             reference="gwas"
         )
 
         n_shared = matched["gwas"].height
-        print(f"[TRACKING] {protein} x {cell_type}: {n_shared} SNPs shared across pQTL/GWAS/eQTL")
+        print(f"[TRACKING] {protein} x {cell_type}: {n_shared} SNPs shared across pQTL/GWAS/QTL")
 
         if n_shared < 2:
             print(f"[CONCERN] Fewer than 2 shared SNPs for {protein} x {cell_type} - skipping HyPrColoc")
@@ -212,43 +215,51 @@ def hyprcoloc_targets(pqtl_dataset: str, pheno_id: str, eqtl_dataset: str, local
 
         cmd_hyprcoloc = [
             "Rscript", hyprcoloc_script,
-            pqtl_dataset, protein, cell_type, pheno_id, str(trio_dir), local_results_dir
+            pqtl_dataset, protein, cell_type, pheno_id, str(trio_dir), local_results_dir,
+            str(prior_1), ",".join(str(v) for v in prior_c), ",".join(str(v) for v in reg_thresh),
+            ",".join(str(v) for v in align_thresh), str(equal_thresholds), qtl_type
         ]
         print(f"[TRACKING] Running HyPrColoc for {protein} x {cell_type}")
-        subprocess.run(cmd_hyprcoloc, check=True)
+        # 1 bad target x cell-type combo must not lose every other already-computed
+        # HyPrColoc result - same reasoning as cis_mr.R's own per-protein tryCatch
+        try:
+            subprocess.run(cmd_hyprcoloc, check=True)
 
-        result_file = out_dir / f"{pheno_id}_{protein}_{cell_type}_hyprcoloc.tsv"
+            result_file = out_dir / f"{pheno_id}_{protein}_{cell_type}_hyprcoloc.tsv"
 
-        if result_file.exists():
-            result_df = pl.read_csv(result_file, separator="\t").with_columns(
-                pl.lit(eqtl_dataset).alias("eqtl_dataset"),
-                pl.lit(data_type).alias("data_type")
-            )
-            result_df = attach_candidate_snp_stats(result_df, gwas, pqtl, eqtl)
-            results.append(result_df)
-            result_file.unlink()
-        else:
-            print(f"[CONCERN] Expected HyPrColoc output not found: {result_file}")
+            if result_file.exists():
+                result_df = pl.read_csv(result_file, separator="\t").with_columns(
+                    pl.lit(qtl_dataset).alias("qtl_dataset"),
+                    pl.lit(data_type).alias("data_type"),
+                    pl.lit(qtl_type).alias("qtl_type")
+                )
+                result_df = attach_candidate_snp_stats(result_df, gwas, pqtl, qtl)
+                results.append(result_df)
+                result_file.unlink()
+            else:
+                print(f"[CONCERN] Expected HyPrColoc output not found: {result_file}")
+        except Exception as error:
+            print(f"[CONCERN] HyPrColoc failed for {protein} x {cell_type} - continuing without it: {error}")
 
     if len(results) == 0:
-        print(f"[CONCERN] No HyPrColoc results generated for any {eqtl_dataset} target")
+        print(f"[CONCERN] No HyPrColoc results generated for any {qtl_dataset} target")
         return
 
     dataset_results = pl.concat(results, how="diagonal_relaxed")
 
-    # per-dataset output, used as the idempotency marker by local.py / hpc.py (mirrors
+    # per-dataset output, used as the idempotency marker by local.py / falcon.py (mirrors
     # sort_smr.py's per-bulk_dataset promising_targets_SMR.tsv pattern) so re-running
-    # for one eqtl_dataset doesn't require re-running every other one
-    per_dataset_file = paths.hyprcoloc_dataset_out(pqtl_dataset, eqtl_dataset, pheno_id, local_results_dir)
+    # for one qtl_dataset doesn't require re-running every other one
+    per_dataset_file = paths.hyprcoloc_dataset_out(pqtl_dataset, qtl_dataset, pheno_id, local_results_dir)
     per_dataset_file.parent.mkdir(parents=True, exist_ok=True)
     dataset_results.write_csv(per_dataset_file, separator="\t")
 
     # canonical combined output (bulk + single-cell hits together) - upsert: drop any
-    # stale rows for this eqtl_dataset, then append the fresh ones, so bulk and
+    # stale rows for this qtl_dataset, then append the fresh ones, so bulk and
     # single-cell runs (in either order) compose instead of overwriting each other.
     # Skipped when skip_merge=True (Nextflow: each fanned-out task runs in its own
     # isolated sandbox, so "master_file.exists()" is never true there - the upsert
-    # can't accumulate across tasks the way it does for local.py/hpc.py's sequential
+    # can't accumulate across tasks the way it does for local.py/falcon.py's sequential
     # calls against one real shared file. merge_hyprcoloc_batch() below is the
     # fan-in-safe replacement - see project_nextflow_migration memory.
     if skip_merge:
@@ -257,8 +268,8 @@ def hyprcoloc_targets(pqtl_dataset: str, pheno_id: str, eqtl_dataset: str, local
     master_file = paths.hyprcoloc_out(pqtl_dataset, pheno_id, local_results_dir)
     if master_file.exists() and master_file.stat().st_size > 0:
         existing = pl.read_csv(master_file, separator="\t", null_values=["NA"])
-        if "eqtl_dataset" in existing.columns:
-            existing = existing.filter(pl.col("eqtl_dataset") != eqtl_dataset)
+        if "qtl_dataset" in existing.columns:
+            existing = existing.filter(pl.col("qtl_dataset").str.to_lowercase() != qtl_dataset.lower())
         master = pl.concat([existing, dataset_results], how="diagonal_relaxed")
     else:
         master = dataset_results
@@ -268,19 +279,19 @@ def hyprcoloc_targets(pqtl_dataset: str, pheno_id: str, eqtl_dataset: str, local
 
 
 # Nextflow fan-in counterpart to hyprcoloc_targets()'s own master-file upsert:
-# instead of upserting one eqtl_dataset's rows into a shared file across N
+# instead of upserting one qtl_dataset's rows into a shared file across N
 # sequential calls (only safe when those calls share one real persistent file,
-# as in local.py/hpc.py), this takes every eqtl_dataset's already-computed
-# hyprcoloc_dataset_out() file at once (`inputs`: (eqtl_dataset,
+# as in local.py/falcon.py), this takes every qtl_dataset's already-computed
+# hyprcoloc_dataset_out() file at once (`inputs`: (qtl_dataset,
 # dataset_file_path) tuples) and writes the combined hyprcoloc_out() file in a
 # single shot - correct regardless of whether the producing tasks ran in
 # parallel or in isolated sandboxes.
 def merge_hyprcoloc_batch(pheno_id: str, pqtl_dataset: str, inputs: list[tuple[str, str]], local_results_dir: str = "results"):
     frames = []
-    for eqtl_dataset, dataset_file in inputs:
+    for qtl_dataset, dataset_file in inputs:
         path = Path(dataset_file)
         if not path.exists() or path.stat().st_size == 0:
-            print(f"[CONCERN] No HyPrColoc results found for {eqtl_dataset} at {path}")
+            print(f"[CONCERN] No HyPrColoc results found for {qtl_dataset} at {path}")
             continue
         frames.append(pl.read_csv(path, separator="\t", null_values=["NA"]))
 
@@ -288,7 +299,7 @@ def merge_hyprcoloc_batch(pheno_id: str, pqtl_dataset: str, inputs: list[tuple[s
     master_file.parent.mkdir(parents=True, exist_ok=True)
 
     if not frames:
-        print(f"[CONCERN] No HyPrColoc results found across any of {len(inputs)} eQTL dataset(s)")
+        print(f"[CONCERN] No HyPrColoc results found across any of {len(inputs)} QTL dataset(s)")
         pl.DataFrame().write_csv(master_file, separator="\t")
         return
 
@@ -302,12 +313,17 @@ def main():
     p = argparse.ArgumentParser()
     p.add_argument("--pqtl_dataset", required=True)
     p.add_argument("--pheno_id", required=True)
-    p.add_argument("--eqtl_dataset", default="SingleBrain")
+    p.add_argument("--qtl_dataset", default="SingleBrain")
     p.add_argument("--local_results_dir", default="results")
     p.add_argument("--manifest_path", default=paths.DEFAULT_QTL_MANIFEST_PATH)
     p.add_argument("--repo_root", default=None)
     p.add_argument("--skip_merge", action="store_true")
-    # merge mode only - repeatable "eqtl_dataset:dataset_file_path", one per
+    p.add_argument("--prior_1", type=float, default=1e-4)
+    p.add_argument("--prior_c", default="0.05,0.02,0.01,0.005")
+    p.add_argument("--reg_thresh", default="0.5,0.6,0.7")
+    p.add_argument("--align_thresh", default="0.5,0.6,0.7")
+    p.add_argument("--equal_thresholds", type=lambda v: v.lower() == "true", default=True)
+    # merge mode only - repeatable "qtl_dataset:dataset_file_path", one per
     # upstream HYPRCOLOC task being fanned in
     p.add_argument("--merge", action="store_true")
     p.add_argument("--input", action="append", default=[])
@@ -330,9 +346,14 @@ def main():
     hyprcoloc_targets(
         pqtl_dataset=args.pqtl_dataset,
         pheno_id=args.pheno_id,
-        eqtl_dataset=args.eqtl_dataset,
+        qtl_dataset=args.qtl_dataset,
         local_results_dir=args.local_results_dir,
         skip_merge=args.skip_merge,
+        prior_1=args.prior_1,
+        prior_c=[float(v) for v in args.prior_c.split(",")],
+        reg_thresh=[float(v) for v in args.reg_thresh.split(",")],
+        align_thresh=[float(v) for v in args.align_thresh.split(",")],
+        equal_thresholds=args.equal_thresholds,
     )
 
 

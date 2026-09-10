@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import json
 import shutil
 import subprocess
 import sys
@@ -85,6 +86,40 @@ def require_output(path: Path, step: str, required_for: str):
         raise RuntimeError(
             f"{required_for} cannot run because {step} output is empty: {path}"
         )
+
+def fetch_run(run_id: str, host: str, remote_root: str):
+    # for a run launched directly via `nextflow run` on a remote host (no
+    # dm.hpc() involved) - drugMR has no way to know that run exists, so host
+    # and remote_root always have to be given explicitly here
+    project_root = Path(__file__).resolve().parents[1]
+    local_run_dir = paths.run_dir(run_id, root=str(project_root / "runs"))
+    local_run_dir.mkdir(parents=True, exist_ok=True)
+
+    print(f"[TRACKING] Fetching {host}:{remote_root}/{run_id}/ -> {local_run_dir}")
+    subprocess.run(
+        ["rsync", "-avz", f"{host}:{remote_root}/{run_id}/", f"{local_run_dir}/"],
+        check=True,
+    )
+
+    manifest_path = paths.run_manifest_path(run_id, root=str(project_root / "runs"))
+    if not manifest_path.exists():
+        raise FileNotFoundError(
+            f"{manifest_path} not found after fetch - is {run_id!r} a real run_id "
+            f"under {remote_root} on {host}?"
+        )
+
+    manifest = json.loads(manifest_path.read_text())
+    missing = [key for key in ("pheno_id", "pqtl_dataset") if not manifest.get(key)]
+    if missing:
+        raise ValueError(f"{manifest_path} is missing required field(s): {', '.join(missing)}")
+
+    registry.record_successful_run(
+        manifest["pheno_id"],
+        manifest["pqtl_dataset"],
+        run_id,
+        root=str(project_root / "runs"),
+    )
+    print(f"[DONE] Fetched and registered run: {run_id}")
 
 def results(
     config: str,
@@ -244,11 +279,10 @@ def local(config: str, run_id: str = None):
     remove_mhc = getattr(cfg, "remove_mhc", True)
     remove_apoe = getattr(cfg, "remove_apoe", False)
     overwrite = getattr(cfg, "overwrite", False)
-    image_uri = getattr(cfg, "image_uri", "ghcr.io/guillermocomesanacimadevila/drugmr:latest")
     image_name = getattr(cfg, "image_name", "ghcr.io/guillermocomesanacimadevila/drugmr:latest")
     run_smr = getattr(cfg, "run_smr", True)
-    bulk_eqtl_datasets = getattr(cfg, "bulk_eqtl_datasets", [])
-    sc_eqtl_dataset = getattr(cfg, "sc_eqtl_dataset", "")
+    bulk_qtl_datasets = getattr(cfg, "bulk_qtl_datasets", [])
+    sc_qtl_dataset = getattr(cfg, "sc_qtl_dataset", "")
 
     # cis-MR / coloc gate thresholds - see params/schema.json's gates block;
     # defaults match what bin/coloc_targets.py used to hardcode
@@ -257,7 +291,27 @@ def local(config: str, run_id: str = None):
     cochran_q_pval = cfg.gate("cis_mr", "cochran_q_pval", 0.05)
     egger_intercept_pval_min = cfg.gate("cis_mr", "egger_intercept_pval_min", 0)
     min_instruments_for_ivw = cfg.gate("cis_mr", "min_instruments_for_ivw", 3)
+    apply_steiger_filter = cfg.gate("cis_mr", "apply_steiger_filter", False)
+    clump_kb = cfg.gate("cis_mr", "clump_kb", 10000)
+    clump_r2 = cfg.gate("cis_mr", "clump_r2", 0.001)
+    instrument_pval_threshold = cfg.gate("cis_mr", "instrument_pval_threshold", 5.0e-8)
+    min_f_stat = cfg.gate("cis_mr", "min_f_stat", 10)
     pp4_threshold = cfg.gate("coloc", "pp4_threshold", 0.7)
+    p1 = cfg.gate("coloc", "p1", 1e-4)
+    p2 = cfg.gate("coloc", "p2", 1e-4)
+    p12 = cfg.gate("coloc", "p12", 1e-5)
+    p_qtl_smr = cfg.gate("smr", "p_qtl_smr", 5.0e-8)
+    p_qtl_heidi = cfg.gate("smr", "p_qtl_heidi", 1.57e-3)
+    p_smr_threshold = cfg.gate("smr", "p_smr_threshold", 0.05)
+    p_heidi_threshold = cfg.gate("smr", "p_heidi_threshold", 0.01)
+    hc_prior_1 = cfg.gate("hyprcoloc", "prior_1", 1e-4)
+    hc_prior_c = cfg.gate("hyprcoloc", "prior_c", [0.05, 0.02, 0.01, 0.005])
+    hc_reg_thresh = cfg.gate("hyprcoloc", "reg_thresh", [0.5, 0.6, 0.7])
+    hc_align_thresh = cfg.gate("hyprcoloc", "align_thresh", [0.5, 0.6, 0.7])
+    hc_equal_thresholds = cfg.gate("hyprcoloc", "equal_thresholds", True)
+    pwcoco_pp4_threshold = cfg.gate("pwcoco", "pp4_threshold", 0.7)
+    bonferroni_alpha = cfg.gate("phewas", "bonferroni_alpha", 0.05)
+    phewas_coloc_threshold = cfg.gate("phewas", "coloc_threshold", 0)
 
 
     # set projectDir()
@@ -296,15 +350,15 @@ def local(config: str, run_id: str = None):
     # a complementary annotation on top of it
     pwcoco_out = project_root / paths.pwcoco_out(pqtl_dataset, pheno_id, out_dir)
 
-    # PWCoCo (eQTL-informed) - eQTL-pQTL / eQTL-GWAS on SMR-passing targets, gated
+    # PWCoCo (QTL-informed) - QTL-pQTL / QTL-GWAS on SMR-passing targets, gated
     # on the same complementary-not-required basis as pwcoco_out above
     pwcoco_qtl_out = project_root / paths.pwcoco_eqtl_pqtl_out(pqtl_dataset, pheno_id, out_dir)
 
-    # SMR (bulk and/or single-cell) - promising target output per eQTL mode
-    # bulk_eqtl_datasets is a list (MetaBrain / GTEx_v10 etc. are pre-computed
+    # SMR (bulk and/or single-cell) - promising target output per QTL mode
+    # bulk_qtl_datasets is a list (MetaBrain / GTEx_v10 etc. are pre-computed
     # separately under results/SMR/bulk/{dataset}/) so its per-dataset outputs are built
     # inside the SMR step below rather than up front here
-    smr_sc_out = project_root / paths.smr_sc_out(pqtl_dataset, pheno_id, sc_eqtl_dataset, out_dir)
+    smr_sc_out = project_root / paths.smr_sc_out(pqtl_dataset, pheno_id, sc_qtl_dataset, out_dir)
 
     # final harmonised target stats
     target_stats_out = project_root / paths.target_stats_out(pqtl_dataset, pheno_id, out_dir)
@@ -322,7 +376,7 @@ def local(config: str, run_id: str = None):
     def check_docker():
         # genuinely multi-statement (if/else, command availability checks) -
         # written directly in Python instead of a shell script string, so
-        # image_name/image_uri (from params/*.yaml) never pass through a shell
+        # image_name (from params/*.yaml) never passes through a shell
         print("[TRACKING] Checking Docker...")
         if shutil.which("docker") is None:
             print("[ERROR] Mate, install Docker before you run this locally.")
@@ -341,7 +395,7 @@ def local(config: str, run_id: str = None):
         else:
             print("[TRACKING] drugMR Docker image not found locally.")
             print("[TRACKING] Pulling drugMR image from GHCR...")
-            subprocess.run(["docker", "pull", image_uri], check=True)
+            subprocess.run(["docker", "pull", image_name], check=True)
 
     # call check docker function
     check_docker()
@@ -440,6 +494,12 @@ def local(config: str, run_id: str = None):
         str(paths.qc_out(pheno_id)),
         str(ref_bfile),
         out_dir,
+        str(clump_kb),
+        str(clump_r2),
+        str(instrument_pval_threshold),
+        str(min_f_stat),
+        str(apply_steiger_filter),
+        str(maf),
     ]
 
     if not check_output(mr_out, "cis-MR", overwrite):
@@ -467,6 +527,10 @@ def local(config: str, run_id: str = None):
         "--cochran_q_pval", str(cochran_q_pval),
         "--egger_intercept_pval_min", str(egger_intercept_pval_min),
         "--min_instruments_for_ivw", str(min_instruments_for_ivw),
+        "--pp4_threshold", str(pp4_threshold),
+        "--p1", str(p1),
+        "--p2", str(p2),
+        "--p12", str(p12),
     ]
 
     if not check_output(coloc_out, "COLOC", overwrite):
@@ -492,8 +556,11 @@ def local(config: str, run_id: str = None):
         "--n_cases", str(n_cases),
         "--n_controls", str(n_controls),
         "--local_results_dir", out_dir,
-        "--cochran_q_pval", str(cochran_q_pval),
         "--wald_fdr_q", str(wald_fdr_q),
+        "--ivw_fdr_q", str(ivw_fdr_q),
+        "--cochran_q_pval", str(cochran_q_pval),
+        "--egger_intercept_pval_min", str(egger_intercept_pval_min),
+        "--min_instruments_for_ivw", str(min_instruments_for_ivw),
     ]
 
     if not check_output(pwcoco_out, "PWCoCo", overwrite):
@@ -526,14 +593,14 @@ def local(config: str, run_id: str = None):
         "pipeline completion"
     )
 
-    # SMR module (bulk and/or single-cell eQTL, run right after coloc + top-cis-hit compilation)
+    # SMR module (bulk and/or single-cell QTL, run right after coloc + top-cis-hit compilation)
     # -> targets which survive cis-MR + COLOC are checked against SMR + HEIDI in the
-    #    configured eQTL dataset(s), alleles aligned to the AD risk allele
+    #    configured QTL dataset(s), alleles aligned to the AD risk allele
     if run_smr:
-        if bulk_eqtl_datasets:
-            # bulk eQTL SMR (MetaBrain / GTEx_v10) is pre-computed elsewhere -
+        if bulk_qtl_datasets:
+            # bulk QTL SMR (MetaBrain / GTEx_v10) is pre-computed elsewhere -
             # bin/sort_smr.py ingests results/SMR/bulk/{dataset}/ rather than re-running SMR
-            for bulk_dataset in bulk_eqtl_datasets:
+            for bulk_dataset in bulk_qtl_datasets:
                 smr_bulk_out = project_root / paths.smr_bulk_out(pqtl_dataset, pheno_id, bulk_dataset, out_dir)
 
                 cmd_smr_bulk = [
@@ -546,20 +613,27 @@ def local(config: str, run_id: str = None):
                     "--pheno_id", pheno_id,
                     "--sumstats", str(paths.qc_out(pheno_id)),
                     "--pqtl_dataset", pqtl_dataset,
-                    "--eqtl_dataset", bulk_dataset,
-                    "--eqtl_mode", "bulk",
+                    "--qtl_dataset", bulk_dataset,
+                    "--qtl_mode", "bulk",
                     "--ref_bfile", str(ref_bfile),
                     "--maf", str(maf),
                     "--local_results_dir", out_dir,
+                    "--wald_fdr_q", str(wald_fdr_q),
+                    "--ivw_fdr_q", str(ivw_fdr_q),
+                    "--cochran_q_pval", str(cochran_q_pval),
+                    "--p_qtl_smr", str(p_qtl_smr),
+                    "--p_qtl_heidi", str(p_qtl_heidi),
+                    "--p_smr_threshold", str(p_smr_threshold),
+                    "--p_heidi_threshold", str(p_heidi_threshold),
                 ]
 
                 if not check_output(smr_bulk_out, f"Bulk SMR ({bulk_dataset})", overwrite):
-                    print(f"[TRACKING] Ingesting pre-computed bulk eQTL SMR for {bulk_dataset} via Docker...")
+                    print(f"[TRACKING] Ingesting pre-computed bulk QTL SMR for {bulk_dataset} via Docker...")
                     cmd_base(cmd_smr_bulk)
         else:
-            print("[TRACKING] No bulk_eqtl_datasets specified, skipping bulk SMR.")
+            print("[TRACKING] No bulk_qtl_datasets specified, skipping bulk SMR.")
 
-        if sc_eqtl_dataset:
+        if sc_qtl_dataset:
             cmd_smr_sc = [
                 "docker", "run", "--rm",
                 "-v", f"{project_root}:/work",
@@ -570,22 +644,29 @@ def local(config: str, run_id: str = None):
                 "--pheno_id", pheno_id,
                 "--sumstats", str(paths.qc_out(pheno_id)),
                 "--pqtl_dataset", pqtl_dataset,
-                "--eqtl_dataset", sc_eqtl_dataset,
-                "--eqtl_mode", "single_cell",
+                "--qtl_dataset", sc_qtl_dataset,
+                "--qtl_mode", "single_cell",
                 "--ref_bfile", str(ref_bfile),
                 "--maf", str(maf),
                 "--local_results_dir", out_dir,
+                "--wald_fdr_q", str(wald_fdr_q),
+                "--ivw_fdr_q", str(ivw_fdr_q),
+                "--cochran_q_pval", str(cochran_q_pval),
+                "--p_qtl_smr", str(p_qtl_smr),
+                "--p_qtl_heidi", str(p_qtl_heidi),
+                "--p_smr_threshold", str(p_smr_threshold),
+                "--p_heidi_threshold", str(p_heidi_threshold),
             ]
 
             if not check_output(smr_sc_out, "Single-cell SMR", overwrite):
-                print("[TRACKING] Running single-cell eQTL SMR locally via Docker...")
+                print("[TRACKING] Running single-cell QTL SMR locally via Docker...")
                 cmd_base(cmd_smr_sc)
         else:
-            print("[TRACKING] No sc_eqtl_dataset specified, skipping single-cell SMR.")
+            print("[TRACKING] No sc_qtl_dataset specified, skipping single-cell SMR.")
     else:
         print("[TRACKING] run_smr is False, skipping SMR entirely.")
 
-    # PWCoCo (eQTL-informed) - eQTL-pQTL / eQTL-GWAS PWCoCo on every SMR-passing
+    # PWCoCo (QTL-informed) - QTL-pQTL / QTL-GWAS PWCoCo on every SMR-passing
     # target, then compared for shared colocalising SNPs against the pQTL-GWAS
     # PWCoCo above (see project_pwcoco_wiring memory) - runs only when SMR did,
     # since it depends on smr_final_targets_out; non-fatal like PWCoCo above.
@@ -603,27 +684,28 @@ def local(config: str, run_id: str = None):
             "--n_cases", str(n_cases),
             "--n_controls", str(n_controls),
             "--local_results_dir", out_dir,
+            "--pp4_threshold", str(pwcoco_pp4_threshold),
         ]
 
-        if not check_output(pwcoco_qtl_out, "PWCoCo (eQTL)", overwrite):
-            print("[TRACKING] Running PWCoCo (eQTL) locally...")
+        if not check_output(pwcoco_qtl_out, "PWCoCo (QTL)", overwrite):
+            print("[TRACKING] Running PWCoCo (QTL) locally...")
             try:
                 cmd_base(cmd_pwcoco_qtl)
             except subprocess.CalledProcessError as error:
-                print(f"[CONCERN] PWCoCo (eQTL) run failed - continuing without it: {error}")
+                print(f"[CONCERN] PWCoCo (QTL) run failed - continuing without it: {error}")
 
-    # HyPrColoc module (bulk and/or single-cell eQTL) - run right after SMR so
+    # HyPrColoc module (bulk and/or single-cell QTL) - run right after SMR so
     # the combined final multi-omics target table (bulk + single-cell) is complete.
-    # For every target x cell-type/tissue hit supported by a configured eQTL dataset,
-    # runs a 3-trait (pQTL / GWAS / eQTL) HyPrColoc restricted to that target's
+    # For every target x cell-type/tissue hit supported by a configured QTL dataset,
+    # runs a 3-trait (pQTL / GWAS / QTL) HyPrColoc restricted to that target's
     # cis-region, matched on shared SNPs (see drugmr.extract_common_snps). Each
     # dataset is run (and gated) independently so bulk and single-cell compose.
     hyprcoloc_out = project_root / paths.hyprcoloc_out(pqtl_dataset, pheno_id, out_dir)
 
-    hyprcoloc_eqtl_datasets = list(bulk_eqtl_datasets) + ([sc_eqtl_dataset] if sc_eqtl_dataset else [])
+    hyprcoloc_qtl_datasets = list(bulk_qtl_datasets) + ([sc_qtl_dataset] if sc_qtl_dataset else [])
 
-    if run_smr and hyprcoloc_eqtl_datasets:
-        for hc_dataset in hyprcoloc_eqtl_datasets:
+    if run_smr and hyprcoloc_qtl_datasets:
+        for hc_dataset in hyprcoloc_qtl_datasets:
             hc_dataset_out = project_root / paths.hyprcoloc_dataset_out(pqtl_dataset, hc_dataset, pheno_id, out_dir)
 
             cmd_hyprcoloc = [
@@ -635,15 +717,20 @@ def local(config: str, run_id: str = None):
                 "python", "bin/hyprcoloc_targets.py",
                 "--pqtl_dataset", pqtl_dataset,
                 "--pheno_id", pheno_id,
-                "--eqtl_dataset", hc_dataset,
+                "--qtl_dataset", hc_dataset,
                 "--local_results_dir", out_dir,
+                "--prior_1", str(hc_prior_1),
+                "--prior_c", ",".join(str(v) for v in hc_prior_c),
+                "--reg_thresh", ",".join(str(v) for v in hc_reg_thresh),
+                "--align_thresh", ",".join(str(v) for v in hc_align_thresh),
+                "--equal_thresholds", str(hc_equal_thresholds),
             ]
 
             if not check_output(hc_dataset_out, f"HyPrColoc ({hc_dataset})", overwrite):
                 print(f"[TRACKING] Running HyPrColoc for {hc_dataset} locally via Docker...")
                 cmd_base(cmd_hyprcoloc)
     else:
-        print("[TRACKING] No bulk_eqtl_datasets or sc_eqtl_dataset specified (or run_smr is False), skipping HyPrColoc.")
+        print("[TRACKING] No bulk_qtl_datasets or sc_qtl_dataset specified (or run_smr is False), skipping HyPrColoc.")
 
     # PheWAS stuff (for FinnGen)
     cmd_phewas = [
@@ -656,6 +743,8 @@ def local(config: str, run_id: str = None):
         "--pheno_id", pheno_id,
         "--pqtl_dataset", pqtl_dataset,
         "--local_results_dir", out_dir,
+        "--coloc_threshold", str(phewas_coloc_threshold),
+        "--bonferroni_alpha", str(bonferroni_alpha),
     ]
 
     # PheWAS depends on the pairwise COLOC results + cis-MR instruments
@@ -681,6 +770,8 @@ def local(config: str, run_id: str = None):
         "--pheno_id", pheno_id,
         "--pqtl_dataset", pqtl_dataset,
         "--local_results_dir", out_dir,
+        "--coloc_threshold", str(phewas_coloc_threshold),
+        "--bonferroni_alpha", str(bonferroni_alpha),
     ]
 
     require_output(coloc_out, "COLOC", "UKBB PheWAS")
