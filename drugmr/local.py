@@ -700,8 +700,6 @@ def local(config: str, run_id: str = None):
     # runs a 3-trait (pQTL / GWAS / QTL) HyPrColoc restricted to that target's
     # cis-region, matched on shared SNPs (see drugmr.extract_common_snps). Each
     # dataset is run (and gated) independently so bulk and single-cell compose.
-    hyprcoloc_out = project_root / paths.hyprcoloc_out(pqtl_dataset, pheno_id, out_dir)
-
     hyprcoloc_qtl_datasets = list(bulk_qtl_datasets) + ([sc_qtl_dataset] if sc_qtl_dataset else [])
 
     if run_smr and hyprcoloc_qtl_datasets:

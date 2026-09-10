@@ -3,10 +3,8 @@ import argparse
 import os
 import re
 import shutil
-import subprocess
 from pathlib import Path
 
-import pandas as pd
 import polars as pl
 from statsmodels.stats.multitest import fdrcorrection
 

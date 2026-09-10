@@ -74,7 +74,6 @@ def pwcoco_qtl_wrapper(
         p = row["protein"]
         dataset = row["qtl_dataset"]
         qtl_type = row.get("qtl_type", "eqtl")
-        qtl_name = row["qtl_name"]
         cell_type = row["cell_type"]
         probe = row["probe_id"]
 
@@ -87,10 +86,6 @@ def pwcoco_qtl_wrapper(
             gwas = dir / "gwas.parquet"
 
             pqtl_df = pl.read_parquet(pqtl)
-            chr = pqtl_df["CHR"].to_list()[0]
-            pos = min(pqtl_df["BP"].to_list())
-            start = min(pqtl_df["BP"].to_list())
-            end = max(pqtl_df["BP"].to_list())
 
             base_gene = probe.split(".")[0]
             qtl_df = _smr.load_qtl_rows("bulk", dataset, cell_type, base_gene)

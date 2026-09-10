@@ -139,22 +139,6 @@ def phewas_for_compelling_targets(pheno_id: str, pqtl_dataset: str, local_result
     # exact harmonised instruments which were used in the original cis-MR
     instruments_file = paths.mr_instruments_out(pqtl_dataset, pheno_id, local_results_dir)
     df_instruments = pl.read_csv(instruments_file, separator="\t")
-    required_instrument_cols = [
-        "protein",
-        "pqtl_dataset",
-        "outcome_trait",
-        "SNP",
-        "effect_allele.exposure",
-        "other_allele.exposure",
-        "beta.exposure",
-        "se.exposure",
-        "pval.exposure",
-        "effect_allele.outcome",
-        "other_allele.outcome",
-        "beta.outcome",
-        "used_in_mr",
-    ]
-
     df_instruments = (
         df_instruments
         .with_columns(
