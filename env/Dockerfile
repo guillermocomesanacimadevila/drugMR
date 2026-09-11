@@ -101,7 +101,6 @@ RUN pip install \
     streamlit \
     plotly \
     numpy \
-    synapseclient \
     pyyaml \
     statsmodels \
     liftover \
