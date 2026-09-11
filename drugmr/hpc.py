@@ -194,6 +194,7 @@ def run_gwas_qc(
     user: str,
     host: str,
     remote_repo_root: str,
+    liftover_dir: str,
     pheno_id: str,
     sumstats: str,
     out_dir: str,
@@ -254,6 +255,7 @@ bash -c "cd /work && python bin/qc_gwas.py \\
   --n_cases {n_cases} \\
   --n_controls {n_controls} \\
   --user {user} \\
+  --liftover-dir {liftover_dir} \\
   {info_args} \\
   {flag_args}"
 """, user, host)
@@ -484,6 +486,7 @@ apptainer exec --bind "{remote}:/work" \\
     --qtl_dataset {qtl_dataset} \\
     --qtl_mode {qtl_mode} \\
     --ref_bfile {ref_bfile} \\
+    --gene_annotation {gene_annotation} \\
     --maf {maf} \\
     --local_results_dir {local_results_dir} \\
     --wald_fdr_q {wald_fdr_q} \\
@@ -920,6 +923,7 @@ def hpc(
     n_controls = cfg.n_controls
     pqtl_dataset = cfg.pqtl_dataset
     ref_bfile = cfg.ref_bfile
+    gene_annotation = cfg.ncbi_ref_path or ""
     snp_col = cfg.snp_col
     a1_col = cfg.a1_col
     a2_col = cfg.a2_col
@@ -1035,6 +1039,7 @@ def hpc(
             user=user,
             host=host,
             remote_repo_root=remote_repo_root,
+            liftover_dir=liftover_dir,
             pheno_id=pheno_id,
             sumstats=sumstats,
             out_dir=str(paths.qc_out(pheno_id).parent),

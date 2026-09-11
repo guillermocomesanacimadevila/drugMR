@@ -38,6 +38,7 @@ process SMR_BULK {
         --qtl_dataset ${qtl_dataset} \\
         --qtl_mode bulk \\
         --ref_bfile ${projectDir}/${meta.ref_bfile} \\
+        --gene_annotation ${meta.gene_annotation ?: ''} \\
         --maf ${meta.maf} \\
         --local_results_dir . \\
         --repo_root ${projectDir} \\
@@ -89,6 +90,7 @@ process SMR_SC {
         --qtl_dataset ${meta.sc_qtl_dataset} \\
         --qtl_mode single_cell \\
         --ref_bfile ${projectDir}/${meta.ref_bfile} \\
+        --gene_annotation ${meta.gene_annotation ?: ''} \\
         --maf ${meta.maf} \\
         --local_results_dir . \\
         --repo_root ${projectDir} \\

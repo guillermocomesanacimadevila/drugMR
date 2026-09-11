@@ -131,7 +131,8 @@ def perform_qc(
     target_build: str,
     user: str,
     n_cases: int,
-    n_controls: int):
+    n_controls: int,
+    liftover_dir: str = "dat/ref/liftover"):
 
     path = sumstats
     bases = ["A", "T", "C", "G"]
@@ -194,7 +195,7 @@ def perform_qc(
         print(f"Input GWAS already in {target_build}")
     elif genome_build == "GRCh38" and target_build == "GRCh37":
         print("Lifting GRCh38 -> GRCh37/hg19")
-        chain_file = "./dat/ref/liftover/hg38ToHg19.over.chain"
+        chain_file = str(Path(liftover_dir) / "hg38ToHg19.over.chain")
 
         if not Path(chain_file).exists():
             raise FileNotFoundError(f"Missing chain file: {chain_file}")
@@ -215,7 +216,7 @@ def perform_qc(
 
     elif genome_build == "GRCh37" and target_build == "GRCh38":
         print("Lifting GRCh37/hg19 -> GRCh38/hg38")
-        chain_file = "./dat/ref/liftover/hg19ToHg38.over.chain"
+        chain_file = str(Path(liftover_dir) / "hg19ToHg38.over.chain")
 
         if not Path(chain_file).exists():
             raise FileNotFoundError(f"Missing chain file: {chain_file}")
@@ -341,6 +342,7 @@ def main():
     parser.add_argument("--n_controls", required=True, type=int)
     parser.add_argument("--af_col", required=True)
     parser.add_argument("--remove_apoe", action="store_true")
+    parser.add_argument("--liftover-dir", default="dat/ref/liftover")
     args = parser.parse_args()
     perform_qc(
         pheno_id=args.pheno_id,
@@ -364,7 +366,8 @@ def main():
         target_build=args.target_build,
         n_cases=args.n_cases,
         n_controls=args.n_controls,
-        remove_apoe=args.remove_apoe
+        remove_apoe=args.remove_apoe,
+        liftover_dir=args.liftover_dir,
     )
 
 if __name__ == "__main__":

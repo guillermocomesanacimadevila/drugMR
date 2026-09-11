@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import argparse
+import os
 import subprocess
 import tempfile
 import time
@@ -737,7 +738,8 @@ def _liftover_hg19_to_hg38(df: pd.DataFrame, chr_col: str = "chr", bp_col: str =
     a coordinate onto a different chromosome, same as bin/qc_gwas.py's own
     liftover_df_to_hg38 accounts for."""
     project_dir = Path(__file__).resolve().parent.parent
-    chain_file = project_dir / "dat" / "ref" / "liftover" / "hg19ToHg38.over.chain"
+    chain_dir = Path(os.environ.get("DRUGMR_LIFTOVER_DIR", str(project_dir / "dat" / "ref" / "liftover")))
+    chain_file = chain_dir / "hg19ToHg38.over.chain"
     if not chain_file.exists() or df.empty:
         return df
 
@@ -830,7 +832,10 @@ def load_regional_ld(candidate_snp: str, chrom, window_kb: int = 5000):
     only rsIDs are build-stable enough to join on.
     """
     project_dir = Path(__file__).resolve().parent.parent
-    ref_bfile = project_dir / "dat" / "ref" / "1000G_EUR_Phase3_plink" / "1000G.EUR.QC.ALL"
+    ref_bfile = Path(os.environ.get(
+        "DRUGMR_REF_BFILE",
+        str(project_dir / "dat" / "ref" / "1000G_EUR_Phase3_plink" / "1000G.EUR.QC.ALL"),
+    ))
 
     # NOTE: Path.with_suffix() only replaces text after the LAST dot, which would
     # mangle this filename (it has dots in the basename itself) - plain string

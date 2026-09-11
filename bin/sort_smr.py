@@ -781,6 +781,7 @@ def main():
     p.add_argument("--repo_root", default=None)
     p.add_argument("--synthesis_dir", default="synthesis")
     p.add_argument("--manifest_path", default=paths.DEFAULT_QTL_MANIFEST_PATH)
+    p.add_argument("--gene_annotation", default=None)
     p.add_argument("--coloc_file", default=None)
     p.add_argument("--wald_fdr_q", type=float, default=0.05)
     p.add_argument("--ivw_fdr_q", type=float, default=0.05)
@@ -797,6 +798,7 @@ def main():
     args = p.parse_args()
 
     _smr_utils.manifest_path = args.manifest_path
+    _smr_utils.ncbi_ref_path = args.gene_annotation or None
     if args.repo_root:
         _smr_utils.base_dir = args.repo_root
 

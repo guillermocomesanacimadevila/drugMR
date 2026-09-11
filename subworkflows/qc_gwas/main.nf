@@ -367,6 +367,8 @@ workflow QC_GWAS {
                 remove_mhc    : remove_mhc,
                 remove_apoe   : remove_apoe,
                 ref_bfile     : row.ref_bfile,
+                liftover_dir  : row.liftover_dir ?: 'dat/ref/liftover',
+                gene_annotation: row.gene_annotation,
                 run_smr       : run_smr,
                 bulk_qtl_datasets: bulk_qtl_datasets,
                 sc_qtl_dataset   : sc_qtl_dataset,

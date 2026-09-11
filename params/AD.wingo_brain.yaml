@@ -15,7 +15,10 @@ chr_col: CHR                                                # Chromosome column 
 af_col: FRQ                                                 # Minor allele frequency column name in outcome GWAS
 
 pqtl_dataset: wingo_brain                                   # pQTL dataset ID
-ref_bfile: dat/ref/1000G_EUR_Phase3_plink/1000G.EUR.QC.ALL  # Path to reference panel (1,000 genomes)
+reference_data:
+  ref_bfile: dat/ref/1000G_EUR_Phase3_plink/1000G.EUR.QC.ALL
+  liftover_dir: dat/ref/liftover
+  gene_annotation: dat/ref/NCBI/NCBI_genes_grch38_with_synonyms.tsv
 
 run_smr: true                                               # Master on/off switch for the SMR step (after coloc)
 bulk_qtl_datasets: [metabrain, gtex_v10]                    # Pre-computed bulk QTL datasets under results/SMR/bulk/; [] = skip bulk SMR

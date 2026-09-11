@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -206,6 +207,14 @@ def results(
 
     print("[TRACKING] Launching Streamlit dashboard...")
 
+    dashboard_env = os.environ.copy()
+    for env_name, configured_path in (
+        ("DRUGMR_REF_BFILE", cfg.ref_bfile),
+        ("DRUGMR_LIFTOVER_DIR", cfg.liftover_dir),
+    ):
+        path = Path(configured_path)
+        dashboard_env[env_name] = str(path if path.is_absolute() else project_root / path)
+
     # Streamlit resolves .streamlit/config.toml (the custom theme - primaryColor,
     # background/text colors, font) relative to its OWN process working
     # directory, not this script's location. Without an explicit cwd here, this
@@ -233,6 +242,7 @@ def results(
             pqtl_dataset
         ],
         cwd=str(project_root),
+        env=dashboard_env,
         check=True,
     )
 
@@ -262,6 +272,8 @@ def local(config: str, run_id: str = None):
     n_controls = cfg.n_controls
     pqtl_dataset = cfg.pqtl_dataset
     ref_bfile = cfg.ref_bfile
+    liftover_dir = cfg.liftover_dir
+    gene_annotation = cfg.ncbi_ref_path
     snp_col = cfg.snp_col
     a1_col = cfg.a1_col
     a2_col = cfg.a2_col
@@ -437,6 +449,7 @@ def local(config: str, run_id: str = None):
         "--n_cases", str(n_cases),
         "--n_controls", str(n_controls),
         "--user", "local",
+        "--liftover-dir", str(liftover_dir),
         *info_args,
         *flag_args,
     ]
@@ -616,6 +629,7 @@ def local(config: str, run_id: str = None):
                     "--qtl_dataset", bulk_dataset,
                     "--qtl_mode", "bulk",
                     "--ref_bfile", str(ref_bfile),
+                    "--gene_annotation", str(gene_annotation) if gene_annotation else "",
                     "--maf", str(maf),
                     "--local_results_dir", out_dir,
                     "--wald_fdr_q", str(wald_fdr_q),
@@ -646,7 +660,8 @@ def local(config: str, run_id: str = None):
                 "--pqtl_dataset", pqtl_dataset,
                 "--qtl_dataset", sc_qtl_dataset,
                 "--qtl_mode", "single_cell",
-                "--ref_bfile", str(ref_bfile),
+                    "--ref_bfile", str(ref_bfile),
+                    "--gene_annotation", str(gene_annotation) if gene_annotation else "",
                 "--maf", str(maf),
                 "--local_results_dir", out_dir,
                 "--wald_fdr_q", str(wald_fdr_q),
@@ -681,6 +696,7 @@ def local(config: str, run_id: str = None):
             "--pqtl_dataset", pqtl_dataset,
             "--pheno_id", pheno_id,
             "--ref_bfile", str(ref_bfile),
+            "--gene_annotation", str(gene_annotation) if gene_annotation else "",
             "--n_cases", str(n_cases),
             "--n_controls", str(n_controls),
             "--local_results_dir", out_dir,

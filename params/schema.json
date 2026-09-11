@@ -21,8 +21,15 @@
     "pos_col",
     "chr_col",
     "af_col",
-    "pqtl_dataset",
-    "ref_bfile"
+    "pqtl_dataset"
+  ],
+  "allOf": [
+    {
+      "anyOf": [
+        { "required": ["ref_bfile"] },
+        { "required": ["reference_data"] }
+      ]
+    }
   ],
   "properties": {
     "pheno_id": {
@@ -65,6 +72,16 @@
     "ref_bfile": {
       "type": "string",
       "description": "Path to the 1000G reference panel bfile prefix."
+    },
+    "reference_data": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ref_bfile"],
+      "properties": {
+        "ref_bfile": { "type": "string", "description": "Repository-relative PLINK reference prefix." },
+        "liftover_dir": { "type": "string" },
+        "gene_annotation": { "type": ["string", "null"] }
+      }
     },
     "run_smr": {
       "type": "boolean",

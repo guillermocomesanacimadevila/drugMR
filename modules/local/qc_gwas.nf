@@ -69,6 +69,7 @@ process GWAS_QC {
         --n_cases ${meta.n_cases} \\
         --n_controls ${meta.n_controls} \\
         --user nf \\
+        --liftover-dir ${projectDir}/${meta.liftover_dir} \\
         ${info_args} \\
         ${mhc_flag} \\
         ${apoe_flag}
