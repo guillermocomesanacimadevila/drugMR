@@ -332,6 +332,13 @@ def needs_chr_split_etl(df: pl.DataFrame, chr_col: str) -> bool:
 
 
 def detect_qtl_split(manifest_path: Path) -> dict:
+    """Find complete SMR-ready prefixes beneath a manifest source directory.
+
+    The manifest may name a single raw file (for example ``brain.parquet``) or
+    a glob.  It identifies the dataset's home directory; it does not constrain
+    BESD discovery to the raw file's stem.  This allows generated or downloaded
+    chromosome/tissue triples anywhere below that directory to be reused.
+    """
     manifest_path = Path(manifest_path)
     literal_parts = []
     for part in manifest_path.parts:
@@ -352,7 +359,8 @@ def detect_qtl_split(manifest_path: Path) -> dict:
     prefixes = {}
     for besd_file in search_dir.rglob("*.besd"):
         prefix = Path(str(besd_file)[: -len(".besd")])
-        if Path(f"{prefix}.esi").exists() and Path(f"{prefix}.epi").exists():
+        triple = [Path(f"{prefix}.{suffix}") for suffix in ("besd", "esi", "epi")]
+        if all(path.is_file() and path.stat().st_size > 0 for path in triple):
             label = str(prefix.relative_to(search_dir))
             prefixes[label] = prefix
 
