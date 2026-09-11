@@ -3,13 +3,14 @@
 **drugMR: a multi omics pipeline for genetically anchored drug target discovery**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Nextflow](https://img.shields.io/badge/nextflow-%E2%89%A526.04.0-23aa62?logo=nextflow&logoColor=white)](nextflow.config)
+[![Nextflow](https://img.shields.io/badge/nextflow-%E2%89%A526.04.0green?style=flat&logo=nextflow&logoColor=white&color=%230DC09D&link=https%3A%2F%2Fnextflow.io)](nextflow.config)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-blue?logo=python&logoColor=white)](pyproject.toml)
 [![R](https://img.shields.io/badge/R-4%2B-blue?logo=r&logoColor=white)](env/Dockerfile)
 [![run with docker](https://img.shields.io/badge/run%20with-docker-0db7ed?labelColor=000000&logo=docker)](https://github.com/guillermocomesanacimadevila/drugMR/pkgs/container/drugmr)
-[![run with apptainer](https://img.shields.io/badge/run%20with-apptainer-1d355c.svg?labelColor=000000)](https://apptainer.org/)
+[![run with singularity](https://img.shields.io/badge/run%20with-singularity-1d355c.svg?labelColor=000000)](https://sylabs.io/docs/)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-results%20store-blue?logo=postgresql&logoColor=white)](sql/schema.sql)
 [![Streamlit](https://img.shields.io/badge/Streamlit-dashboard-blue?logo=streamlit&logoColor=white)](dashboard/mr_app.py)
+[![Zenodo](http://img.shields.io/badge/DOI-10.5281/zenodo.18986935-1073c8?labelColor=000000)](https://doi.org/10.5281/zenodo.22706705)
 
 ## Introduction
 
