@@ -45,8 +45,13 @@ export NXF_VER
 # a `module load` from bootstrap.sh doesn't carry over into a new login
 # shell - so redo it here too, every session, not just once at bootstrap time.
 if ! command -v java >/dev/null 2>&1 && type module >/dev/null 2>&1; then
-    java_module="$(module -t avail 2>&1 | awk -F/ '/(^|\/)Java\// && $2+0 >= 17 {print; exit}')"
-    [[ -n "${java_module}" ]] && module load "${java_module}" >/dev/null 2>&1
+    # Lmod's terse listing renders an aliased module as e.g.
+    # "Java/17(@Java/17.0.15)" on one line - strip the "(@...)" part so we
+    # pass module load a real name, not that whole alias annotation.
+    java_module="$(module -t avail 2>&1 | awk -F/ '/(^|\/)Java\// && $2+0 >= 17 {sub(/\(.*/, ""); print; exit}')"
+    if [[ -n "${java_module}" ]]; then
+        module load "${java_module}" >/dev/null 2>&1 || true
+    fi
 fi
 
 if ! command -v java >/dev/null 2>&1; then

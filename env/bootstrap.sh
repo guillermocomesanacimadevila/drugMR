@@ -34,7 +34,7 @@ if type module >/dev/null 2>&1; then
     else
         while IFS= read -r module_name; do
             [[ -n "${module_name}" ]] && module_candidates+=("${module_name}")
-        done < <(module -t avail 2>&1 | awk '/(^|\/)Python\/3\.(1[2-9]|[2-9][0-9])/{print $1}')
+        done < <(module -t avail 2>&1 | awk '/(^|\/)Python\/3\.(1[2-9]|[2-9][0-9])/{sub(/\(.*/, "", $1); print $1}')
     fi
 
     for module_name in "${module_candidates[@]}"; do
@@ -111,8 +111,13 @@ if ! command -v java >/dev/null 2>&1 && type module >/dev/null 2>&1; then
     # Nextflow needs Java 17+ - take the lowest version that still clears
     # that bar, not just whatever module lists first (often a stale Java 11)
     # and not the cluster's newest default either (often too new to trust).
-    java_module="$(module -t avail 2>&1 | awk -F/ '/(^|\/)Java\// && $2+0 >= 17 {print; exit}')"
-    [[ -n "${java_module}" ]] && module load "${java_module}" >/dev/null 2>&1
+    # Lmod's terse listing renders an aliased module as e.g.
+    # "Java/17(@Java/17.0.15)" on one line - strip the "(@...)" part so we
+    # pass module load a real name, not that whole alias annotation.
+    java_module="$(module -t avail 2>&1 | awk -F/ '/(^|\/)Java\// && $2+0 >= 17 {sub(/\(.*/, ""); print; exit}')"
+    if [[ -n "${java_module}" ]]; then
+        module load "${java_module}" >/dev/null 2>&1 || true
+    fi
 fi
 
 if ! command -v java >/dev/null 2>&1; then
