@@ -66,6 +66,8 @@ sc_qtl_dataset: SingleBrain
 
 `pqtl_dataset`, `bulk_qtl_datasets` and `sc_qtl_dataset` must match a dataset registered in `assets/qtl_manifest.csv`. Registering a new one is a new row there, parquet, csv, tsv or txt all work, no code changes.
 
+When a registered QTL dataset has no SMR-format files, drugMR builds them chromosome by chromosome in `synthesis/qtl_esd/`, then moves each complete `.besd`/`.esi`/`.epi` triple into a dataset-specific subdirectory beside the manifest-declared source. That location must be writable. Subsequent phenotypes reuse those files without converting the QTL dataset again.
+
 ```bash
 nextflow run main.nf \
   -profile <docker,apptainer,singularity,podman,shifter,charliecloud> \
