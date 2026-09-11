@@ -276,11 +276,21 @@ def extract_gene_coordinates(
     if genome_build == "hg19":
         if converter is None:
             converter = liftover.get_lifter("hg38", "hg19", one_based=True)
+
+        def lift_position(chromosome, position):
+            mapped = converter[chromosome][int(position)]
+            if not mapped:
+                raise ValueError(
+                    f"Gene '{gene_id}' coordinate chr{chromosome}:{position} "
+                    "does not map from hg38 to hg19"
+                )
+            return mapped[0][1]
+
         for row in ref.iter_rows(named=True):
             if gene_id == row["Symbol"]:
                 chr = str(row["Chromosome"])
-                start = converter[chr][int(row["Begin"])][0][1]
-                end = converter[chr][int(row["End"])][0][1]
+                start = lift_position(chr, row["Begin"])
+                end = lift_position(chr, row["End"])
                 orientation = str(row["Orientation"])
                 ensembl_id = row["Ensembl_ID"]
                 break
@@ -288,8 +298,8 @@ def extract_gene_coordinates(
             for row in ref.iter_rows(named=True):
                 if gene_id in (row["Synonyms"] or "").split(","):
                     chr = str(row["Chromosome"])
-                    start = converter[chr][int(row["Begin"])][0][1]
-                    end = converter[chr][int(row["End"])][0][1]
+                    start = lift_position(chr, row["Begin"])
+                    end = lift_position(chr, row["End"])
                     orientation = str(row["Orientation"])
                     ensembl_id = row["Ensembl_ID"]
                     break
