@@ -1,39 +1,19 @@
 # drugMR
 
-**A multi-omics pipeline for genetically anchored drug target discovery.**
+## Overview
 
-drugMR takes an outcome GWAS and a panel of protein QTLs and produces a ranked, safety-screened shortlist of druggable targets. The Nextflow workflow connects Mendelian randomisation, colocalisation, SMR and HEIDI, PWCoCo, HyPrColoc, and phenome-wide safety screening.
+**drugMR** is a multi-omics pipeline for genetically anchored drug target discovery. It takes an outcome GWAS and a panel of protein QTLs and produces a ranked, safety-screened shortlist of druggable targets.
 
-[Get started](getting-started.md){ .md-button .md-button--primary }
-[View on GitHub](https://github.com/guillermocomesanacimadevila/drugMR){ .md-button }
+The pipeline is built using [Nextflow](https://www.nextflow.io), a workflow tool to run tasks across multiple compute infrastructures in a portable manner. It uses Docker/Apptainer/Singularity containers for reproducible execution, and connects Mendelian randomisation, colocalisation, SMR and HEIDI, PWCoCo, HyPrColoc, and phenome-wide safety screening into a single reproducible run.
 
-<div class="grid cards" markdown>
+## Documentation
 
--   **Install and run**
-
-    Set up the pinned environment, choose a container runtime, and launch your first analysis.
-
-    [Installation guide](getting-started.md)
-
--   **Configure a dataset**
-
-    Define an outcome GWAS, register QTL datasets, and set analysis thresholds.
-
-    [Configuration guide](configuration.md)
-
--   **Review results**
-
-    Fetch completed runs, load PostgreSQL, and explore the Streamlit dashboard.
-
-    [Results and dashboard](results-dashboard.md)
-
--   **Resolve a problem**
-
-    Diagnose SLURM, memory, paths, containers, and interrupted runs.
-
-    [Troubleshooting](troubleshooting.md)
-
-</div>
+- [Install](getting-started.md): set up the pinned environment and choose a container runtime.
+- [Configure a run](configuration.md): define an outcome GWAS, register QTL datasets, and set analysis thresholds.
+- [Run the pipeline](running.md): launch and monitor an analysis.
+- [Results and dashboard](results-dashboard.md): fetch completed runs, load PostgreSQL, and explore the Streamlit dashboard.
+- [Output schema](RESULTS_SCHEMA.md): column reference for every results TSV.
+- [Troubleshooting](troubleshooting.md): diagnose SLURM, memory, paths, containers, and interrupted runs.
 
 ## Workflow
 

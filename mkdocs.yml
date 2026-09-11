@@ -2,50 +2,6 @@ site_name: drugMR
 site_description: Multi-omics pipeline for genetically anchored drug target discovery
 site_url: https://guillermocomesanacimadevila.github.io/drugMR/
 repo_url: https://github.com/guillermocomesanacimadevila/drugMR
-repo_name: guillermocomesanacimadevila/drugMR
-
-theme:
-  name: material
-  logo: new_logo.png
-  favicon: github-favicon.png
-  icon:
-    repo: fontawesome/brands/github
-  font:
-    text: Inter
-    code: Roboto Mono
-  palette:
-    - media: "(prefers-color-scheme: light)"
-      scheme: default
-      primary: custom
-      accent: custom
-      toggle:
-        icon: material/weather-night
-        name: Switch to dark mode
-    - media: "(prefers-color-scheme: dark)"
-      scheme: slate
-      primary: custom
-      accent: custom
-      toggle:
-        icon: material/weather-sunny
-        name: Switch to light mode
-  features:
-    - navigation.instant
-    - navigation.instant.progress
-    - navigation.sections
-    - navigation.tabs
-    - navigation.tabs.sticky
-    - navigation.top
-    - navigation.footer
-    - navigation.indexes
-    - toc.follow
-    - search.highlight
-    - search.suggest
-    - content.code.copy
-    - content.code.annotate
-    - content.tabs.link
-
-extra_css:
-  - stylesheets/extra.css
 
 nav:
   - Home: index.md
@@ -57,23 +13,22 @@ nav:
   - Output schema: RESULTS_SCHEMA.md
   - Troubleshooting: troubleshooting.md
 
+theme:
+  name: "readthedocs"
+  logo: new_logo.png
+
+extra_css:
+  - stylesheets/extra.css
+
 markdown_extensions:
   - admonition
-  - attr_list
-  - md_in_html
-  - tables
   - toc:
       permalink: true
-  - pymdownx.details
   - pymdownx.highlight:
       anchor_linenums: true
   - pymdownx.superfences
-  - pymdownx.tabbed:
-      alternate_style: true
 
-extra:
-  social:
-    - icon: fontawesome/brands/github
-      link: https://github.com/guillermocomesanacimadevila/drugMR
+plugins:
+  - search
 
 copyright: Copyright &copy; 2026 drugMR contributors
