@@ -46,19 +46,18 @@ export NXF_VER
 
 # Nextflow needs java on PATH, and unlike the venv/nextflow launcher itself,
 # a `module load` from bootstrap.sh doesn't carry over into a new login
-# shell - so redo it here too, every session, not just once at bootstrap time.
-if ! command -v java >/dev/null 2>&1 && type module >/dev/null 2>&1; then
-    # Lmod's terse listing renders an aliased module as e.g.
-    # "Java/17(@Java/17.0.15)" on one line - strip the "(@...)" part so we
-    # pass module load a real name, not that whole alias annotation.
-    java_module="$(module -t avail 2>&1 | awk -F/ '/(^|\/)Java\// && $2+0 >= 17 {sub(/\(.*/, ""); print; exit}')"
-    if [[ -n "${java_module}" ]]; then
-        module load "${java_module}" >/dev/null 2>&1 || true
-    fi
-fi
-
+# shell - so it must be loaded again here, every session.
+#
+# We deliberately do NOT try to auto-detect and `module load` a Java module
+# here. On HPC, Lmod's `module` function does its own shell-option juggling
+# internally, and driving it programmatically from inside a sourced script
+# has proven unreliable in ways not worth chasing further - a plain
+# interactive `module load <name>` has been 100% reliable by comparison.
 if ! command -v java >/dev/null 2>&1; then
     echo "[error] java is required to run nextflow but was not found on PATH." >&2
+    if type module >/dev/null 2>&1; then
+        echo "[error] on HPC, run 'module avail java' and 'module load <name>', then rerun: source env/activate.sh" >&2
+    fi
     return 1 2>/dev/null || exit 1
 fi
 

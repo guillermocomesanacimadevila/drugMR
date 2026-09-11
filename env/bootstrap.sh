@@ -110,21 +110,18 @@ fi
 # relying on whatever "module load Nextflow" happens to offer on a given
 # cluster. nextflow.config's manifest is the single source of truth for
 # which version.
-if ! command -v java >/dev/null 2>&1 && type module >/dev/null 2>&1; then
-    # Nextflow needs Java 17+ - take the lowest version that still clears
-    # that bar, not just whatever module lists first (often a stale Java 11)
-    # and not the cluster's newest default either (often too new to trust).
-    # Lmod's terse listing renders an aliased module as e.g.
-    # "Java/17(@Java/17.0.15)" on one line - strip the "(@...)" part so we
-    # pass module load a real name, not that whole alias annotation.
-    java_module="$(module -t avail 2>&1 | awk -F/ '/(^|\/)Java\// && $2+0 >= 17 {sub(/\(.*/, ""); print; exit}')"
-    if [[ -n "${java_module}" ]]; then
-        module load "${java_module}" >/dev/null 2>&1 || true
-    fi
-fi
-
+#
+# We deliberately do NOT try to auto-detect and `module load` a Java module
+# here. On HPC, Lmod's `module` function does its own shell-option juggling
+# internally, and driving it programmatically from inside a script has
+# proven unreliable in ways not worth chasing further - a plain interactive
+# `module load <name>` has been 100% reliable by comparison. If java is
+# missing, tell the user what to run instead of guessing on their behalf.
 if ! command -v java >/dev/null 2>&1; then
-    echo "[error] java is required to run nextflow." >&2
+    echo "[error] java is required to run nextflow but was not found on PATH." >&2
+    if type module >/dev/null 2>&1; then
+        echo "[error] on HPC, run 'module avail java' and 'module load <name>', then rerun this script." >&2
+    fi
     exit 1
 fi
 
