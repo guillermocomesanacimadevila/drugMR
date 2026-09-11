@@ -19,7 +19,8 @@ drugMR takes an outcome GWAS and a panel of protein QTLs and returns a ranked, s
 
 1. Install [`Nextflow`](https://www.nextflow.io/) (`>=26.04.0`)
 2. Install any of [`Docker`](https://docs.docker.com/engine/install/), [`Apptainer`](https://apptainer.org/) or [`Singularity`](https://sylabs.io/singularity/)
-3. Install the `drugmr` Python package, needed for the Python orchestrator and the dashboard: `pip install -e .`
+3. Install [`PostgreSQL`](https://www.postgresql.org/download/) (`>=16.0`)
+4. Install the `drugmr` Python package, needed for the Python orchestrator and the dashboard: `pip install -e .`
 
 ```bash
 git clone --recurse-submodules https://github.com/guillermocomesanacimadevila/drugMR.git
