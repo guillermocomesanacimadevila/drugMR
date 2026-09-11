@@ -1,45 +1,43 @@
-<div class="drugmr-hero" markdown>
+# drugMR
 
-<span class="drugmr-eyebrow">GENETICALLY ANCHORED DRUG DISCOVERY</span>
+**A multi-omics pipeline for genetically anchored drug target discovery.**
 
-# From association to actionable target
-
-drugMR is a reproducible multi-omics pipeline that turns outcome GWAS and protein QTL panels into a ranked, safety-screened shortlist of druggable targets.
+drugMR takes an outcome GWAS and a panel of protein QTLs and produces a ranked, safety-screened shortlist of druggable targets. The Nextflow workflow connects Mendelian randomisation, colocalisation, SMR and HEIDI, PWCoCo, HyPrColoc, and phenome-wide safety screening.
 
 [Get started](getting-started.md){ .md-button .md-button--primary }
-[Explore the workflow](#workflow){ .md-button }
+[View on GitHub](https://github.com/guillermocomesanacimadevila/drugMR){ .md-button }
 
-<div class="drugmr-pills">
-  <span>Nextflow DSL2</span><span>Cis-MR</span><span>Colocalisation</span><span>SMR + HEIDI</span><span>PheWAS</span>
-</div>
+<div class="grid cards" markdown>
 
-</div>
+-   **Install and run**
 
-<div class="drugmr-stat-grid" markdown>
+    Set up the pinned environment, choose a container runtime, and launch your first analysis.
 
-<div class="drugmr-stat" markdown>
-**End to end**
+    [Installation guide](getting-started.md)
 
-One workflow from GWAS QC to dashboard-ready evidence.
-</div>
+-   **Configure a dataset**
 
-<div class="drugmr-stat" markdown>
-**Multi-omics**
+    Define an outcome GWAS, register QTL datasets, and set analysis thresholds.
 
-Triangulate protein, bulk-tissue and single-cell QTL evidence.
-</div>
+    [Configuration guide](configuration.md)
 
-<div class="drugmr-stat" markdown>
-**Reproducible**
+-   **Review results**
 
-Containerised execution, locked parameters and registered runs.
-</div>
+    Fetch completed runs, load PostgreSQL, and explore the Streamlit dashboard.
+
+    [Results and dashboard](results-dashboard.md)
+
+-   **Resolve a problem**
+
+    Diagnose SLURM, memory, paths, containers, and interrupted runs.
+
+    [Troubleshooting](troubleshooting.md)
 
 </div>
 
 ## Workflow
 
-![drugMR analysis pipeline](pipeline.png){ .drugmr-pipeline }
+![drugMR analysis pipeline](pipeline.png)
 
 1. Quality-control the outcome GWAS and extract cis regions.
 2. Run cis-MR and pairwise colocalisation against the selected pQTL panel.
