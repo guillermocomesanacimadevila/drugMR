@@ -106,7 +106,7 @@ RUN pip install \
     statsmodels \
     liftover \
     jsonschema==4.26.0 \
-    requests==2.34.2
+    requests==2.32.5
 
 # sc-sQTLs -> https://www.synapse.org/Synapse:syn69670647
 # Add this separately whenever you want it:
