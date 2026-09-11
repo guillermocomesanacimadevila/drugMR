@@ -6,8 +6,8 @@ repo_name: guillermocomesanacimadevila/drugMR
 
 theme:
   name: material
-  logo: new_logo.png
-  favicon: new_logo.png
+  icon:
+    logo: fontawesome/brands/github
   palette:
     - media: "(prefers-color-scheme: light)"
       scheme: default
