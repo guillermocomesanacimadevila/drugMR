@@ -1,0 +1,15 @@
+.wy-side-nav-search {
+    background-color: #0f7a4f;
+}
+
+.wy-nav-top {
+    background-color: #0f7a4f;
+}
+
+.wy-menu-vertical a:hover {
+    background-color: #17965f;
+}
+
+.wy-menu-vertical li.current a {
+    border-right: 3px solid #17965f;
+}

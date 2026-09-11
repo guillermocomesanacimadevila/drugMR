@@ -77,5 +77,6 @@ This command:
 
 Run it locally after `fetch_run()` when you want the dashboard on your computer. You may instead run it directly on the HPC if Docker and the dashboard environment are available there. To view an HPC-hosted dashboard, forward its Streamlit port through SSH according to your cluster's access rules.
 
-!!! warning
-    Fetch only completed runs. The successful Nextflow controller creates `manifest.json` and `params.lock.yaml` and records the run only after all required stages finish. Older runs created before parameter snapshots were introduced still require their original file under `params/`.
+```{warning}
+Fetch only completed runs. The successful Nextflow controller creates `manifest.json` and `params.lock.yaml` and records the run only after all required stages finish. Older runs created before parameter snapshots were introduced still require their original file under `params/`.
+```
