@@ -2212,7 +2212,14 @@ def load_and_sync_run_data(
     }
 
 
-def dashboard(db_name: str, port_number: str, phenotype: str, pqtl_dataset: str):
+def dashboard(
+    db_name: str,
+    port_number: str,
+    phenotype: str,
+    pqtl_dataset: str,
+    initial_run_id: str = "latest",
+):
+    requested_pqtl_dataset = pqtl_dataset
     # main aesthetics
     assets_dir = Path(__file__).resolve().parent / "assets"
     logo_header_path = assets_dir / "drugmr_header.png"
@@ -2396,6 +2403,21 @@ def dashboard(db_name: str, port_number: str, phenotype: str, pqtl_dataset: str)
         for row in pqtl_rows
     }
 
+    # A run fetched from HPC is registered locally by dm.fetch_run(), but its
+    # pQTL dataset may not exist in this machine's assets/qtl_manifest.csv
+    # (development/test datasets are a common example). Include registry-backed
+    # datasets so a successfully fetched run cannot silently fall back to an
+    # unrelated older local dataset. Sample size is optional for such entries.
+    local_registry = registry.load_registry(root=str(project_dir / "runs"))
+    registry_prefix = f"{phenotype}__"
+    for key in local_registry:
+        if key.startswith(registry_prefix):
+            registered_dataset = key[len(registry_prefix):]
+            dataset_names.setdefault(
+                registered_dataset, registered_dataset.replace("_", " ").upper()
+            )
+            dataset_ns.setdefault(registered_dataset, None)
+
     # check which datasets have the required dashboard files - resolved via
     # runs/registry.json first (see resolve_dataset_files()), falling back to
     # legacy candidate-path guessing for any dataset never run through runs/
@@ -2404,7 +2426,10 @@ def dashboard(db_name: str, port_number: str, phenotype: str, pqtl_dataset: str)
     available_datasets = []
 
     for dataset_id in dataset_names:
-        run_id_used, files = resolve_dataset_files(project_dir, phenotype, dataset_id, run_id="latest")
+        requested_run = initial_run_id if dataset_id == pqtl_dataset else "latest"
+        run_id_used, files = resolve_dataset_files(
+            project_dir, phenotype, dataset_id, run_id=requested_run
+        )
 
         required_files = [files["mr"], files["coloc"]]
 
@@ -2460,7 +2485,14 @@ def dashboard(db_name: str, port_number: str, phenotype: str, pqtl_dataset: str)
         with run_col:
             if run_history:
                 run_options = ["latest"] + list(reversed(run_history))
-                selected_run = st.selectbox("Run", run_options, index=0, key="run_selector")
+                selected_index = (
+                    run_options.index(initial_run_id)
+                    if pqtl_dataset == requested_pqtl_dataset and initial_run_id in run_options
+                    else 0
+                )
+                selected_run = st.selectbox(
+                    "Run", run_options, index=selected_index, key="run_selector"
+                )
             else:
                 selected_run = "latest"
                 st.caption("No run history (legacy path)")
@@ -2472,7 +2504,8 @@ def dashboard(db_name: str, port_number: str, phenotype: str, pqtl_dataset: str)
             dataset_run_ids[pqtl_dataset] = run_id_used
 
         with dataset_info_col:
-            st.metric("pQTL sample size", f"{dataset_n:,}")
+            sample_size = f"{dataset_n:,}" if dataset_n is not None else "Not recorded"
+            st.metric("pQTL sample size", sample_size)
 
     st.divider()
 
@@ -4704,12 +4737,14 @@ def main():
     p.add_argument("--port_number", required=True, type=str)
     p.add_argument("--phenotype", required=True, type=str)
     p.add_argument("--pqtl_dataset", required=True, type=str)
+    p.add_argument("--run_id", default="latest", type=str)
     args = p.parse_args()
     dashboard(
         db_name=args.db_name,
         port_number=args.port_number,
         phenotype=args.phenotype,
-        pqtl_dataset=args.pqtl_dataset
+        pqtl_dataset=args.pqtl_dataset,
+        initial_run_id=args.run_id,
     )
 
 

@@ -270,7 +270,9 @@ def results(
             "--phenotype",
             pheno_id,
             "--pqtl_dataset",
-            pqtl_dataset
+            pqtl_dataset,
+            "--run_id",
+            run_id,
         ],
         cwd=str(project_root),
         env=dashboard_env,
