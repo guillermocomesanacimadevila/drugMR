@@ -1,0 +1,4 @@
+{% extends "!layout.html" %}
+{% block htmltitle %}
+<title>{% if title != docstitle %}{{ title|striptags|e }}: {% endif %}{{ docstitle|e }}</title>
+{% endblock %}

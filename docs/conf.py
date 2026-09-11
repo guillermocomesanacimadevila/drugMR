@@ -1,6 +1,7 @@
 project = "drugMR"
 copyright = "2026 drugMR contributors"
 author = "Guillermo Comesana Cimadevila"
+html_title = "drugMR"
 
 extensions = [
     "myst_parser",
@@ -12,6 +13,7 @@ source_suffix = {
 
 master_doc = "index"
 
+templates_path = ["_templates"]
 exclude_patterns = ["_build", "Thumbs.db", ".DS_Store"]
 
 html_theme = "sphinx_rtd_theme"
