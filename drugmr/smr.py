@@ -11,7 +11,6 @@ from drugmr.utils import (
     check_n_in_qtl,
     detect_qtl_split,
     extract_gene_coordinates,
-    needs_chr_split_etl,
     quick_qc,
 )
 
@@ -257,81 +256,114 @@ class SMRUtils:
         manifest_row = self.qtl_manifest.get_row(dataset)
         key_col = manifest_row.get("key_col") or None
         build = "hg38" if manifest_row["build"] == "GRCh38" else "hg19"
-        resolved = self.qtl_manifest.resolve(dataset)
-
-        if isinstance(resolved, pl.DataFrame):
-            resolved = {dataset: resolved}
 
         all_flist_rows = {}
-        for label, df in resolved.items():
+        for label, df in self._iter_qtl_partitions(manifest_row):
 
             gene_col = key_col
             if gene_col is None:
                 gene_col = "_gene"
                 df = df.with_columns(pl.lit(label.split("_")[0]).alias(gene_col))
 
-            if needs_chr_split_etl(df, "CHR"):
-                chr_groups = {
-                    f"{label}/chr{cdf['CHR'][0]}": cdf
-                    for cdf in df.partition_by("CHR", as_dict=False)
-                }
-            else:
-                chr_groups = {label: df}
+            label_dir = esd_dir / label
+            label_dir.mkdir(parents=True, exist_ok=True)
+            flist_rows = []
+            for gene_df in df.partition_by(gene_col, as_dict=False):
+                gene = gene_df[gene_col][0]
 
-            for group_label, chr_df in chr_groups.items():
-                label_dir = esd_dir / group_label
-                label_dir.mkdir(parents=True, exist_ok=True)
-                flist_rows = []
-                for gene_df in chr_df.partition_by(gene_col, as_dict=False):
-                    gene = gene_df[gene_col][0]
+                try:
+                    coords = extract_gene_coordinates(gene, self.gene_positions, genome_build=build)
+                except ValueError:
+                    continue  # gene not in the NCBI ref - skip it, not a hard fail
 
-                    try:
-                        coords = extract_gene_coordinates(gene, self.gene_positions, genome_build=build)
-                    except ValueError:
-                        continue  # gene not in the NCBI ref - skip it, not a hard fail
-
-                    esd_df = (
-                        gene_df
-                        .select(["CHR", "SNP", "BP", "A1", "A2", "Freq", "BETA", "SE", "P"])
-                        .rename({"CHR": "Chr", "BP": "Bp", "BETA": "Beta", "SE": "se", "P": "p"})
-                        .drop_nulls()
-                        .filter(
-                            (pl.col("SNP") != "") &
-                            (pl.col("A1") != pl.col("A2")) &
-                            pl.col("Freq").is_finite() & pl.col("Freq").is_between(0, 1, closed="none") &
-                            pl.col("Beta").is_finite() &
-                            pl.col("se").is_finite() & (pl.col("se") > 0) &
-                            pl.col("p").is_finite() & pl.col("p").is_between(0, 1, closed="right")
-                        )
-                        .unique(subset=["SNP", "Bp", "A1", "A2"])
-                        .sort(["Chr", "Bp", "SNP"])
+                esd_df = (
+                    gene_df
+                    .select(["CHR", "SNP", "BP", "A1", "A2", "FRQ", "BETA", "SE", "P"])
+                    .rename({"CHR": "Chr", "BP": "Bp", "FRQ": "Freq", "BETA": "Beta", "SE": "se", "P": "p"})
+                    .drop_nulls()
+                    .filter(
+                        (pl.col("SNP") != "") &
+                        (pl.col("A1") != pl.col("A2")) &
+                        pl.col("Freq").is_finite() & pl.col("Freq").is_between(0, 1, closed="none") &
+                        pl.col("Beta").is_finite() &
+                        pl.col("se").is_finite() & (pl.col("se") > 0) &
+                        pl.col("p").is_finite() & pl.col("p").is_between(0, 1, closed="right")
                     )
+                    .unique(subset=["SNP", "Bp", "A1", "A2"])
+                    .sort(["Chr", "Bp", "SNP"])
+                )
 
-                    if esd_df.height == 0:
-                        continue
+                if esd_df.height == 0:
+                    continue
 
-                    safe_gene = str(gene).replace("/", "_").replace(":", "_").replace(" ", "_")
-                    esd_path = label_dir / f"{safe_gene}.esd"
-                    esd_df.write_csv(esd_path, separator="\t")
+                safe_gene = str(gene).replace("/", "_").replace(":", "_").replace(" ", "_")
+                esd_path = label_dir / f"{safe_gene}.esd"
+                esd_df.write_csv(esd_path, separator="\t")
 
-                    # ProbeID is the Ensembl ID (matching real production BESD's
-                    # native convention, which load_qtl_rows()'s Probe-based
-                    # filtering assumes) when the NCBI ref has one for this gene;
-                    # falls back to the symbol otherwise rather than hard-failing,
-                    # since ~30% of NCBI ref genes have no GENCODE symbol match
-                    probe_id = coords["ENSEMBL_ID"][0] or gene
-                    flist_rows.append({
-                        "Chr": coords["CHR"][0],
-                        "ProbeID": probe_id,
-                        "GeneticDistance": 0,
-                        "ProbeBp": coords["START"][0],
-                        "Gene": gene,
-                        "Orientation": coords["ORIENTATION"][0],
-                        "PathOfEsd": str(esd_path.resolve()),
-                    })
+                # ProbeID is the Ensembl ID (matching real production BESD's
+                # native convention, which load_qtl_rows()'s Probe-based
+                # filtering assumes) when the NCBI ref has one for this gene;
+                # falls back to the symbol otherwise rather than hard-failing,
+                # since ~30% of NCBI ref genes have no GENCODE symbol match
+                probe_id = coords["ENSEMBL_ID"][0] or gene
+                flist_rows.append({
+                    "Chr": coords["CHR"][0],
+                    "ProbeID": probe_id,
+                    "GeneticDistance": 0,
+                    "ProbeBp": coords["START"][0],
+                    "Gene": gene,
+                    "Orientation": coords["ORIENTATION"][0],
+                    "PathOfEsd": str(esd_path.resolve()),
+                })
 
-                all_flist_rows[group_label] = flist_rows
+            all_flist_rows[label] = flist_rows
         return all_flist_rows
+
+    def _iter_qtl_partitions(self, manifest_row: dict):
+        """Yield normalised QTL frames without expanding a whole dataset in RAM.
+
+        Large genome-wide Parquet inputs such as MetaBrain are compressed to a
+        few GB on disk but expand far beyond a normal SLURM allocation when read
+        eagerly.  Discover the chromosome values cheaply, then rely on Parquet
+        predicate pushdown to collect one chromosome at a time.
+        """
+        matched_files = sorted(glob.glob(manifest_row["path"]))
+        if not matched_files:
+            raise FileNotFoundError(f"No files matched path: {manifest_row['path']}")
+
+        for file_name in matched_files:
+            path = Path(file_name)
+            suffix = path.suffix.lower()
+            if suffix == ".parquet":
+                frame = pl.scan_parquet(path)
+            elif suffix == ".csv":
+                frame = pl.scan_csv(path, separator=",")
+            elif suffix in (".tsv", ".txt"):
+                frame = pl.scan_csv(path, separator="\t")
+            else:
+                raise ValueError(f"Unsupported QTL file extension '{suffix}' for {path}")
+
+            frame = self.qtl_manifest.normalise_columns(frame, manifest_row)
+            label = path.stem
+            key_col = manifest_row.get("key_col") or None
+            if key_col is None:
+                key_col = "_gene"
+                frame = frame.with_columns(pl.lit(label.split("_")[0]).alias(key_col))
+
+            chromosomes = (
+                frame.select("CHR")
+                .drop_nulls()
+                .unique()
+                .sort("CHR")
+                .collect(engine="streaming")
+                .get_column("CHR")
+                .to_list()
+            )
+            split = len(chromosomes) > 1
+            for chromosome in chromosomes:
+                partition_label = f"{label}/chr{chromosome}" if split else label
+                print(f"[TRACKING] Loading {manifest_row['dataset']} partition {partition_label}", flush=True)
+                yield partition_label, frame.filter(pl.col("CHR") == chromosome).collect(engine="streaming")
 
     def transform_to_flist(self, all_flist_rows: dict, esd_dir: Path) -> dict:
 

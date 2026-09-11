@@ -31,6 +31,7 @@ process SMR_BULK {
     script:
     """
     export PYTHONPATH=${projectDir}
+    export PYTHONUNBUFFERED=1
     python ${projectDir}/bin/sort_smr.py \\
         --pheno_id ${meta.pheno_id} \\
         --sumstats ${qc_tsv} \\
@@ -83,6 +84,7 @@ process SMR_SC {
     script:
     """
     export PYTHONPATH=${projectDir}
+    export PYTHONUNBUFFERED=1
     python ${projectDir}/bin/sort_smr.py \\
         --pheno_id ${meta.pheno_id} \\
         --sumstats ${qc_tsv} \\
