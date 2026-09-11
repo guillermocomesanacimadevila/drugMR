@@ -782,6 +782,7 @@ def main():
     p.add_argument("--synthesis_dir", default="synthesis")
     p.add_argument("--manifest_path", default=paths.DEFAULT_QTL_MANIFEST_PATH)
     p.add_argument("--gene_annotation", default=None)
+    p.add_argument("--liftover_dir", default="dat/ref/liftover")
     p.add_argument("--coloc_file", default=None)
     p.add_argument("--wald_fdr_q", type=float, default=0.05)
     p.add_argument("--ivw_fdr_q", type=float, default=0.05)
@@ -802,6 +803,10 @@ def main():
     if gene_annotation is not None and args.repo_root and not gene_annotation.is_absolute():
         gene_annotation = Path(args.repo_root) / gene_annotation
     _smr_utils.ncbi_ref_path = str(gene_annotation) if gene_annotation is not None else None
+    liftover_dir = Path(args.liftover_dir)
+    if args.repo_root and not liftover_dir.is_absolute():
+        liftover_dir = Path(args.repo_root) / liftover_dir
+    _smr_utils.liftover_dir = str(liftover_dir)
     if args.repo_root:
         _smr_utils.base_dir = args.repo_root
 

@@ -26,12 +26,14 @@ class SMRUtils:
     - multiple regions within 1 dataset (e.g. GTEx)
     """
 
-    def __init__(self, manifest_path: str = None, ncbi_ref_path: str = None, base_dir: str = None):
+    def __init__(self, manifest_path: str = None, ncbi_ref_path: str = None, base_dir: str = None, liftover_dir: str = None):
         self.manifest_path = manifest_path
         self.ncbi_ref_path = ncbi_ref_path
         self.base_dir = base_dir
+        self.liftover_dir = liftover_dir
         self._qtl_manifest = None
         self._gene_positions = None
+        self._hg38_to_hg19 = None
 
     @property
     def qtl_manifest(self):
@@ -54,6 +56,25 @@ class SMRUtils:
                 schema_overrides={"Chromosome": pl.Utf8},  # "X"/"Y"/"MT" break i64 inference
             )
         return self._gene_positions
+
+    @property
+    def hg38_to_hg19(self):
+        if self._hg38_to_hg19 is None:
+            if self.liftover_dir is None:
+                raise ValueError("liftover_dir not set - required for GRCh37 QTL conversion")
+            chain_dir = Path(self.liftover_dir)
+            candidates = [
+                chain_dir / "hg38ToHg19.over.chain",
+                chain_dir / "hg38ToHg19.over.chain.gz",
+            ]
+            chain = next((path for path in candidates if path.exists()), None)
+            if chain is None:
+                raise FileNotFoundError(
+                    f"No hg38-to-hg19 chain file found in {chain_dir}; expected one of "
+                    f"{', '.join(path.name for path in candidates)}"
+                )
+            self._hg38_to_hg19 = liftover.ChainFile(str(chain), one_based=True)
+        return self._hg38_to_hg19
 
     def besd_to_sumstats(self, file: Path, out_prefix: Path) -> pl.DataFrame: # != in wrappers -> convert to parquet and save as parquet
 
@@ -272,7 +293,12 @@ class SMRUtils:
                 gene = gene_df[gene_col][0]
 
                 try:
-                    coords = extract_gene_coordinates(gene, self.gene_positions, genome_build=build)
+                    coords = extract_gene_coordinates(
+                        gene,
+                        self.gene_positions,
+                        genome_build=build,
+                        converter=self.hg38_to_hg19 if build == "hg19" else None,
+                    )
                 except ValueError:
                     continue  # gene not in the NCBI ref - skip it, not a hard fail
 

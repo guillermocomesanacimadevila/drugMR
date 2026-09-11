@@ -40,6 +40,7 @@ process SMR_BULK {
         --qtl_mode bulk \\
         --ref_bfile ${projectDir}/${meta.ref_bfile} \\
         --gene_annotation ${meta.gene_annotation ?: ''} \\
+        --liftover_dir ${meta.liftover_dir} \\
         --maf ${meta.maf} \\
         --local_results_dir . \\
         --repo_root ${projectDir} \\
@@ -93,6 +94,7 @@ process SMR_SC {
         --qtl_mode single_cell \\
         --ref_bfile ${projectDir}/${meta.ref_bfile} \\
         --gene_annotation ${meta.gene_annotation ?: ''} \\
+        --liftover_dir ${meta.liftover_dir} \\
         --maf ${meta.maf} \\
         --local_results_dir . \\
         --repo_root ${projectDir} \\

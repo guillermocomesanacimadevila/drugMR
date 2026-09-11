@@ -229,13 +229,11 @@ def sample_overlap_relative_bias(lambda_funct, f_statistic):
 def extract_gene_coordinates(
         gene_id: str,
         ref: pl.DataFrame,
-        genome_build: str = "hg38"
+        genome_build: str = "hg38",
+        converter=None,
     ):
 
     # current gencode == v50 so...
-
-    # liftover converter
-    converter = liftover.get_lifter("hg38", "hg19", one_based=True)
 
     start = 0
     end = 0
@@ -276,6 +274,8 @@ def extract_gene_coordinates(
         return df
 
     if genome_build == "hg19":
+        if converter is None:
+            converter = liftover.get_lifter("hg38", "hg19", one_based=True)
         for row in ref.iter_rows(named=True):
             if gene_id == row["Symbol"]:
                 chr = str(row["Chromosome"])
