@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
-set -euo pipefail
+# No "-u": Lmod's own `module` bash function isn't nounset-safe internally,
+# and this script calls it - "-u" here would risk killing the whole script
+# on an unrelated unset variable deep inside Lmod's implementation.
+set -eo pipefail
 
 # BASH_SOURCE doesn't exist when this is sourced from zsh (macOS's default
 # login shell) - fall back to zsh's own "%N" script-path expansion so this
