@@ -11,3 +11,4 @@ compose.yml linguist-language=Dockerfile linguist-detectable=true
 compose.yaml linguist-language=Dockerfile linguist-detectable=true
 env/** linguist-language=Dockerfile linguist-detectable=true
 *.sql linguist-language=SQL linguist-detectable=true
+docs/** linguist-documentation

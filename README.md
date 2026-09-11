@@ -23,7 +23,7 @@ drugMR takes an outcome GWAS and a panel of protein QTLs and returns a ranked, s
 3. Install [`PostgreSQL`](https://www.postgresql.org/download/) (`>=16.0`)
 4. Download reference data from [`Zenodo`](https://doi.org/10.5281/zenodo.22706705)
 5. Prepare the environment with the bootstrap script below, it installs both the pinned Python packages and a matching [`Nextflow`](https://www.nextflow.io/) (`>=26.04.0`), so there's no separate Nextflow install step.
-6. For remote result retrieval with `dm.hpc()` or `dm.fetch_run()`, install `rsync` on both the local machine and the remote cluster.
+6. For remote result retrieval with `dm.fetch_run()`, install `rsync` on both the local machine and the remote cluster.
 
 ```bash
 git clone --recurse-submodules https://github.com/guillermocomesanacimadevila/drugMR.git
@@ -73,35 +73,24 @@ nextflow run main.nf \
   --manifest_path <path/to/qtl_manifest.csv>
 ```
 
-or via Python:
+After Nextflow completes, use Python to fetch a remote run when necessary and launch the results dashboard:
 
 ```python
 import drugmr as dm
 
-dm.local(config="params/AD.ukb_ppp.yaml")
-
-dm.hpc(
-    config="params/AD.ukb_ppp.yaml",
+dm.fetch_run(
+    run_id="AD_ukb_ppp_YYYYMMDD_abcdef0",
     user="your_username",
     host="login.your-cluster.ac.uk",
-    remote_repo_root="/path/to/drugMR",
+    remote_root="/path/to/drugMR/runs",
 )
 
 dm.results(config="params/AD.ukb_ppp.yaml")
 ```
 
-`user`, `host` and `remote_repo_root` are required for every HPC run. Supply your SSH username, cluster login host and remote repository path. The cluster must provide SLURM and Apptainer; the path can include `{user}` as a username placeholder.
+Skip `dm.fetch_run()` when the completed run already exists on the machine where the dashboard will run. Run fetches from a local terminal when SSH needs a password or key passphrase. `dm.results()` starts PostgreSQL with Docker Compose, loads the latest successful run matching the configuration, and launches Streamlit.
 
-Postgres loading and dashboard serving are deliberately not a Nextflow stage. Run `dm.results()` afterwards regardless of which entry point produced the run. If the run happened on a different machine, for example a plain `nextflow run` on a cloned checkout on a remote cluster, pull it across first:
-
-```python
-dm.fetch_run(
-    run_id, 
-    user="your_username", 
-    host="your_cluster.ac.uk", 
-    remote_root="/path/to/drugMR/runs"
-)
-```
+Full installation, configuration, HPC, fetch, and dashboard instructions are available on the [drugMR documentation site](https://guillermocomesanacimadevila.github.io/drugMR/).
 
 ## Pipeline summary
 
