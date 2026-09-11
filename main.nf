@@ -28,8 +28,13 @@ workflow {
         } catch (Exception e) {
             host = "unknown"
         }
+        // Run bookkeeping with the same pinned Python environment validated by
+        // env/activate.sh.  Groovy's execute(envp, dir) does not reliably retain
+        // the activated shell PATH on HPC, so a bare `python3` can resolve to a
+        // system interpreter without PyYAML or the rest of drugMR's dependencies.
+        def projectPython = "${projectDir}/.venv/bin/python"
         def cmd = [
-            "python3", "${projectDir}/bin/record_run.py",
+            projectPython, "${projectDir}/bin/record_run.py",
             "--pheno_id", pheno_id,
             "--pqtl_dataset", pqtl_dataset,
             "--run_id", params.run_id,
