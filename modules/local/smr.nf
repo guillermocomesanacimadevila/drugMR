@@ -4,7 +4,7 @@ nextflow.enable.dsl=2
 process SMR_BULK {
 
     tag "smr_bulk_${meta.pheno_id}_${qtl_dataset}"
-    label "process_medium"
+    label "process_smr"
 
     // publishDir { "${params.runs_root}/${params.run_id}/results/smr/bulk/${qtl_dataset}" }, mode: "copy"
     publishDir { "${params.runs_root}/${params.run_id}/results" }, mode: "copy"
@@ -56,7 +56,7 @@ process SMR_BULK {
 process SMR_SC {
 
     tag "smr_sc_${meta.pheno_id}_${meta.sc_qtl_dataset}"
-    label "process_medium"
+    label "process_smr"
 
     // publishDir { "${params.runs_root}/${params.run_id}/results/smr/sc/${meta.sc_qtl_dataset}" }, mode: "copy"
     publishDir { "${params.runs_root}/${params.run_id}/results" }, mode: "copy"
