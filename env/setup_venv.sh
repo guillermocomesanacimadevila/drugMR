@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
-
+# source .venv/bin/activate
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 venv="${repo_root}/.venv"
 
@@ -70,4 +70,13 @@ echo "[tracking] installing drugmr into ${venv}..."
 "${venv}/bin/python" -m pip install -e .
 
 echo "[done] drugmr environment ready."
-echo "activate with: source ${venv}/bin/activate"
+
+if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
+    # The script was sourced, so activation persists in the caller's shell.
+    # shellcheck disable=SC1091
+    source "${venv}/bin/activate"
+    echo "[done] activated ${venv}"
+else
+    echo "[next] run: source env/setup_venv.sh"
+    echo "[next] then the virtual environment will be active in your shell."
+fi

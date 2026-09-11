@@ -27,7 +27,7 @@ drugMR takes an outcome GWAS and a panel of protein QTLs and returns a ranked, s
 ```bash
 git clone --recurse-submodules https://github.com/guillermocomesanacimadevila/drugMR.git
 cd drugMR
-chmod +x env/setup_venv.sh && env/setup_venv.sh
+chmod +x env/setup_venv.sh && env/setup_venv.sh # source .venv/bin/activate
 
 nextflow run /path/to/cloned/drugMR/main.nf -profile docker -params-file params/AD.ukb_ppp.yaml --manifest_path assets/qtl_manifest.csv
 ```
