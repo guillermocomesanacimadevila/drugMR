@@ -1,5 +1,6 @@
 import glob
 import os
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -457,6 +458,59 @@ class SMRUtils:
 
         return prefixes
 
+    @staticmethod
+    def _move_besd_to_manifest_dir(manifest_row: dict, prefixes: dict) -> dict:
+        """Move generated BESD triples beside their manifest-declared source.
+
+        The source file stem remains a subdirectory boundary, preserving the
+        chromosome layout and preventing files from separate inputs covered by
+        one manifest glob from colliding.
+        """
+        source_files = [Path(path) for path in sorted(glob.glob(manifest_row["path"]))]
+        source_dirs = {path.stem: path.parent for path in source_files}
+        if not source_dirs:
+            raise FileNotFoundError(f"No files matched path: {manifest_row['path']}")
+
+        moved = {}
+        for label, prefix in prefixes.items():
+            label_path = Path(label)
+            source_dir = source_dirs.get(label_path.parts[0])
+            if source_dir is None and len(source_dirs) == 1:
+                source_dir = next(iter(source_dirs.values()))
+            if source_dir is None:
+                raise ValueError(
+                    f"Cannot match generated BESD label '{label}' to a source file "
+                    f"for manifest path {manifest_row['path']}"
+                )
+
+            destination_prefix = source_dir / label_path
+            destination_prefix.parent.mkdir(parents=True, exist_ok=True)
+            source_triple = [Path(f"{prefix}.{suffix}") for suffix in ("besd", "esi", "epi")]
+            destination_triple = [
+                Path(f"{destination_prefix}.{suffix}") for suffix in ("besd", "esi", "epi")
+            ]
+            if not all(path.is_file() and path.stat().st_size > 0 for path in source_triple):
+                raise FileNotFoundError(f"Incomplete generated BESD triple for {prefix}")
+
+            # Copy all three successfully before removing any source file. This
+            # is safe across filesystems and does not destroy a usable cache if
+            # a destination write fails partway through.
+            for source, destination in zip(source_triple, destination_triple):
+                temporary = destination.with_name(destination.name + ".tmp")
+                shutil.copy2(source, temporary)
+                os.replace(temporary, destination)
+            for source in source_triple:
+                if source.resolve() != destination_prefix.with_suffix(source.suffix).resolve():
+                    source.unlink()
+
+            moved[label] = destination_prefix
+
+        print(
+            f"[TRACKING] Moved {len(moved)} generated BESD file set(s) beside "
+            f"the manifest-declared QTL source"
+        )
+        return moved
+
     def ensure_besd(self, dataset: str, esd_dir: Path) -> dict:
         manifest_row = self.qtl_manifest.get_row(dataset)
 
@@ -472,13 +526,14 @@ class SMRUtils:
         if cached:
             print(
                 f"[TRACKING] Reusing complete '{dataset}' BESD cache from "
-                f"{esd_dir} ({len(cached)} file(s)); skipping ETL"
+                f"{esd_dir} ({len(cached)} file(s)); skipping QTL conversion"
             )
-            return cached
+            return self._move_besd_to_manifest_dir(manifest_row, cached)
 
         all_flist_rows = self.transform_to_esd(dataset, esd_dir)
         flist_paths = self.transform_to_flist(all_flist_rows, esd_dir)
-        return self.transform_to_besd(flist_paths)
+        built = self.transform_to_besd(flist_paths)
+        return self._move_besd_to_manifest_dir(manifest_row, built)
 
     def run_smr(
             self,

@@ -40,6 +40,6 @@ remove_apoe: false
 
 `pqtl_dataset`, each entry in `bulk_qtl_datasets`, and `sc_qtl_dataset` must match an ID in `assets/qtl_manifest.csv`. Each manifest row maps the dataset to its files, column names, genome build, sample size, and optional parent dataset.
 
-Supported source formats are Parquet, CSV, TSV, and TXT. Large QTL inputs are processed chromosome by chromosome during conversion to SMR format. Generated `.besd`, `.esi`, and `.epi` files are cached under `synthesis/qtl_esd/` and reused by later phenotypes that select the same QTL dataset.
+Supported source formats are Parquet, CSV, TSV, and TXT. Large QTL inputs are processed chromosome by chromosome during conversion to SMR format. `synthesis/qtl_esd/` is the conversion workspace. Once a complete `.besd`, `.esi`, and `.epi` triple has been built, drugMR moves it into a dataset-specific subdirectory beside the source file declared in the manifest. Later phenotypes discover those files from the manifest location and reuse them without repeating conversion. The declared QTL location must therefore be writable when SMR-format files need to be generated.
 
 The statistical thresholds live in the optional `gates` block. Start from `params/AD.test.yaml` when creating a new configuration.

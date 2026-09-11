@@ -12,7 +12,7 @@ On SLURM, use `-profile falcon`. Using only `-profile apptainer` runs tasks insi
 
 ## The controller exits while a child job is still running
 
-Inspect the child directly with `squeue` and `sacct`. Do not submit another copy while the child is active. After it finishes, rerun the controller with `-resume`; generated SMR files under `synthesis/qtl_esd/` are reusable.
+Inspect the child directly with `squeue` and `sacct`. Do not submit another copy while the child is active. After it finishes, rerun the controller with `-resume`. A complete conversion found under `synthesis/qtl_esd/` is recovered and moved beside its manifest-declared QTL source; later runs reuse it there.
 
 ## Follow a process log
 
