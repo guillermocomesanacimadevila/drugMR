@@ -22,8 +22,12 @@ class Config:
         reference_data = data.get("reference_data", {}) or {}
         if reference_data.get("ref_bfile"):
             self.ref_bfile = reference_data["ref_bfile"]
-        self.liftover_dir = reference_data.get("liftover_dir", "dat/ref/liftover")
-        self.ncbi_ref_path = reference_data.get("gene_annotation")
+        self.liftover_dir = reference_data.get(
+            "liftover_dir", data.get("liftover_dir", "dat/ref/liftover")
+        )
+        self.ncbi_ref_path = reference_data.get(
+            "gene_annotation", data.get("gene_annotation")
+        )
 
     def gate(self, step: str, name: str, default=None):
         gates = getattr(self, "gates", {}) or {}

@@ -88,7 +88,7 @@ def require_output(path: Path, step: str, required_for: str):
             f"{required_for} cannot run because {step} output is empty: {path}"
         )
 
-def fetch_run(run_id: str, user: str, host: str, remote_root: str):
+def fetch_run(run_id: str, user: str, host: str, remote_root: str) -> str:
     # for a run launched directly via `nextflow run` on a remote host (no
     # dm.hpc() involved) - drugMR has no way to know that run exists, so
     # user, host and remote_root always have to be given explicitly here
@@ -114,6 +114,14 @@ def fetch_run(run_id: str, user: str, host: str, remote_root: str):
     if missing:
         raise ValueError(f"{manifest_path} is missing required field(s): {', '.join(missing)}")
 
+    params_lock = paths.run_params_lock_path(run_id, root=str(project_root / "runs"))
+    if not params_lock.exists():
+        raise FileNotFoundError(
+            f"{params_lock} not found after fetch. This run predates locked parameter "
+            "snapshots; fetch a newer completed run or pass its original params file "
+            "to dm.results(config=...)."
+        )
+
     registry.record_successful_run(
         manifest["pheno_id"],
         manifest["pqtl_dataset"],
@@ -121,6 +129,10 @@ def fetch_run(run_id: str, user: str, host: str, remote_root: str):
         root=str(project_root / "runs"),
     )
     print(f"[DONE] Fetched and registered run: {run_id}")
+
+    config = str(params_lock.relative_to(project_root))
+    print(f"[DONE] Run configuration available at: {config}")
+    return config
 
 def results(
     config: str,
@@ -131,11 +143,30 @@ def results(
     port_number: int = 5433,
 ):
     project_root = Path(__file__).resolve().parents[1]
-    cfg = Config(project_root / config)
+    config_path = Path(config)
+    if not config_path.is_absolute():
+        config_path = project_root / config_path
+    cfg = Config(config_path)
     pqtl_dataset = cfg.pqtl_dataset
     pheno_id = cfg.pheno_id
 
-    run_id = registry.get_latest_run_id(pheno_id, pqtl_dataset, root=str(project_root / "runs"))
+    # A fetched params.lock.yaml identifies one exact run. Preserve that
+    # identity instead of silently opening a newer run for the same phenotype
+    # and pQTL dataset. Ordinary params/*.yaml files retain the convenient
+    # latest-successful-run behaviour.
+    run_id = None
+    if config_path.name == "params.lock.yaml":
+        candidate_run_id = config_path.parent.name
+        candidate_manifest = paths.run_manifest_path(
+            candidate_run_id, root=str(project_root / "runs")
+        )
+        if candidate_manifest.exists():
+            run_id = candidate_run_id
+
+    if run_id is None:
+        run_id = registry.get_latest_run_id(
+            pheno_id, pqtl_dataset, root=str(project_root / "runs")
+        )
     if run_id is None:
         raise FileNotFoundError(
             f"No recorded run found for pheno_id={pheno_id!r}, pqtl_dataset={pqtl_dataset!r}. "

@@ -62,3 +62,15 @@ Successful output is stored under `runs/<run_id>/`, where the ID includes the ph
 ```bash
 ls -1dt runs/* | head
 ```
+
+A successful run contains both its outputs and the effective parameters needed to reopen it later:
+
+```text
+runs/<run_id>/
+├── manifest.json
+├── params.lock.yaml
+├── pipeline_info/
+└── results/
+```
+
+The locked parameters are created only after the complete Nextflow workflow succeeds. Keep `params.lock.yaml` with the run when moving or archiving results.

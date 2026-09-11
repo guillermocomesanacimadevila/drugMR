@@ -424,6 +424,39 @@ class SMRUtils:
 
         return besd_prefixes
 
+    @staticmethod
+    def _cached_besd_from_esd_dir(manifest_row: dict, esd_dir: Path) -> dict:
+        """Return a complete BESD cache previously built under ``esd_dir``.
+
+        Each source QTL file is converted below ``esd_dir/<source stem>/``.
+        The flists left by that conversion provide the completion manifest: a
+        cache is reusable only when every flist has a non-empty BESD/ESI/EPI
+        triple. This avoids both mixing datasets in the shared qtl_esd tree and
+        accepting a chromosome set left half-written by an interrupted job.
+        """
+        esd_dir = Path(esd_dir)
+        matched_files = sorted(glob.glob(manifest_row["path"]))
+        cache_roots = [esd_dir / Path(file_name).stem for file_name in matched_files]
+
+        prefixes = {}
+        for cache_root in cache_roots:
+            if not cache_root.is_dir():
+                return {}
+
+            flists = sorted(cache_root.rglob("*.flist"))
+            if not flists:
+                return {}
+
+            for flist in flists:
+                prefix = flist.with_suffix("")
+                triple = [Path(f"{prefix}.{suffix}") for suffix in ("besd", "esi", "epi")]
+                if not all(path.is_file() and path.stat().st_size > 0 for path in triple):
+                    return {}
+                label = str(prefix.relative_to(esd_dir))
+                prefixes[label] = prefix
+
+        return prefixes
+
     def ensure_besd(self, dataset: str, esd_dir: Path) -> dict:
         manifest_row = self.qtl_manifest.get_row(dataset)
 
@@ -434,6 +467,14 @@ class SMRUtils:
         if already_ready:
             print(f"[TRACKING] '{dataset}' is already BESD-ready ({len(already_ready)} file(s)), skipping ETL")
             return already_ready
+
+        cached = self._cached_besd_from_esd_dir(manifest_row, esd_dir)
+        if cached:
+            print(
+                f"[TRACKING] Reusing complete '{dataset}' BESD cache from "
+                f"{esd_dir} ({len(cached)} file(s)); skipping ETL"
+            )
+            return cached
 
         all_flist_rows = self.transform_to_esd(dataset, esd_dir)
         flist_paths = self.transform_to_flist(all_flist_rows, esd_dir)

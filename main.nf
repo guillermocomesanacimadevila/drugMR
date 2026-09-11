@@ -1,4 +1,6 @@
 #!/usr/bin/env nextflow
+import groovy.json.JsonOutput
+
 nextflow.enable.dsl = 2
 
 /*
@@ -36,7 +38,8 @@ workflow {
             "--root", "${params.runs_root}",
             "--git_sha7", "${workflow.commitId ?: 'unknown'}",
             "--image_name", "${params.image_name}",
-            "--host", host
+            "--host", host,
+            "--params_json", JsonOutput.toJson(params.inputs[0])
         ]
         def proc = cmd.execute(["PYTHONPATH=${projectDir}"], new File("${projectDir}"))
         proc.waitFor()

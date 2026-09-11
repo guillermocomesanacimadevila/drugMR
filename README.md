@@ -73,22 +73,34 @@ nextflow run main.nf \
   --manifest_path <path/to/qtl_manifest.csv>
 ```
 
-After Nextflow completes, use Python to fetch a remote run when necessary and launch the results dashboard:
+After Nextflow completes successfully, its run directory contains `params.lock.yaml`, a snapshot of the effective parameters used for that analysis. Use Python to fetch a remote run when necessary and launch the results dashboard from that snapshot:
 
 ```python
 import drugmr as dm
 
-dm.fetch_run(
+config = dm.fetch_run(
     run_id="AD_ukb_ppp_YYYYMMDD_abcdef0",
     user="your_username",
     host="login.your-cluster.ac.uk",
     remote_root="/path/to/drugMR/runs",
 )
 
-dm.results(config="params/AD.ukb_ppp.yaml")
+dm.results(config=config)
 ```
 
-Skip `dm.fetch_run()` when the completed run already exists on the machine where the dashboard will run. Run fetches from a local terminal when SSH needs a password or key passphrase. `dm.results()` starts PostgreSQL with Docker Compose, loads the latest successful run matching the configuration, and launches Streamlit.
+`dm.fetch_run()` transfers the results, manifest, pipeline reports, and `params.lock.yaml`, then returns the local path to that locked configuration. Skip the fetch when the completed run already exists on the dashboard machine; in that case, pass `runs/<run_id>/params.lock.yaml` directly to `dm.results()`. A locked configuration selects that exact run, while a regular file under `params/` selects the latest successful matching run. Run fetches from a local terminal when SSH needs a password or key passphrase. `dm.results()` starts PostgreSQL with Docker Compose, loads the selected run, and launches Streamlit.
+
+For a local Nextflow run, use either the exact run snapshot or the original params file:
+
+```python
+# Open one exact local run
+dm.results(config="runs/AD_test_20260911_abcdef0/params.lock.yaml")
+
+# Or open the latest successful run matching this phenotype and pQTL dataset
+dm.results(config="params/AD.test.yaml")
+```
+
+`dm.results()` always requires `config`; calling it without an argument is not supported.
 
 Full installation, configuration, HPC, fetch, and dashboard instructions are available on the [drugMR documentation site](https://guillermocomesanacimadevila.github.io/drugMR/).
 

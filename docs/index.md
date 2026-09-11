@@ -23,9 +23,11 @@ The computational pipeline can run locally or through SLURM. The results dashboa
 
 | Situation | What to do |
 | --- | --- |
-| Pipeline and dashboard on one machine | Run Nextflow, then call `dm.results()` there. |
-| Pipeline on HPC, dashboard on your computer | Run Nextflow on HPC, call `dm.fetch_run()` on your computer, then call `dm.results()` locally. |
-| Pipeline and dashboard on HPC | Run Nextflow and `dm.results()` on HPC; use SSH port forwarding to view Streamlit. |
+| Pipeline and dashboard on one machine | Run Nextflow, then pass the run's `params.lock.yaml` to `dm.results()`. |
+| Pipeline on HPC, dashboard on your computer | Run Nextflow on HPC, assign the value returned by `dm.fetch_run()` to `config`, then call `dm.results(config=config)` locally. |
+| Pipeline and dashboard on HPC | Pass the run's `params.lock.yaml` to `dm.results()` on HPC; use SSH port forwarding to view Streamlit. |
 
 !!! note
-    `dm.fetch_run()` is only a transfer step. Use it when the Nextflow run is on a remote HPC or cloud machine and the dashboard will run elsewhere.
+    `dm.fetch_run()` is only needed when the Nextflow run is on a remote HPC or cloud machine and the dashboard will run elsewhere. It transfers the run's locked parameter snapshot along with its results.
+
+    `dm.results()` always needs a configuration. For an exact local run, use `dm.results(config="runs/<run_id>/params.lock.yaml")`. To select the latest successful run matching a regular parameter file, use `dm.results(config="params/<file>.yaml")`.
