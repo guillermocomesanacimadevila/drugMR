@@ -3,6 +3,7 @@ import os
 import subprocess
 from pathlib import Path
 
+import liftover
 import polars as pl
 
 from drugmr import paths
