@@ -2228,7 +2228,7 @@ def dashboard(db_name: str, port_number: str, phenotype: str, pqtl_dataset: str)
     # DOM - its internal header/cell styling can't be reached from CSS at all;
     # it follows .streamlit/config.toml's theme directly instead, which is the
     # real reason getting that file actually picked up (see drugmr/local.py's
-    # results() / drugmr/falcon.py's run_dashboard_local(), both now pin cwd to
+    # results() / drugmr/hpc.py's run_dashboard_local(), both now pin cwd to
     # project_root for exactly this) matters more here than any CSS rule could.
     st.markdown(
         """
@@ -2323,7 +2323,7 @@ def dashboard(db_name: str, port_number: str, phenotype: str, pqtl_dataset: str)
            .streamlit/config.toml's primaryColor, because the theme file wasn't
            being picked up at all (a CWD issue - Streamlit only finds
            .streamlit/config.toml relative to the directory `streamlit run` is
-           invoked FROM, and drugmr/local.py's results() / drugmr/falcon.py's
+           invoked FROM, and drugmr/local.py's results() / drugmr/hpc.py's
            run_dashboard_local() launched it without pinning that directory).
            Now fixed at the source (both launchers pin cwd=project_root), so
            this CSS block is redundant defense-in-depth, not the real fix -
@@ -2375,23 +2375,20 @@ def dashboard(db_name: str, port_number: str, phenotype: str, pqtl_dataset: str)
         )
     st.divider()
 
-    # pQTL dataset selection schema
-    # CLI pQTL dataset is used as the default dashboard selection
-    dataset_names = {
-        "ukb_ppp": "UKB-PPP",
-        "decode": "deCODE",
-        "wu_csf": "WU-CSF",
-        "wingo_brain": "Wingo_Brain"
-    }
-
     project_dir = Path(__file__).resolve().parent.parent
 
-    # sample sizes come from assets/qtl_manifest.csv - single source of truth,
-    # shared with bin/prep_cis_regions.py, instead of a duplicated hardcoded dict
+    # Discover pQTL datasets and sample sizes from the manifest. The result-file
+    # availability check below determines which of them are shown for this phenotype.
     _qtl_manifest = QTLManifest(str(project_dir / "assets" / "qtl_manifest.csv"))
+    pqtl_rows = _qtl_manifest.get_rows_by_qtl_type("pqtl")
+
+    dataset_names = {
+        row["dataset"]: row["dataset"].replace("_", " ").upper()
+        for row in pqtl_rows
+    }
     dataset_ns = {
-        dataset_id: int(_qtl_manifest.get_row(dataset_id)["sample_size"])
-        for dataset_id in dataset_names
+        row["dataset"]: int(row["sample_size"])
+        for row in pqtl_rows
     }
 
     # check which datasets have the required dashboard files - resolved via

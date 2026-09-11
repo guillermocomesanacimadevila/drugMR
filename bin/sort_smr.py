@@ -25,7 +25,7 @@ def resolve_qtl_type(qtl_dataset: str) -> str:
 # ------------------------------------------------------------------------------------
 # MAIN TO DO'S
 # -> SLAP FUNCTION 3 (MAYBE 1 ONTO A DIFFERNT SCRIPT -> MAY CRASH SMR IF != RESULTS)
-# -> CONSEQUENTLY UPDATE drugmr/local.py and drugmr/falcon.py
+# -> CONSEQUENTLY UPDATE drugmr/local.py and drugmr/hpc.py
 # ------------------------------------------------------------------------------------
 # ------------------------------------------------------------------------------------
 
@@ -78,7 +78,7 @@ def extract_promising_targets(
     # replacement (see project_pwcoco_wiring memory): a target that colocalises
     # under EITHER method should reach SMR, so PWCoCo-passing proteins are unioned
     # into coloc_hits here rather than requiring standard COLOC specifically.
-    # pwcoco_out() may not exist - PWCoCo runs non-fatally in local.py/falcon.py, so a
+    # pwcoco_out() may not exist - PWCoCo runs non-fatally in local.py/hpc.py, so a
     # failed or not-yet-run PWCoCo step must not break SMR eligibility.
     pwcoco_res = paths.pwcoco_out(pqtl_dataset, pheno_id, local_results_dir)
     if Path(pwcoco_res).exists():
@@ -645,7 +645,7 @@ def rename_smr_to_schema(frame: pl.DataFrame) -> pl.DataFrame:
     return frame.rename(rename_map) if rename_map else frame
 
 
-# shared by compile_multi_omics_targets() (per-call upsert, local.py/falcon.py) and
+# shared by compile_multi_omics_targets() (per-call upsert, local.py/hpc.py) and
 # merge_multi_omics_targets_batch() (fan-in, Nextflow) - HEIDI CUT OFF = 0.01,
 # SMR CUT OFF = 0.05. Extracted so both call sites apply the identical gate
 # rather than risking the two drifting apart.
@@ -720,7 +720,7 @@ def compile_multi_omics_targets(pheno_id: str, pqtl_dataset: str, qtl_dataset: s
 # Nextflow fan-in counterpart to compile_multi_omics_targets(): instead of
 # upserting one qtl_dataset's rows into a shared file across N sequential
 # calls (only safe when those calls share one real persistent file, as in
-# local.py/falcon.py), this takes every qtl_dataset's already-computed
+# local.py/hpc.py), this takes every qtl_dataset's already-computed
 # promising_targets.tsv at once (`inputs`: (qtl_dataset, qtl_mode,
 # promising_targets_path) tuples) and writes the combined file in a single
 # shot - correct regardless of whether the producing tasks ran in parallel or

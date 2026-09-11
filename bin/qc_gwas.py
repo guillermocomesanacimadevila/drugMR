@@ -129,14 +129,14 @@ def perform_qc(
     remove_apoe: bool,
     genome_build: str,
     target_build: str,
-    falcon_user: str,
+    user: str,
     n_cases: int,
     n_controls: int):
 
     path = sumstats
     bases = ["A", "T", "C", "G"]
     # --out-dir is the exact directory {pheno_id}.tsv is written into - the
-    # caller (drugmr/local.py, drugmr/falcon.py) is responsible for pointing it
+    # caller (drugmr/local.py, drugmr/hpc.py) is responsible for pointing it
     # at the right place (see drugmr/paths.py)
     qc_dir = Path(out_dir)
     qc_dir.mkdir(parents=True, exist_ok=True)
@@ -333,7 +333,7 @@ def main():
     parser.add_argument("--p-col", required=True)
     parser.add_argument("--pos-col", required=True)
     parser.add_argument("--chr-col", required=True)
-    parser.add_argument("--falcon-user", required=True)
+    parser.add_argument("--user", required=True)
     parser.add_argument("--remove_mhc", action="store_true")
     parser.add_argument("--genome_build", required=True)
     parser.add_argument("--target_build", required=True)
@@ -358,7 +358,7 @@ def main():
         af_col=args.af_col,
         pos_col=args.pos_col,
         chr_col=args.chr_col,
-        falcon_user=args.falcon_user,
+        user=args.user,
         remove_mhc=args.remove_mhc,
         genome_build=args.genome_build,
         target_build=args.target_build,

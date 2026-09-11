@@ -4,7 +4,7 @@ Registry of pipeline runs.
 
 `runs/registry.json` maps `{pheno_id}__{pqtl_dataset}` to `{"latest": run_id,
 "history": [run_id, ...]}`. It is written ONLY after every step of a run has
-succeeded (drugmr/local.py, drugmr/falcon.py call `record_successful_run` as
+succeeded (drugmr/local.py, drugmr/hpc.py call `record_successful_run` as
 their last line). A failed or partial run's `runs/<run_id>/` directory is
 never referenced here, so a consumer reading "latest" can never be pointed
 at a broken run.

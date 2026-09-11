@@ -21,6 +21,7 @@ drugMR takes an outcome GWAS and a panel of protein QTLs and returns a ranked, s
 2. Install any of [`Docker`](https://docs.docker.com/engine/install/), [`Apptainer`](https://apptainer.org/) or [`Singularity`](https://sylabs.io/singularity/)
 3. Install [`PostgreSQL`](https://www.postgresql.org/download/) (`>=16.0`)
 4. Install the `drugmr` Python package, needed for the Python orchestrator and the dashboard: `pip install -e .`
+5. For remote result retrieval with `dm.hpc()` or `dm.fetch_run()`, install `rsync` on both the local machine and the remote cluster.
 
 ```bash
 git clone --recurse-submodules https://github.com/guillermocomesanacimadevila/drugMR.git
@@ -75,15 +76,15 @@ dm.local(config="params/AD.ukb_ppp.yaml")
 
 dm.hpc(
     config="params/AD.ukb_ppp.yaml",
-    falcon_user="your_username",
-    host="falconlogin.cf.ac.uk",
-    remote_repo_root="/shared/home1/{falcon_user}/drugMR",
+    user="your_username",
+    host="login.your-cluster.ac.uk",
+    remote_repo_root="/path/to/drugMR",
 )
 
 dm.results(config="params/AD.ukb_ppp.yaml")
 ```
 
-`host` and `remote_repo_root` default to Falcon and are only needed if you run on a different SLURM and Apptainer cluster.
+`user`, `host` and `remote_repo_root` are required for every HPC run. Supply your SSH username, cluster login host and remote repository path. The cluster must provide SLURM and Apptainer; the path can include `{user}` as a username placeholder.
 
 Postgres loading and dashboard serving are deliberately not a Nextflow stage. Run `dm.results()` afterwards regardless of which entry point produced the run. If the run happened on a different machine, for example a plain `nextflow run` on a cloned checkout on a remote cluster, pull it across first:
 

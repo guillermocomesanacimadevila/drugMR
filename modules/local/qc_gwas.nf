@@ -45,10 +45,10 @@ process GWAS_QC {
         apoe_flag = "--remove_apoe"
     }
 
-    // "--falcon-user nf" is a deliberate sentinel, not a placeholder left
-    // behind - bin/qc_gwas.py requires --falcon-user (it mirrors falcon.py's
+    // "--user nf" is a deliberate sentinel, not a placeholder left
+    // behind - bin/qc_gwas.py requires --user (it mirrors hpc.py's
     // real SSH username elsewhere), and "nf" labels this run as having
-    // originated from Nextflow rather than the SSH-based falcon.py path.
+    // originated from Nextflow rather than the SSH-based hpc.py path.
     """
     python ${projectDir}/bin/qc_gwas.py \\
         --pheno-id ${meta.pheno_id} \\
@@ -68,7 +68,7 @@ process GWAS_QC {
         --target_build ${meta.target_build} \\
         --n_cases ${meta.n_cases} \\
         --n_controls ${meta.n_controls} \\
-        --falcon-user nf \\
+        --user nf \\
         ${info_args} \\
         ${mhc_flag} \\
         ${apoe_flag}

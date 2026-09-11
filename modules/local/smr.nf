@@ -6,7 +6,8 @@ process SMR_BULK {
     tag "smr_bulk_${meta.pheno_id}_${qtl_dataset}"
     label "process_medium"
 
-    publishDir { "${params.runs_root}/${params.run_id}/results/smr/bulk/${qtl_dataset}" }, mode: "copy"
+    // publishDir { "${params.runs_root}/${params.run_id}/results/smr/bulk/${qtl_dataset}" }, mode: "copy"
+    publishDir { "${params.runs_root}/${params.run_id}/results" }, mode: "copy"
 
     container {
         if (params.image_name) {
@@ -56,7 +57,8 @@ process SMR_SC {
     tag "smr_sc_${meta.pheno_id}_${meta.sc_qtl_dataset}"
     label "process_medium"
 
-    publishDir { "${params.runs_root}/${params.run_id}/results/smr/sc/${meta.sc_qtl_dataset}" }, mode: "copy"
+    // publishDir { "${params.runs_root}/${params.run_id}/results/smr/sc/${meta.sc_qtl_dataset}" }, mode: "copy"
+    publishDir { "${params.runs_root}/${params.run_id}/results" }, mode: "copy"
 
     container {
         if (params.image_name) {
@@ -123,7 +125,8 @@ process MERGE_MULTI_OMICS_TARGETS {
     tag "smr_merge_${meta.pheno_id}_${meta.pqtl_dataset}"
     label "process_single"
 
-    publishDir { "${params.runs_root}/${params.run_id}/results/smr" }, mode: "copy"
+    // publishDir { "${params.runs_root}/${params.run_id}/results/smr" }, mode: "copy"
+    publishDir { "${params.runs_root}/${params.run_id}/results" }, mode: "copy"
 
     container {
         if (params.image_name) {

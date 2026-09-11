@@ -3,6 +3,7 @@ ukb_ppp,dat/pqtl/ukb_ppp/*.parquet,,pqtl,GRCh38,,54219,SNP,A1,A2,BETA,SE,P,CHR,B
 decode,dat/pqtl/deCODE/*.parquet,,pqtl,GRCh38,,35559,SNP,A1,A2,BETA,SE,P,CHR,BP,MAF,
 wu_csf,dat/pqtl/wu_csf/*.parquet,,pqtl,GRCh38,,3506,SNP,A1,A2,BETA,SE,P,CHR,BP,FRQ,
 wingo_brain,dat/pqtl/wingo_brain/*.parquet,,pqtl,GRCh38,,1013,SNP,A1,A2,BETA,SE,P,CHR,BP,FRQ,
+test_ukb_ppp,dat/test/pqtls/*.parquet,,pqtl,GRCh38,,54219,SNP,A1,A2,BETA,SE,P,CHR,BP,FRQ,
 metabrain,dat/bulk-eQTL/MetaBrain/BrainMeta_cis_eQTL.parquet,Gene,eqtl,GRCh37,N,2865,SNP,A1,A2,b,SE,p,Chr,BP,Freq,
 gtex_brain_amygdala_v10,dat/bulk-eQTL/GTEx_v10/Brain_Amygdala/Brain_Amygdala.parquet,Gene,eqtl,GRCh38,N,180,SNP,A1,A2,b,SE,p,Chr,BP,Freq,gtex_v10
 gtex_brain_anterior_cingulate_cortex_ba24_v10,dat/bulk-eQTL/GTEx_v10/Brain_Anterior_cingulate_cortex_BA24/Brain_Anterior_cingulate_cortex_BA24.parquet,Gene,eqtl,GRCh38,N,233,SNP,A1,A2,b,SE,p,Chr,BP,Freq,gtex_v10

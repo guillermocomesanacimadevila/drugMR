@@ -6,7 +6,8 @@ process PAIRWISE_COLOC {
     tag "pairwise_coloc_${meta.pheno_id}_${meta.pqtl_dataset}"
     label "process_low"
 
-    publishDir { "${params.runs_root}/${params.run_id}/results/coloc" }, mode: "copy"
+    // publishDir { "${params.runs_root}/${params.run_id}/results/coloc" }, mode: "copy"
+    publishDir { "${params.runs_root}/${params.run_id}/results" }, mode: "copy"
 
     container {
         if (params.image_name) {

@@ -6,7 +6,8 @@ process HYPRCOLOC {
     tag "multi_omics_hyprcoloc"
     label "process_low"
 
-    publishDir { "${params.runs_root}/${params.run_id}/results/hyprcoloc" }, mode: "copy"
+    // publishDir { "${params.runs_root}/${params.run_id}/results/hyprcoloc" }, mode: "copy"
+    publishDir { "${params.runs_root}/${params.run_id}/results" }, mode: "copy"
 
     container {
         if (params.image_name) {
@@ -41,32 +42,19 @@ process HYPRCOLOC {
         --reg_thresh ${meta.gates.hyprcoloc.reg_thresh.join(',')} \\
         --align_thresh ${meta.gates.hyprcoloc.align_thresh.join(',')} \\
         --equal_thresholds ${meta.gates.hyprcoloc.equal_thresholds} \\
+        --cis_regions_dir protein_dirs \\
         --skip_merge
     """
 
 }
 
-// Fan-in: takes every HYPRCOLOC task's own per-eqtl-dataset hyprcoloc.tsv (one
-// per qtl_dataset) for this (pheno_id, pqtl_dataset) run, plus the matching
-// qtl_dataset label for each (same order - built by the subworkflow's
-// groupTuple(), never reordered in between), and runs
-// bin/hyprcoloc_targets.py's --merge (merge_hyprcoloc_batch()) once over the
-// complete set. Same reasoning as smr.nf's MERGE_MULTI_OMICS_TARGETS for why
-// this can't be folded into HYPRCOLOC itself (each task only ever sees its
-// own one qtl_dataset).
-//
-// UNVERIFIED: the stageAs "hc_target_?/hyprcoloc.tsv" pattern below
-// disambiguates same-basename files from a collected list by auto-numbering
-// each into its own subdirectory - the same documented Nextflow idiom used in
-// smr.nf, and carrying the exact same caveat: there's no toy eQTL fixture yet
-// to actually run this process against. Verify for real before trusting this
-// in production.
 process MERGE_HYPRCOLOC {
 
     tag "hyprcoloc_merge_${meta.pheno_id}_${meta.pqtl_dataset}"
     label "process_single"
 
-    publishDir { "${params.runs_root}/${params.run_id}/results/hyprcoloc" }, mode: "copy"
+    // publishDir { "${params.runs_root}/${params.run_id}/results/hyprcoloc" }, mode: "copy"
+    publishDir { "${params.runs_root}/${params.run_id}/results" }, mode: "copy"
 
     container {
         if (params.image_name) {
@@ -94,4 +82,3 @@ process MERGE_HYPRCOLOC {
         ${input_flags}
     """
 }
-

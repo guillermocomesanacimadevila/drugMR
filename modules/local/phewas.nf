@@ -7,7 +7,8 @@ process PHEWAS_FINNGEN {
     label "process_low"
     label "process_long"
 
-    publishDir { "${params.runs_root}/${params.run_id}/results/phewas" }, mode: "copy"
+    // publishDir { "${params.runs_root}/${params.run_id}/results/phewas" }, mode: "copy"
+    publishDir { "${params.runs_root}/${params.run_id}/results" }, mode: "copy"
 
     container {
         if (params.image_name) {
@@ -44,7 +45,8 @@ process PHEWAS_UKB {
     label "process_low"
     label "process_long"
 
-    publishDir { "${params.runs_root}/${params.run_id}/results/phewas" }, mode: "copy"
+    // publishDir { "${params.runs_root}/${params.run_id}/results/phewas" }, mode: "copy"
+    publishDir { "${params.runs_root}/${params.run_id}/results" }, mode: "copy"
 
     container {
         if (params.image_name) {

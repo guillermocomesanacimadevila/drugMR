@@ -120,7 +120,10 @@ def load_qtl_table(data_type: str, qtl_dataset: str, cell_type: str, base_gene_i
     return qtl.select(["SNP", "A1", "A2", "BETA", "SE", "P"])
 
 
-def hyprcoloc_targets(pqtl_dataset: str, pheno_id: str, qtl_dataset: str, local_results_dir: str = "results", skip_merge: bool = False, prior_1: float = 1e-4, prior_c: list[float] = (0.05, 0.02, 0.01, 0.005), reg_thresh: list[float] = (0.5, 0.6, 0.7), align_thresh: list[float] = (0.5, 0.6, 0.7), equal_thresholds: bool = True):
+def hyprcoloc_targets(pqtl_dataset: str, pheno_id: str, qtl_dataset: str, local_results_dir: str = "results", skip_merge: bool = False, prior_1: float = 1e-4, prior_c: list[float] = (0.05, 0.02, 0.01, 0.005), reg_thresh: list[float] = (0.5, 0.6, 0.7), align_thresh: list[float] = (0.5, 0.6, 0.7), equal_thresholds: bool = True, cis_regions_dir: str | None = None):
+
+    """ cis_regions_dir: str | None = None -> added """
+
     hyprcoloc_script = str(Path(os.environ.get("PYTHONPATH", ".")) / "bin" / "hyprcoloc.R")
     work_dir = paths.work_dir_for_results_dir(local_results_dir) / "hyprcoloc"
     work_dir.mkdir(parents=True, exist_ok=True)
@@ -157,7 +160,8 @@ def hyprcoloc_targets(pqtl_dataset: str, pheno_id: str, qtl_dataset: str, local_
         probe_id = row["probe_id"]
         data_type = row["data_type"]
         qtl_type = row["qtl_type"]
-        cis_region = Path(f"./dat/cis_regions/{pqtl_dataset}/{protein}")
+        # cis_region = Path(f"./dat/cis_regions/{pqtl_dataset}/{protein}")
+        cis_region = (Path(cis_regions_dir) / protein if cis_regions_dir else Path(f"./dat/cis_regions/{pqtl_dataset}/{protein}"))
         gwas_file = cis_region / "gwas.parquet"
         pqtl_file = cis_region / "pqtl.parquet"
 
@@ -247,7 +251,7 @@ def hyprcoloc_targets(pqtl_dataset: str, pheno_id: str, qtl_dataset: str, local_
 
     dataset_results = pl.concat(results, how="diagonal_relaxed")
 
-    # per-dataset output, used as the idempotency marker by local.py / falcon.py (mirrors
+    # per-dataset output, used as the idempotency marker by local.py / hpc.py (mirrors
     # sort_smr.py's per-bulk_dataset promising_targets_SMR.tsv pattern) so re-running
     # for one qtl_dataset doesn't require re-running every other one
     per_dataset_file = paths.hyprcoloc_dataset_out(pqtl_dataset, qtl_dataset, pheno_id, local_results_dir)
@@ -259,7 +263,7 @@ def hyprcoloc_targets(pqtl_dataset: str, pheno_id: str, qtl_dataset: str, local_
     # single-cell runs (in either order) compose instead of overwriting each other.
     # Skipped when skip_merge=True (Nextflow: each fanned-out task runs in its own
     # isolated sandbox, so "master_file.exists()" is never true there - the upsert
-    # can't accumulate across tasks the way it does for local.py/falcon.py's sequential
+    # can't accumulate across tasks the way it does for local.py/hpc.py's sequential
     # calls against one real shared file. merge_hyprcoloc_batch() below is the
     # fan-in-safe replacement - see project_nextflow_migration memory.
     if skip_merge:
@@ -281,7 +285,7 @@ def hyprcoloc_targets(pqtl_dataset: str, pheno_id: str, qtl_dataset: str, local_
 # Nextflow fan-in counterpart to hyprcoloc_targets()'s own master-file upsert:
 # instead of upserting one qtl_dataset's rows into a shared file across N
 # sequential calls (only safe when those calls share one real persistent file,
-# as in local.py/falcon.py), this takes every qtl_dataset's already-computed
+# as in local.py/hpc.py), this takes every qtl_dataset's already-computed
 # hyprcoloc_dataset_out() file at once (`inputs`: (qtl_dataset,
 # dataset_file_path) tuples) and writes the combined hyprcoloc_out() file in a
 # single shot - correct regardless of whether the producing tasks ran in
@@ -322,6 +326,7 @@ def main():
     p.add_argument("--prior_c", default="0.05,0.02,0.01,0.005")
     p.add_argument("--reg_thresh", default="0.5,0.6,0.7")
     p.add_argument("--align_thresh", default="0.5,0.6,0.7")
+    p.add_argument("--cis_regions_dir", default=None)
     p.add_argument("--equal_thresholds", type=lambda v: v.lower() == "true", default=True)
     # merge mode only - repeatable "qtl_dataset:dataset_file_path", one per
     # upstream HYPRCOLOC task being fanned in
@@ -354,6 +359,7 @@ def main():
         reg_thresh=[float(v) for v in args.reg_thresh.split(",")],
         align_thresh=[float(v) for v in args.align_thresh.split(",")],
         equal_thresholds=args.equal_thresholds,
+        cis_regions_dir=args.cis_regions_dir,
     )
 
 

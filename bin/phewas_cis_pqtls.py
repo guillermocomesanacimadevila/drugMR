@@ -119,7 +119,7 @@ def phewas_for_compelling_targets(pheno_id: str, pqtl_dataset: str, local_result
     # matters even more now that UKB is a fallback keyed off THIS script's coverage
     # manifest: a PWCoCo-only target absent here would never appear in that
     # manifest and would silently get zero PheWAS coverage in either source.
-    # pwcoco_out() may not exist - PWCoCo runs non-fatally in local.py/falcon.py, so a
+    # pwcoco_out() may not exist - PWCoCo runs non-fatally in local.py/hpc.py, so a
     # failed or not-yet-run PWCoCo step must not break this.
     pwcoco_file = paths.pwcoco_out(pqtl_dataset, pheno_id, local_results_dir)
     if Path(pwcoco_file).exists():

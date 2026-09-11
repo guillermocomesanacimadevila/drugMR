@@ -436,7 +436,7 @@ def local(config: str, run_id: str = None):
         "--target_build", target_build,
         "--n_cases", str(n_cases),
         "--n_controls", str(n_controls),
-        "--falcon-user", "local",
+        "--user", "local",
         *info_args,
         *flag_args,
     ]

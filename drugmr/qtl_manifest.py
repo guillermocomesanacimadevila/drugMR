@@ -12,7 +12,7 @@ class QTLManifest:
         self._manifest = pl.read_csv(self.manifest_path)
 
     def _resolve_row_path(self, row: dict) -> dict:
-        # every caller (get_row/get_rows_by_parent) that hands back a manifest
+        # every caller (get_row/get_rows_by_parent/get_rows_by_qtl_type) that hands back a manifest
         # row must return an already-resolved `path`, not the raw CSV value -
         # several call sites in drugmr/smr.py read row["path"] directly (glob.glob
         # or Path()) without ever calling resolve(), so applying base_dir only
@@ -35,6 +35,10 @@ class QTLManifest:
         # is stored mixed-case (e.g. "GTEx_v10", matching the qtl_dataset
         # convention used elsewhere in results/params)
         rows = self._manifest.filter(pl.col("parent_dataset").str.to_lowercase() == parent_dataset.lower())
+        return [self._resolve_row_path(row) for row in rows.to_dicts()]
+
+    def get_rows_by_qtl_type(self, qtl_type: str) -> list[dict]:
+        rows = self._manifest.filter(pl.col("qtl_type").str.to_lowercase() == qtl_type.lower())
         return [self._resolve_row_path(row) for row in rows.to_dicts()]
 
     @staticmethod

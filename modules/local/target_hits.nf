@@ -6,7 +6,8 @@ process EXTRACT_TWO_OMICS_HITS {
     tag "extract_targets_from_first_two_layers"
     label "process_single"
 
-    publishDir { "${params.runs_root}/${params.run_id}/results/target_stats" }, mode: "copy"
+    // publishDir { "${params.runs_root}/${params.run_id}/results/target_stats" }, mode: "copy"
+    publishDir { "${params.runs_root}/${params.run_id}/results" }, mode: "copy"
 
     container {
         if (params.image_name) {

@@ -6,11 +6,6 @@ from pathlib import Path
 from drugmr import paths, registry
 from drugmr.config import Config
 
-# overridden by hpc()'s own host/remote_repo_root arguments, read by every
-# ssh()/scp/get_remote_paths() call below
-_SSH_HOST = "falconlogin.cf.ac.uk"
-_REMOTE_REPO_ROOT = "/shared/home1/{falcon_user}/drugMR"
-
 # * Notes for myself before going to Greece
 # the git clone thingy
 # remember QC run for GWAS as well
@@ -20,7 +15,7 @@ _REMOTE_REPO_ROOT = "/shared/home1/{falcon_user}/drugMR"
 # pull TSV output also into local 
 # then just script running stuff - for each part as a sequence with an main() in sequence as well (with appropaite ifs as checks and prints)
 
-def ssh(cmd: str, falcon_user: str, allowed_returncodes: tuple = (0,)):
+def ssh(cmd: str, user: str, host: str, allowed_returncodes: tuple = (0,)):
     # cmd is passed as its own argv element, not embedded in a locally-shell-parsed
     # string - no local shell involved, so nothing in cmd (built from interpolated
     # pheno_id/pqtl_dataset/paths elsewhere in this module) can break out of local
@@ -28,7 +23,7 @@ def ssh(cmd: str, falcon_user: str, allowed_returncodes: tuple = (0,)):
     # which is inherent to how ssh runs a command - that's expected, not a shell=True
     # concern (cmd is our own multi-line bash script, not untrusted external input).
     result = subprocess.run(
-        ["ssh", f"{falcon_user}@{_SSH_HOST}", cmd],
+        ["ssh", f"{user}@{host}", cmd],
         capture_output=True,
         text=True,
     )
@@ -40,13 +35,15 @@ def ssh(cmd: str, falcon_user: str, allowed_returncodes: tuple = (0,)):
         raise subprocess.CalledProcessError(result.returncode, cmd)
     return result
 
-def get_remote_paths(falcon_user: str):
-    remote = _REMOTE_REPO_ROOT.format(falcon_user=falcon_user)
+def get_remote_paths(user: str, remote_repo_root: str):
+    remote = remote_repo_root.format(user=user)
     sif = f"{remote}/env/drugmr.sif"
     return remote, sif
 
 def check_remote_output(
-    falcon_user: str,
+    user: str,
+    host: str,
+    remote_repo_root: str,
     path: str,
     step: str,
     overwrite: bool = False
@@ -56,7 +53,7 @@ def check_remote_output(
         print(f"[TRACKING] Overwrite enabled - rerunning {step}...")
         return False
 
-    remote, _ = get_remote_paths(falcon_user)
+    remote, _ = get_remote_paths(user, remote_repo_root)
 
     result = ssh(f"""
 set -euo pipefail
@@ -68,7 +65,7 @@ if [ -s "{path}" ]; then
 fi
 
 exit 3
-""", falcon_user, allowed_returncodes=(0, 3))
+""", user, host, allowed_returncodes=(0, 3))
 
     if result.returncode == 0:
         print(f"[TRACKING] Skipping {step}...")
@@ -78,7 +75,9 @@ exit 3
     return False
 
 def check_remote_cis_regions(
-    falcon_user: str,
+    user: str,
+    host: str,
+    remote_repo_root: str,
     pqtl_dataset: str,
     overwrite: bool = False
 ):
@@ -87,7 +86,7 @@ def check_remote_cis_regions(
         print("[TRACKING] Overwrite enabled - rerunning cis-region preparation...")
         return False
 
-    remote, _ = get_remote_paths(falcon_user)
+    remote, _ = get_remote_paths(user, remote_repo_root)
 
     result = ssh(f"""
 set -euo pipefail
@@ -101,7 +100,7 @@ if [ "$n_cis" -gt 0 ]; then
 fi
 
 exit 3
-""", falcon_user, allowed_returncodes=(0, 3))
+""", user, host, allowed_returncodes=(0, 3))
 
     if result.returncode == 0:
         print("[TRACKING] Skipping cis-region preparation...")
@@ -111,12 +110,14 @@ exit 3
     return False
 
 def require_remote_output(
-    falcon_user: str,
+    user: str,
+    host: str,
+    remote_repo_root: str,
     path: str,
     step: str,
     required_for: str
 ):
-    remote, _ = get_remote_paths(falcon_user)
+    remote, _ = get_remote_paths(user, remote_repo_root)
 
     ssh(f"""
 set -euo pipefail
@@ -133,10 +134,10 @@ if [ ! -s "{path}" ]; then
 fi
 
 echo "[TRACKING] Required {step} output found for {required_for}"
-""", falcon_user)
+""", user, host)
 
-def clone_repo(falcon_user: str):
-    remote, _ = get_remote_paths(falcon_user)
+def clone_repo(user: str, host: str, remote_repo_root: str):
+    remote, _ = get_remote_paths(user, remote_repo_root)
 
     ssh(f"""
 set -euo pipefail
@@ -160,10 +161,10 @@ else
     echo "[TRACKING] Cloning from GitHub..."
     git clone https://github.com/guillermocomesanacimadevila/drugMR.git "{remote}"
 fi
-""", falcon_user)
+""", user, host)
 
-def container_checks(falcon_user: str):
-    remote, _ = get_remote_paths(falcon_user)
+def container_checks(user: str, host: str, remote_repo_root: str):
+    remote, _ = get_remote_paths(user, remote_repo_root)
 
     ssh(f"""
 set -euo pipefail
@@ -177,7 +178,7 @@ cd "{remote}"
 
 chmod +x bin/bootstrap_hpc.sh
 bash bin/bootstrap_hpc.sh "{remote}"
-""", falcon_user)
+""", user, host)
 
 
 # NOW -> FUNCTIONS TO RUN EACH SCRIPT FROM THE PIPELINE 
@@ -190,7 +191,9 @@ bash bin/bootstrap_hpc.sh "{remote}"
 
 # QC GWAS
 def run_gwas_qc(
-    falcon_user: str,
+    user: str,
+    host: str,
+    remote_repo_root: str,
     pheno_id: str,
     sumstats: str,
     out_dir: str,
@@ -213,7 +216,7 @@ def run_gwas_qc(
     remove_mhc: bool = True,
     remove_apoe: bool = False
 ):
-    remote, sif = get_remote_paths(falcon_user)
+    remote, sif = get_remote_paths(user, remote_repo_root)
 
     info_args = ""
     if info_col is not None:
@@ -250,19 +253,21 @@ bash -c "cd /work && python bin/qc_gwas.py \\
   --target_build {target_build} \\
   --n_cases {n_cases} \\
   --n_controls {n_controls} \\
-  --falcon-user {falcon_user} \\
+  --user {user} \\
   {info_args} \\
   {flag_args}"
-""", falcon_user)
+""", user, host)
 
 
 # *********** Extract cis-regions from pQTLs
 def prep_cis_regions(
-    falcon_user: str,
+    user: str,
+    host: str,
+    remote_repo_root: str,
     pheno_id: str,
     pqtl_dataset: str,
 ):
-    remote, sif = get_remote_paths(falcon_user)
+    remote, sif = get_remote_paths(user, remote_repo_root)
 
     ssh(f"""
 set -euo pipefail
@@ -274,12 +279,14 @@ apptainer exec --bind "{remote}:/work" \\
 bash -c "cd /work && python bin/prep_cis_regions.py \\
   --pqtl_dataset {pqtl_dataset} \\
   --pheno_id {pheno_id}"
-""", falcon_user)
+""", user, host)
 
 
 # RUN MR
 def run_cis_mr(
-    falcon_user: str,
+    user: str,
+    host: str,
+    remote_repo_root: str,
     pqtl_dataset: str,
     pqtl_dir: str,
     pheno_id: str,
@@ -293,7 +300,7 @@ def run_cis_mr(
     apply_steiger_filter: bool = False,
     maf: float = 0.01,
 ):
-    remote, sif = get_remote_paths(falcon_user)
+    remote, sif = get_remote_paths(user, remote_repo_root)
 
     ssh(f"""
 set -euo pipefail
@@ -313,11 +320,13 @@ bash -c "cd /work && Rscript bin/cis_mr.R \\
   {min_f_stat} \\
   {apply_steiger_filter} \\
   {maf}"
-""", falcon_user)
+""", user, host)
 
 # RUN COLOC
 def run_coloc(
-    falcon_user: str,
+    user: str,
+    host: str,
+    remote_repo_root: str,
     pqtl_dataset: str,
     pheno_id: str,
     n_cases: int,
@@ -333,7 +342,7 @@ def run_coloc(
     p2: float = 1e-4,
     p12: float = 1e-5,
 ):
-    remote, sif = get_remote_paths(falcon_user)
+    remote, sif = get_remote_paths(user, remote_repo_root)
 
     ssh(f"""
 set -euo pipefail
@@ -358,12 +367,14 @@ apptainer exec --bind "{remote}:/work" \\
     --p1 {p1} \\
     --p2 {p2} \\
     --p12 {p12}"
-""", falcon_user)
+""", user, host)
 
 
 # RUN PWCoCo
 def run_pwcoco(
-    falcon_user: str,
+    user: str,
+    host: str,
+    remote_repo_root: str,
     pqtl_dataset: str,
     pheno_id: str,
     ref_bfile: str,
@@ -376,7 +387,7 @@ def run_pwcoco(
     egger_intercept_pval_min: float = 0,
     min_instruments_for_ivw: int = 3,
 ):
-    remote, sif = get_remote_paths(falcon_user)
+    remote, sif = get_remote_paths(user, remote_repo_root)
 
     ssh(f"""
 set -euo pipefail
@@ -397,14 +408,16 @@ apptainer exec --bind "{remote}:/work" \\
     --cochran_q_pval {cochran_q_pval} \\
     --egger_intercept_pval_min {egger_intercept_pval_min} \\
     --min_instruments_for_ivw {min_instruments_for_ivw}"
-""", falcon_user)
+""", user, host)
 
 
 # RUN PWCoCo (QTL-informed) - QTL-pQTL / QTL-GWAS PWCoCo on every SMR-passing
 # target, then compared for shared colocalising SNPs against the pQTL-GWAS PWCoCo
 # above (see project_pwcoco_wiring memory / bin/pwcoco_qtl_wrapper.py)
 def run_pwcoco_qtl(
-    falcon_user: str,
+    user: str,
+    host: str,
+    remote_repo_root: str,
     pqtl_dataset: str,
     pheno_id: str,
     ref_bfile: str,
@@ -413,7 +426,7 @@ def run_pwcoco_qtl(
     local_results_dir: str = "results",
     pp4_threshold: float = 0.7,
 ):
-    remote, sif = get_remote_paths(falcon_user)
+    remote, sif = get_remote_paths(user, remote_repo_root)
 
     ssh(f"""
 set -euo pipefail
@@ -430,13 +443,15 @@ apptainer exec --bind "{remote}:/work" \\
     --n_controls {n_controls} \\
     --local_results_dir {local_results_dir} \\
     --pp4_threshold {pp4_threshold}"
-""", falcon_user)
+""", user, host)
 
 
 # RUN SMR (bulk or single-cell, depending on qtl_mode)
 # named run_smr_step (not run_smr) to avoid clashing with the run_smr config flag in hpc()
 def run_smr_step(
-    falcon_user: str,
+    user: str,
+    host: str,
+    remote_repo_root: str,
     pqtl_dataset: str,
     qtl_dataset: str,
     qtl_mode: str,
@@ -453,7 +468,7 @@ def run_smr_step(
     p_smr_threshold: float = 0.05,
     p_heidi_threshold: float = 0.01,
 ):
-    remote, sif = get_remote_paths(falcon_user)
+    remote, sif = get_remote_paths(user, remote_repo_root)
 
     ssh(f"""
 set -euo pipefail
@@ -478,14 +493,16 @@ apptainer exec --bind "{remote}:/work" \\
     --p_qtl_heidi {p_qtl_heidi} \\
     --p_smr_threshold {p_smr_threshold} \\
     --p_heidi_threshold {p_heidi_threshold}"
-""", falcon_user)
+""", user, host)
 
 
 # RUN HyPrColoc (bulk and/or single-cell QTL) - for every target x cell-type/tissue
 # hit in the combined final multi-omics target table for the given qtl_dataset, runs
 # a 3-trait (pQTL / GWAS / QTL) HyPrColoc restricted to that target's cis-region
 def run_hyprcoloc_step(
-    falcon_user: str,
+    user: str,
+    host: str,
+    remote_repo_root: str,
     pqtl_dataset: str,
     pheno_id: str,
     qtl_dataset: str,
@@ -496,7 +513,7 @@ def run_hyprcoloc_step(
     align_thresh: list[float] = (0.5, 0.6, 0.7),
     equal_thresholds: bool = True,
 ):
-    remote, sif = get_remote_paths(falcon_user)
+    remote, sif = get_remote_paths(user, remote_repo_root)
     prior_c_arg = ",".join(str(v) for v in prior_c)
     reg_thresh_arg = ",".join(str(v) for v in reg_thresh)
     align_thresh_arg = ",".join(str(v) for v in align_thresh)
@@ -518,17 +535,19 @@ apptainer exec --bind "{remote}:/work" \\
     --reg_thresh {reg_thresh_arg} \\
     --align_thresh {align_thresh_arg} \\
     --equal_thresholds {equal_thresholds}"
-""", falcon_user)
+""", user, host)
 
 
 # get final snp-wide hits
 def compile_top_hits(
-    falcon_user: str,
+    user: str,
+    host: str,
+    remote_repo_root: str,
     pheno_id: str,
     pqtl_dataset: str,
     local_results_dir: str = "results"
 ):
-    remote, sif = get_remote_paths(falcon_user)
+    remote, sif = get_remote_paths(user, remote_repo_root)
 
     ssh(f"""
 set -euo pipefail
@@ -541,7 +560,7 @@ apptainer exec --bind "{remote}:/work" \\
     --pheno_id {pheno_id} \\
     --pqtl_dataset {pqtl_dataset} \\
     --local_results_dir {local_results_dir}"
-""", falcon_user)
+""", user, host)
 
 # RUN PHEWAS CHECKS FOR SAFETY (LOCALLY) -> API != WORK IN SLURM HPC
 # ******************************************************************
@@ -678,14 +697,16 @@ def phewas_safety_ukbb(
 # SLAP ONTO POSTGRESQL DB
 
 def load_postgres(
-    falcon_user: str,
+    user: str,
+    host: str,
+    remote_repo_root: str,
     run_id: str,
     pqtl_dataset: str,
     pheno_id: str,
     db_id: str = "drugmr",
     local_results_dir: str = "results"
 ):
-    remote, sif = get_remote_paths(falcon_user)
+    remote, sif = get_remote_paths(user, remote_repo_root)
     mr_res = str(paths.mr_out(pqtl_dataset, pheno_id, local_results_dir))
     coloc_res = str(paths.coloc_out(pqtl_dataset, pheno_id, local_results_dir))
 
@@ -708,90 +729,79 @@ bash -c "cd /work && python bin/load_db_into_postgres.py \\
   --run_id {run_id} \\
   --pqtl_dataset {pqtl_dataset} \\
   --table coloc_results"
-""", falcon_user)
+""", user, host)
 
 
 # PULL RESULTS INTO LOCAL
 def pull_results_local(
-    falcon_user: str,
+    user: str,
+    host: str,
+    remote_repo_root: str,
+    run_id: str,
     pqtl_dataset: str,
     pheno_id: str,
-    local_results_dir: str = "results",
-    overwrite: bool = True
+    overwrite: bool = True,
 ):
-    remote, _ = get_remote_paths(falcon_user)
-    remote_mr = f"{remote}/{paths.mr_out(pqtl_dataset, pheno_id)}"
-    remote_coloc = f"{remote}/{paths.coloc_out(pqtl_dataset, pheno_id)}"
-    remote_target_stats = f"{remote}/{paths.target_stats_out(pqtl_dataset, pheno_id)}"
-    remote_smr = f"{remote}/{paths.smr_final_targets_out(pqtl_dataset, pheno_id)}"
-    remote_hyprcoloc = f"{remote}/{paths.hyprcoloc_out(pqtl_dataset, pheno_id)}"
-    local_results_dir = Path(local_results_dir)
-    local_mr = paths.mr_out(pqtl_dataset, pheno_id, out_dir=str(local_results_dir))
-    local_coloc = paths.coloc_out(pqtl_dataset, pheno_id, out_dir=str(local_results_dir))
-    local_target_stats = paths.target_stats_out(pqtl_dataset, pheno_id, out_dir=str(local_results_dir))
-    local_smr = paths.smr_final_targets_out(pqtl_dataset, pheno_id, out_dir=str(local_results_dir))
-    local_hyprcoloc = paths.hyprcoloc_out(pqtl_dataset, pheno_id, out_dir=str(local_results_dir))
-    local_mr.parent.mkdir(parents=True, exist_ok=True)
-    local_coloc.parent.mkdir(parents=True, exist_ok=True)
-    local_target_stats.parent.mkdir(parents=True, exist_ok=True)
-    local_smr.parent.mkdir(parents=True, exist_ok=True)
-    local_hyprcoloc.parent.mkdir(parents=True, exist_ok=True)
-    for remote_file, local_file in [
-        (remote_mr, local_mr),
-        (remote_coloc, local_coloc),
-        (remote_target_stats, local_target_stats),
-    ]:
-        if local_file.exists() and not overwrite:
-            print(f"[TRACKING] {local_file} already exists locally. Skipping pull.")
-            continue
+    remote, _ = get_remote_paths(user, remote_repo_root)
+    relative_results_dir = paths.run_results_dir(run_id)
+    remote_results_dir = f"{remote}/{relative_results_dir}"
 
-        if local_file.exists() and overwrite:
-            print(f"[TRACKING] {local_file} already exists locally. Overwriting...")
+    project_root = Path(__file__).resolve().parents[1]
+    local_results_dir = project_root / relative_results_dir
 
-        cmd = ["scp", f"{falcon_user}@{_SSH_HOST}:{remote_file}", str(local_file)]
-        print(cmd)
-        subprocess.run(cmd, check=True)
-        print(f"[DONE] Pulled results into {local_file}")
+    required_outputs = (
+        ("cis-MR", paths.mr_out),
+        ("colocalisation", paths.coloc_out),
+        ("target statistics", paths.target_stats_out),
+    )
 
-    # SMR is optional (bulk and/or single-cell, gated by run_smr) so only pull it
-    # down if it was actually produced remotely
-    if local_smr.exists() and not overwrite:
-        print(f"[TRACKING] {local_smr} already exists locally. Skipping pull.")
-    else:
-        remote_smr_check = check_remote_output(
-            falcon_user=falcon_user,
-            path=str(paths.smr_final_targets_out(pqtl_dataset, pheno_id)),
-            step="SMR",
-            overwrite=False
+    # Check the current remote run before copying. Existing local files
+    # must not conceal missing outputs on the cluster.
+    for step, output_path in required_outputs:
+        require_remote_output(
+            user=user,
+            host=host,
+            remote_repo_root=remote_repo_root,
+            path=str(
+                output_path(
+                    pqtl_dataset,
+                    pheno_id,
+                    out_dir=str(relative_results_dir),
+                )
+            ),
+            step=step,
+            required_for="Result retrieval",
         )
 
-        if remote_smr_check:
-            cmd = ["scp", f"{falcon_user}@{_SSH_HOST}:{remote_smr}", str(local_smr)]
-            print(cmd)
-            subprocess.run(cmd, check=True)
-            print(f"[DONE] Pulled results into {local_smr}")
-        else:
-            print("[TRACKING] No remote SMR output found - skipping SMR pull.")
+    local_results_dir.mkdir(parents=True, exist_ok=True)
 
-    # HyPrColoc is also optional (gated by bulk_qtl_datasets / sc_qtl_dataset)
-    # so only pull it down if it was actually produced remotely
-    if local_hyprcoloc.exists() and not overwrite:
-        print(f"[TRACKING] {local_hyprcoloc} already exists locally. Skipping pull.")
-    else:
-        remote_hyprcoloc_check = check_remote_output(
-            falcon_user=falcon_user,
-            path=str(paths.hyprcoloc_out(pqtl_dataset, pheno_id)),
-            step="HyPrColoc",
-            overwrite=False
+    cmd = ["rsync", "-avz"]
+    if not overwrite:
+        cmd.append("--ignore-existing")
+
+    cmd.extend([
+        f"{user}@{host}:{remote_results_dir}/",
+        f"{local_results_dir}/",
+    ])
+
+    print(
+        f"[TRACKING] Fetching {user}@{host}:{remote_results_dir}/ "
+        f"-> {local_results_dir}"
+    )
+    subprocess.run(cmd, check=True)
+
+    for step, output_path in required_outputs:
+        local_file = output_path(
+            pqtl_dataset,
+            pheno_id,
+            out_dir=str(local_results_dir),
         )
+        if not local_file.is_file() or local_file.stat().st_size == 0:
+            raise RuntimeError(
+                f"{step} output missing or empty after retrieval: {local_file}"
+            )
 
-        if remote_hyprcoloc_check:
-            cmd = ["scp", f"{falcon_user}@{_SSH_HOST}:{remote_hyprcoloc}", str(local_hyprcoloc)]
-            print(cmd)
-            subprocess.run(cmd, check=True)
-            print(f"[DONE] Pulled results into {local_hyprcoloc}")
-        else:
-            print("[TRACKING] No remote HyPrColoc output found - skipping HyPrColoc pull.")
+    print(f"[DONE] Retrieved results for run: {run_id}")
 
 
 # STREAMLIT DASHBOARD
@@ -819,12 +829,14 @@ def run_dashboard_local(
 
 # CHECK OUTPUTS
 def check_outputs(
-    falcon_user: str,
+    user: str,
+    host: str,
+    remote_repo_root: str,
     pqtl_dataset: str,
     pheno_id: str,
     local_results_dir: str = "results"
 ):
-    remote, _ = get_remote_paths(falcon_user)
+    remote, _ = get_remote_paths(user, remote_repo_root)
     mr_res = str(paths.mr_out(pqtl_dataset, pheno_id, local_results_dir))
     coloc_res = str(paths.coloc_out(pqtl_dataset, pheno_id, local_results_dir))
     target_stats_res = str(paths.target_stats_out(pqtl_dataset, pheno_id, local_results_dir))
@@ -875,38 +887,32 @@ else
     echo "[CONCERN] HyPrColoc output not found or empty (HyPrColoc may not be configured for this run)"
 fi
 
-""", falcon_user)
+""", user, host)
 
 
 # Function to run all the HPC gist
 def hpc(
     config: str,
-    falcon_user: str,
+    user: str,
+    host: str,
+    remote_repo_root: str,
     run_id: str = None,
-    host: str = "falconlogin.cf.ac.uk",
-    remote_repo_root: str = "/shared/home1/{falcon_user}/drugMR",
 ):
     # config has no default on purpose - there's no single correct params file
     # anymore now that each (pheno_id, pqtl_dataset) pair has its own under
     # params/ (e.g. params/AD.wingo_brain.yaml) - pass one explicitly.
     #
-    # falcon_user is a per-invocation credential, not an analysis parameter -
+    # user is a per-invocation credential, not an analysis parameter -
     # it doesn't belong in a (pheno_id, pqtl_dataset) params file, so it's a
-    # real argument here instead of cfg.falcon_user.
+    # real argument here instead of cfg.user.
     #
     # run_id defaults to None, which keeps the deterministic
     # (pheno_id, pqtl_dataset, day, remote commit) behaviour below. Pass an
     # existing runs/<run_id> value explicitly to resume/retry into that same
     # run dir instead of starting a fresh one.
     #
-    # host/remote_repo_root default to Falcon but any SLURM+Apptainer cluster
-    # reachable over ssh works - every ssh()/scp/get_remote_paths() call in
-    # this module reads the shared _SSH_HOST/_REMOTE_REPO_ROOT rather than a
-    # hardcoded hostname or path. remote_repo_root can use {falcon_user} as a
-    # placeholder for the actual username.
-    global _SSH_HOST, _REMOTE_REPO_ROOT
-    _SSH_HOST = host
-    _REMOTE_REPO_ROOT = remote_repo_root
+    # Connection details are required per invocation and passed to each helper.
+    # remote_repo_root can use {user} as a placeholder for the username.
     cfg = Config(config)
     pheno_id = cfg.pheno_id
     sumstats = cfg.sumstats
@@ -965,20 +971,20 @@ def hpc(
     phewas_coloc_threshold = cfg.gate("phewas", "coloc_threshold", 0)
 
     print("[TRACKING] Preparing remote repo...")
-    clone_repo(falcon_user)
+    clone_repo(user, host, remote_repo_root)
 
     print("[TRACKING] Preparing remote env...")
-    container_checks(falcon_user)
+    container_checks(user, host, remote_repo_root)
 
     # run_id uses the REMOTE repo's HEAD (post clone_repo() reset), since that's the
     # code version that actually executes the pipeline - not this local machine's HEAD.
     # Deterministic for a given (pheno_id, pqtl_dataset, day, remote commit): rerunning
     # today against the same remote commit reuses the same runs/<run_id>/ dir (and its
-    # check_remote_output() skip behavior) both on Falcon and in the pulled-down local
+    # check_remote_output() skip behavior) both on the cluster and in the pulled-down local
     # copy - unless run_id is passed explicitly, in which case that existing run dir is
     # reused as-is.
-    remote, _ = get_remote_paths(falcon_user)
-    git_sha_result = ssh(f'cd "{remote}" && git rev-parse --short=7 HEAD', falcon_user)
+    remote, _ = get_remote_paths(user, remote_repo_root)
+    git_sha_result = ssh(f'cd "{remote}" && git rev-parse --short=7 HEAD', user, host)
     git_sha7 = git_sha_result.stdout.strip()
     date_str = datetime.now().strftime("%Y%m%d")
     if run_id is None:
@@ -1017,14 +1023,18 @@ def hpc(
     smr_sc_out = str(paths.smr_sc_out(pqtl_dataset, pheno_id, sc_qtl_dataset, out_dir))
 
     if not check_remote_output(
-        falcon_user=falcon_user,
+        user=user,
+        host=host,
+        remote_repo_root=remote_repo_root,
         path=qc_out,
         step="GWAS QC",
         overwrite=overwrite
     ):
         print("[TRACKING] Running GWAS QC...")
         run_gwas_qc(
-            falcon_user=falcon_user,
+            user=user,
+            host=host,
+            remote_repo_root=remote_repo_root,
             pheno_id=pheno_id,
             sumstats=sumstats,
             out_dir=str(paths.qc_out(pheno_id).parent),
@@ -1049,33 +1059,43 @@ def hpc(
         )
 
     require_remote_output(
-        falcon_user=falcon_user,
+        user=user,
+        host=host,
+        remote_repo_root=remote_repo_root,
         path=qc_out,
         step="GWAS QC",
         required_for="cis-region preparation"
     )
 
     if not check_remote_cis_regions(
-        falcon_user=falcon_user,
+        user=user,
+        host=host,
+        remote_repo_root=remote_repo_root,
         pqtl_dataset=pqtl_dataset,
         overwrite=overwrite
     ):
         print("[TRACKING] Preparing cis-regions...")
         prep_cis_regions(
-            falcon_user=falcon_user,
+            user=user,
+            host=host,
+            remote_repo_root=remote_repo_root,
             pheno_id=pheno_id,
             pqtl_dataset=pqtl_dataset,
         )
 
     if not check_remote_output(
-        falcon_user=falcon_user,
+        user=user,
+        host=host,
+        remote_repo_root=remote_repo_root,
         path=mr_out,
         step="cis-MR",
         overwrite=overwrite
     ):
         print("[TRACKING] Running cis-MR...")
         run_cis_mr(
-            falcon_user=falcon_user,
+            user=user,
+            host=host,
+            remote_repo_root=remote_repo_root,
             pqtl_dataset=pqtl_dataset,
             pqtl_dir=f"dat/cis_regions/{pqtl_dataset}",
             pheno_id=pheno_id,
@@ -1091,21 +1111,27 @@ def hpc(
         )
 
     require_remote_output(
-        falcon_user=falcon_user,
+        user=user,
+        host=host,
+        remote_repo_root=remote_repo_root,
         path=mr_out,
         step="cis-MR",
         required_for="COLOC"
     )
 
     if not check_remote_output(
-        falcon_user=falcon_user,
+        user=user,
+        host=host,
+        remote_repo_root=remote_repo_root,
         path=coloc_out,
         step="COLOC",
         overwrite=overwrite
     ):
         print("[TRACKING] Running COLOC...")
         run_coloc(
-            falcon_user=falcon_user,
+            user=user,
+            host=host,
+            remote_repo_root=remote_repo_root,
             pqtl_dataset=pqtl_dataset,
             pheno_id=pheno_id,
             n_cases=n_cases,
@@ -1123,7 +1149,9 @@ def hpc(
         )
 
     require_remote_output(
-        falcon_user=falcon_user,
+        user=user,
+        host=host,
+        remote_repo_root=remote_repo_root,
         path=coloc_out,
         step="COLOC",
         required_for="Top cis-hit compilation"
@@ -1134,7 +1162,9 @@ def hpc(
     # targets and its results are joined against coloc_out downstream (dashboard
     # coloc_support annotation), not used to gate anything in this orchestration.
     if not check_remote_output(
-        falcon_user=falcon_user,
+        user=user,
+        host=host,
+        remote_repo_root=remote_repo_root,
         path=pwcoco_out,
         step="PWCoCo",
         overwrite=overwrite
@@ -1142,7 +1172,9 @@ def hpc(
         print("[TRACKING] Running PWCoCo...")
         try:
             run_pwcoco(
-                falcon_user=falcon_user,
+                user=user,
+                host=host,
+                remote_repo_root=remote_repo_root,
                 pqtl_dataset=pqtl_dataset,
                 pheno_id=pheno_id,
                 ref_bfile=ref_bfile,
@@ -1160,21 +1192,27 @@ def hpc(
 
     # compile final hits
     if not check_remote_output(
-        falcon_user=falcon_user,
+        user=user,
+        host=host,
+        remote_repo_root=remote_repo_root,
         path=target_stats_out,
         step="Top cis-hit compilation",
         overwrite=overwrite
     ):
         print("[TRACKING] Compiling harmonised top cis-hit table...")
         compile_top_hits(
-            falcon_user=falcon_user,
+            user=user,
+            host=host,
+            remote_repo_root=remote_repo_root,
             pheno_id=pheno_id,
             pqtl_dataset=pqtl_dataset,
             local_results_dir=out_dir
         )
 
     require_remote_output(
-        falcon_user=falcon_user,
+        user=user,
+        host=host,
+        remote_repo_root=remote_repo_root,
         path=target_stats_out,
         step="Top cis-hit compilation",
         required_for="Dashboard target information"
@@ -1191,14 +1229,18 @@ def hpc(
                 smr_bulk_out = str(paths.smr_bulk_out(pqtl_dataset, pheno_id, bulk_dataset, out_dir))
 
                 if not check_remote_output(
-                    falcon_user=falcon_user,
+                    user=user,
+                    host=host,
+                    remote_repo_root=remote_repo_root,
                     path=smr_bulk_out,
                     step=f"Bulk SMR ({bulk_dataset})",
                     overwrite=overwrite
                 ):
                     print(f"[TRACKING] Ingesting pre-computed bulk QTL SMR for {bulk_dataset}...")
                     run_smr_step(
-                        falcon_user=falcon_user,
+                        user=user,
+                        host=host,
+                        remote_repo_root=remote_repo_root,
                         pqtl_dataset=pqtl_dataset,
                         qtl_dataset=bulk_dataset,
                         qtl_mode="bulk",
@@ -1220,14 +1262,18 @@ def hpc(
 
         if sc_qtl_dataset:
             if not check_remote_output(
-                falcon_user=falcon_user,
+                user=user,
+                host=host,
+                remote_repo_root=remote_repo_root,
                 path=smr_sc_out,
                 step="Single-cell SMR",
                 overwrite=overwrite
             ):
                 print("[TRACKING] Running single-cell QTL SMR...")
                 run_smr_step(
-                    falcon_user=falcon_user,
+                    user=user,
+                    host=host,
+                    remote_repo_root=remote_repo_root,
                     pqtl_dataset=pqtl_dataset,
                     qtl_dataset=sc_qtl_dataset,
                     qtl_mode="single_cell",
@@ -1255,7 +1301,9 @@ def hpc(
     # since it depends on smr_final_targets_out; non-fatal like PWCoCo above.
     if run_smr:
         if not check_remote_output(
-            falcon_user=falcon_user,
+            user=user,
+            host=host,
+            remote_repo_root=remote_repo_root,
             path=pwcoco_qtl_out,
             step="PWCoCo (QTL)",
             overwrite=overwrite
@@ -1263,7 +1311,9 @@ def hpc(
             print("[TRACKING] Running PWCoCo (QTL)...")
             try:
                 run_pwcoco_qtl(
-                    falcon_user=falcon_user,
+                    user=user,
+                    host=host,
+                    remote_repo_root=remote_repo_root,
                     pqtl_dataset=pqtl_dataset,
                     pheno_id=pheno_id,
                     ref_bfile=ref_bfile,
@@ -1285,14 +1335,18 @@ def hpc(
             hc_dataset_out = str(paths.hyprcoloc_dataset_out(pqtl_dataset, hc_dataset, pheno_id, out_dir))
 
             if not check_remote_output(
-                falcon_user=falcon_user,
+                user=user,
+                host=host,
+                remote_repo_root=remote_repo_root,
                 path=hc_dataset_out,
                 step=f"HyPrColoc ({hc_dataset})",
                 overwrite=overwrite
             ):
                 print(f"[TRACKING] Running HyPrColoc for {hc_dataset}...")
                 run_hyprcoloc_step(
-                    falcon_user=falcon_user,
+                    user=user,
+                    host=host,
+                    remote_repo_root=remote_repo_root,
                     pqtl_dataset=pqtl_dataset,
                     pheno_id=pheno_id,
                     qtl_dataset=hc_dataset,
@@ -1308,7 +1362,9 @@ def hpc(
 
     print("[TRACKING] Checking outputs...")
     check_outputs(
-        falcon_user=falcon_user,
+        user=user,
+        host=host,
+        remote_repo_root=remote_repo_root,
         pqtl_dataset=pqtl_dataset,
         pheno_id=pheno_id,
         local_results_dir=out_dir
@@ -1316,10 +1372,12 @@ def hpc(
 
     print("[TRACKING] Pulling results locally...")
     pull_results_local(
-        falcon_user=falcon_user,
+        user=user,
+        host=host,
+        remote_repo_root=remote_repo_root,
+        run_id=run_id,
         pqtl_dataset=pqtl_dataset,
         pheno_id=pheno_id,
-        local_results_dir=local_results_dir,
         overwrite=overwrite,
     )
 
@@ -1360,7 +1418,9 @@ def hpc(
             "date": date_str,
             "created_at": datetime.now().isoformat(),
             "mode": "hpc",
-            "falcon_user": falcon_user,
+            "user": user,
+            "host": host,
+            "remote_repo_root": remote,
             "overwrite": overwrite,
         },
         root=str(project_root / "runs"),

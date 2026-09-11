@@ -96,7 +96,7 @@ def phewas_mr_on_ukbb(pqtl_dataset: str, pheno_id: str, local_results_dir: str =
     # replacement (see project_pwcoco_wiring memory): a target that colocalises
     # under EITHER method should reach UKB PheWAS, so PWCoCo-passing proteins are
     # unioned in below. pwcoco_out() may not exist - PWCoCo runs non-fatally in
-    # local.py/falcon.py, so a failed or not-yet-run PWCoCo step must not break this.
+    # local.py/hpc.py, so a failed or not-yet-run PWCoCo step must not break this.
     pwcoco_file = paths.pwcoco_out(pqtl_dataset, pheno_id, local_results_dir)
     if Path(pwcoco_file).exists():
         df_pwcoco = pl.read_csv(pwcoco_file, separator="\t")
