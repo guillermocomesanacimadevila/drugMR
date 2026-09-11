@@ -17,17 +17,18 @@ drugMR takes an outcome GWAS and a panel of protein QTLs and returns a ranked, s
 
 ## Quick start
 
-1. Install [`Nextflow`](https://www.nextflow.io/) (`>=26.04.0`)
+1. Install Java (required by Nextflow; on HPC, whatever `module load java` or equivalent provides is fine)
 2. Install any of [`Docker`](https://docs.docker.com/engine/install/), [`Apptainer`](https://apptainer.org/) or [`Singularity`](https://sylabs.io/singularity/)
 3. Install [`PostgreSQL`](https://www.postgresql.org/download/) (`>=16.0`)
 4. Download reference data from [`Zenodo`](https://doi.org/10.5281/zenodo.22706705)
-5. Install the `drugmr` package, needed for the Python orchestrator and the dashboard: `pip install -e .`
+5. Prepare the environment with the bootstrap script below, it installs both the pinned Python packages and a matching [`Nextflow`](https://www.nextflow.io/) (`>=26.04.0`), so there's no separate Nextflow install step.
 6. For remote result retrieval with `dm.hpc()` or `dm.fetch_run()`, install `rsync` on both the local machine and the remote cluster.
 
 ```bash
 git clone --recurse-submodules https://github.com/guillermocomesanacimadevila/drugMR.git
 cd drugMR
-source env/setup_venv.sh # source .venv/bin/activate
+./env/bootstrap.sh       # first clone only, or after dependency changes
+source env/activate.sh   # every new login or shell
 
 nextflow run /path/to/cloned/drugMR/main.nf -profile docker -params-file params/AD.ukb_ppp.yaml --manifest_path assets/qtl_manifest.csv
 ```

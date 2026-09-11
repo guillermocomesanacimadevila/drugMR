@@ -26,6 +26,7 @@ plots/
 logs/
 build/
 .venv/
+env/bin/
 work/
 outputs/
 scripts/
