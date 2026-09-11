@@ -8,7 +8,7 @@ Exit status 137 commonly means SLURM killed the process after it reached its mem
 sacct -j JOB_ID --format=JobID,State,ExitCode,ReqMem,MaxRSS,Elapsed --units=G
 ```
 
-On SLURM, use `-profile falcon`. Using only `-profile apptainer` runs tasks inside the controller allocation and prevents the per-process SLURM resource rules from taking effect.
+On SLURM, use `-profile falcon` when Nextflow is launched from a login or workflow node and should submit every process as a separate SLURM job. If Nextflow itself is launched by an `sbatch` script, use `-profile falcon,local` so processes run inside that allocation. Using `sbatch` with `-profile falcon` alone creates nested jobs and can deadlock under a one-node-per-user QOS with `QOSMaxNodePerUserLimit`.
 
 ## The controller exits while a child job is still running
 

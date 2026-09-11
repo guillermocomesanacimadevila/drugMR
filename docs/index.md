@@ -1,15 +1,45 @@
-# drugMR
+<div class="drugmr-hero" markdown>
 
-**A multi-omics pipeline for genetically anchored drug target discovery.**
+<span class="drugmr-eyebrow">GENETICALLY ANCHORED DRUG DISCOVERY</span>
 
-![drugMR analysis pipeline](pipeline.png)
+# From association to actionable target
 
-drugMR takes an outcome GWAS and a panel of protein QTLs and produces a ranked, safety-screened shortlist of druggable targets. Its Nextflow workflow connects Mendelian randomisation, colocalisation, SMR and HEIDI, PWCoCo, HyPrColoc, and phenome-wide safety screening.
+drugMR is a reproducible multi-omics pipeline that turns outcome GWAS and protein QTL panels into a ranked, safety-screened shortlist of druggable targets.
 
-[Install drugMR](getting-started.md){ .md-button .md-button--primary }
-[View on GitHub](https://github.com/guillermocomesanacimadevila/drugMR){ .md-button }
+[Get started](getting-started.md){ .md-button .md-button--primary }
+[Explore the workflow](#workflow){ .md-button }
+
+<div class="drugmr-pills">
+  <span>Nextflow DSL2</span><span>Cis-MR</span><span>Colocalisation</span><span>SMR + HEIDI</span><span>PheWAS</span>
+</div>
+
+</div>
+
+<div class="drugmr-stat-grid" markdown>
+
+<div class="drugmr-stat" markdown>
+**End to end**
+
+One workflow from GWAS QC to dashboard-ready evidence.
+</div>
+
+<div class="drugmr-stat" markdown>
+**Multi-omics**
+
+Triangulate protein, bulk-tissue and single-cell QTL evidence.
+</div>
+
+<div class="drugmr-stat" markdown>
+**Reproducible**
+
+Containerised execution, locked parameters and registered runs.
+</div>
+
+</div>
 
 ## Workflow
+
+![drugMR analysis pipeline](pipeline.png){ .drugmr-pipeline }
 
 1. Quality-control the outcome GWAS and extract cis regions.
 2. Run cis-MR and pairwise colocalisation against the selected pQTL panel.

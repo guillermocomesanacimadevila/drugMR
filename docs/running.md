@@ -18,7 +18,32 @@ Other local container profiles are `apptainer`, `singularity`, `podman`, `shifte
 
 ## SLURM execution
 
-Use the `falcon` profile so each Nextflow process is submitted to SLURM with its own resource request. A typical submission script is:
+There are two supported ways to run on SLURM. Do not mix them.
+
+### Nextflow submits each pipeline task
+
+Run Nextflow directly from a login or workflow node with the `falcon` profile. Nextflow remains a lightweight controller and submits each pipeline process to SLURM with its own resource request:
+
+```bash
+module load Java/17
+cd /path/to/drugMR
+source env/activate.sh
+
+nextflow run main.nf \
+  -profile falcon \
+  -params-file params/AD.test.yaml \
+  --manifest_path assets/qtl_manifest.csv \
+  --slurm_account YOUR_ACCOUNT \
+  --slurm_partition htc_genoa \
+  --container_bind /path/to/external/data \
+  -resume
+```
+
+This method creates child jobs named `nf-DRUGMR...`. Use it only where cluster policy permits a persistent Nextflow controller on the login or workflow node.
+
+### Nextflow runs inside one submitted allocation
+
+If Nextflow itself must be submitted with `sbatch`, use `-profile falcon,local`. The `falcon` profile enables the Falcon/Apptainer settings, and the trailing `local` profile makes pipeline processes run inside the allocation instead of submitting nested SLURM jobs:
 
 ```bash
 #!/bin/bash
@@ -37,7 +62,7 @@ cd /path/to/drugMR
 source env/activate.sh
 
 nextflow run main.nf \
-  -profile falcon \
+  -profile falcon,local \
   -params-file params/AD.test.yaml \
   --manifest_path assets/qtl_manifest.csv \
   --slurm_account YOUR_ACCOUNT \
@@ -46,7 +71,11 @@ nextflow run main.nf \
   -resume
 ```
 
-The outer allocation only runs the Nextflow controller. Child jobs named `nf-DRUGMR...` perform the analysis. Check both with:
+The profile order matters: `falcon,local` is correct because `local` must override the executor selected by `falcon`.
+
+Do not use `sbatch` together with `-profile falcon` alone on a cluster with a one-node-per-user QOS. The controller allocation consumes the permitted node while its nested `nf-DRUGMR...` job remains pending with `QOSMaxNodePerUserLimit`.
+
+Check jobs and accounting with:
 
 ```bash
 squeue -u "$USER"
