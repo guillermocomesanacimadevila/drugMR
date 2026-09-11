@@ -798,7 +798,10 @@ def main():
     args = p.parse_args()
 
     _smr_utils.manifest_path = args.manifest_path
-    _smr_utils.ncbi_ref_path = args.gene_annotation or None
+    gene_annotation = Path(args.gene_annotation) if args.gene_annotation else None
+    if gene_annotation is not None and args.repo_root and not gene_annotation.is_absolute():
+        gene_annotation = Path(args.repo_root) / gene_annotation
+    _smr_utils.ncbi_ref_path = str(gene_annotation) if gene_annotation is not None else None
     if args.repo_root:
         _smr_utils.base_dir = args.repo_root
 
