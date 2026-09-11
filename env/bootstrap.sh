@@ -120,8 +120,11 @@ if ! command -v java >/dev/null 2>&1; then
     exit 1
 fi
 
-nxf_version_line="$(grep 'nextflowVersion' "${repo_root}/nextflow.config")"
-nxf_version="$(grep -oE '[0-9]+\.[0-9]+\.[0-9]+' <<< "${nxf_version_line}")"
+nxf_version="$(grep 'nextflowVersion' "${repo_root}/nextflow.config" 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)"
+if [[ -z "${nxf_version}" ]]; then
+    echo "[error] could not find a nextflowVersion in ${repo_root}/nextflow.config." >&2
+    exit 1
+fi
 nxf_dir="${repo_root}/env/bin"
 
 if [[ ! -x "${nxf_dir}/nextflow" ]]; then

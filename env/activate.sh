@@ -34,8 +34,12 @@ source "${venv}/bin/activate"
 export DRUGMR_ROOT="${repo_root}"
 export PATH="${nxf_dir}:${PATH}"
 
-nxf_version_line="$(grep 'nextflowVersion' "${repo_root}/nextflow.config")"
-export NXF_VER="$(grep -oE '[0-9]+\.[0-9]+\.[0-9]+' <<< "${nxf_version_line}")"
+NXF_VER="$(grep 'nextflowVersion' "${repo_root}/nextflow.config" 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)"
+if [[ -z "${NXF_VER}" ]]; then
+    echo "[error] could not find a nextflowVersion in ${repo_root}/nextflow.config." >&2
+    return 1 2>/dev/null || exit 1
+fi
+export NXF_VER
 
 # Nextflow needs java on PATH, and unlike the venv/nextflow launcher itself,
 # a `module load` from bootstrap.sh doesn't carry over into a new login
