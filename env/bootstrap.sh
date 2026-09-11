@@ -108,7 +108,10 @@ fi
 # cluster. nextflow.config's manifest is the single source of truth for
 # which version.
 if ! command -v java >/dev/null 2>&1 && type module >/dev/null 2>&1; then
-    java_module="$(module -t avail 2>&1 | awk '/(^|\/)Java\//{print $1; exit}')"
+    # Nextflow needs Java 17+ - take the lowest version that still clears
+    # that bar, not just whatever module lists first (often a stale Java 11)
+    # and not the cluster's newest default either (often too new to trust).
+    java_module="$(module -t avail 2>&1 | awk -F/ '/(^|\/)Java\// && $2+0 >= 17 {print; exit}')"
     [[ -n "${java_module}" ]] && module load "${java_module}" >/dev/null 2>&1
 fi
 
