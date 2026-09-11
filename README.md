@@ -20,8 +20,9 @@ drugMR takes an outcome GWAS and a panel of protein QTLs and returns a ranked, s
 1. Install [`Nextflow`](https://www.nextflow.io/) (`>=26.04.0`)
 2. Install any of [`Docker`](https://docs.docker.com/engine/install/), [`Apptainer`](https://apptainer.org/) or [`Singularity`](https://sylabs.io/singularity/)
 3. Install [`PostgreSQL`](https://www.postgresql.org/download/) (`>=16.0`)
-4. Install the `drugmr` Python package, needed for the Python orchestrator and the dashboard: `pip install -e .`
-5. For remote result retrieval with `dm.hpc()` or `dm.fetch_run()`, install `rsync` on both the local machine and the remote cluster.
+4. Download reference data from [`Zenodo`](https://doi.org/10.5281/zenodo.22706705)
+5. Install the `drugmr` Python package, needed for the Python orchestrator and the dashboard: `pip install -e .`
+6. For remote result retrieval with `dm.hpc()` or `dm.fetch_run()`, install `rsync` on both the local machine and the remote cluster.
 
 ```bash
 git clone --recurse-submodules https://github.com/guillermocomesanacimadevila/drugMR.git
@@ -41,7 +42,10 @@ sumstats: dat/gwas/AD_bellenguez.tsv
 n_cases: 39106
 n_controls: 401577
 pqtl_dataset: ukb_ppp
-ref_bfile: dat/ref/1000G_EUR_Phase3_plink/1000G.EUR.QC.ALL
+reference_data:
+  ref_bfile: dat/ref/1000G_EUR_Phase3_plink/1000G.EUR.QC.ALL
+  liftover_dir: dat/ref/liftover
+  gene_annotation: dat/ref/NCBI/NCBI_genes_grch38_with_synonyms.tsv
 snp_col: SNP
 a1_col: A1
 a2_col: A2
