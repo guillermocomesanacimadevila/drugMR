@@ -1,15 +1,15 @@
 .wy-side-nav-search {
-    background-color: #0f7a4f;
+    background-color: #24b064;
 }
 
 .wy-nav-top {
-    background-color: #0f7a4f;
+    background-color: #24b064;
 }
 
 .wy-menu-vertical a:hover {
-    background-color: #17965f;
+    background-color: #24b064;
 }
 
 .wy-menu-vertical li.current a {
-    border-right: 3px solid #17965f;
+    border-right: 3px solid #24b064;
 }
