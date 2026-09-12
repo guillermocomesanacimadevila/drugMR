@@ -19,7 +19,7 @@
 [![drugMR analysis pipeline](nf-metro-v2.png)](nf-metro-static.svg)
 
 1. Quality-control the outcome GWAS and extract the cis region for each protein.
-2. Run cis-MR using the selected pQTL panel.
+2. Run cis-MR using the selected pQTL panel (this can take a while!).
 3. Run pairwise COLOC and conditional PWCoCo between the pQTL and outcome GWAS.
 4. Screen supported targets across FinnGen and UK Biobank for safety and repurposing signals.
 5. Triangulate targets with bulk and single-cell QTL data using SMR and HEIDI.

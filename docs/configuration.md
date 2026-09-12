@@ -177,6 +177,28 @@ If no complete SMR triples are found, drugMR reads the registered Parquet, CSV, 
 
 `synthesis/` contains reusable intermediate data that is expensive to create but is not part of one portable run. `synthesis/qtl_esd/` is the temporary and restartable workspace used while tabular QTL files are converted to ESD, FLIST, and BESD form. Completed `.besd`, `.esi`, and `.epi` triples are moved beside the manifest source, so later outcomes can discover and reuse them. `synthesis/SMR/` stores reusable SMR calculations by QTL dataset and outcome. Other subdirectories hold derived target summaries and manifests used across stages.
 
+For example, consider one SCZ run using the `wingo_brain` pQTL panel and MetaBrain as a bulk QTL dataset. The MetaBrain SMR calculation compares the SCZ outcome GWAS with MetaBrain. It does not depend on the `wingo_brain` pQTL panel. If a later run uses the same SCZ outcome with the `ukb_ppp` pQTL panel and MetaBrain again, the SCZ and MetaBrain SMR calculation is unchanged. drugMR keeps that completed calculation under `synthesis/SMR/` and reuses it instead of running the same chromosome level SMR analysis again. A different outcome GWAS or a different QTL dataset requires a different SMR calculation.
+
+```text
+Run 1
+params/SCZ.wingo_brain.yaml
+outcome: SCZ
+pQTL panel: wingo_brain
+bulk QTL dataset: metabrain
+
+Run 2
+params/SCZ.ukb_ppp.yaml
+outcome: SCZ
+pQTL panel: ukb_ppp
+bulk QTL dataset: metabrain
+
+Shared reusable calculation
+SCZ outcome GWAS + MetaBrain QTL
+synthesis/SMR/bulk/MetaBrain/<SCZ MetaBrain SMR output>
+
+Run 2 finds the completed SCZ + MetaBrain calculation and reuses it.
+```
+
 Do not treat `synthesis/` as the final results directory. Final run outputs are copied to `runs/<run_id>/results/`. Do not routinely delete `synthesis/` between runs because doing so can force expensive conversion or SMR work to run again. It can be rebuilt from the registered inputs, but only if those inputs remain available and their destination directories are writable.
 
 ## Validate the configuration
