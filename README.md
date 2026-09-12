@@ -18,7 +18,7 @@ drugMR takes an outcome GWAS and a panel of protein QTLs and returns a ranked, s
 
 ## Workflow
 
-[![drugMR analysis pipeline](docs/nf-metro.png)](docs/nf-metro-static.svg)
+[![drugMR analysis pipeline](docs/nf-metro-v2.png)](docs/nf-metro-static.svg)
 
 ## Quick start
 
