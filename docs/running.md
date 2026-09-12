@@ -51,6 +51,17 @@ Docker must be running on the machine that calls `dm.results()` because it start
 
 This example runs Nextflow on HPC and runs the dashboard on a local computer. Keep a complete clone of the repository on both machines.
 
+SLURM and Nextflow control different levels of the run. SLURM allocates cluster resources. Nextflow decides where each pipeline process is executed. The `falcon` profile selects the SLURM executor and Apptainer. The `local` profile selects the local Nextflow executor. Here, local means inside the machine or allocation where the Nextflow controller is already running. It does not mean your laptop.
+
+Use `falcon` when Nextflow starts outside an allocation and should submit each process to SLURM. Use `falcon,local` when `sbatch` has already created an allocation for the whole workflow. In that second arrangement, the `falcon` part still supplies the Falcon and Apptainer settings, while the final `local` part stops Nextflow from submitting another SLURM job from inside the first SLURM job.
+
+| How Nextflow is started | Profile | What happens |
+| --- | --- | --- |
+| Directly on a permitted login or workflow node | `falcon` | Each Nextflow process becomes a separate SLURM job with its own requested resources. |
+| Through `sbatch run_drugmr.sbatch` | `falcon,local` | The controller and all processes run inside the resources requested by that one allocation. |
+
+The second mode is useful on clusters with a one node per user policy because nested jobs can remain pending while the controller holds the permitted node. Its tradeoff is that the single `sbatch` request must provide enough CPUs, memory, and time for the largest process that will run inside it.
+
 ### Option 1: Nextflow submits each task to SLURM
 
 Run this from an HPC login node or workflow node when cluster policy permits a persistent Nextflow controller:

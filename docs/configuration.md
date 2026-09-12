@@ -11,7 +11,7 @@ params/SCZ.wingo.yaml     = SCZ outcome GWAS + wingo_brain pQTL panel
 
 Run each pair with its own `nextflow run` command. drugMR rejects a params file containing more than one input pair because the run ID, results, provenance, and dashboard record must all refer to one unambiguous analysis.
 
-## Params file
+## Params file and analysis gates
 
 Start from an existing file under `params/` and change the outcome, pQTL dataset, paths, column names, and optional downstream datasets.
 
@@ -54,6 +54,45 @@ The outcome GWAS is read as a tab separated summary statistics file. Its column 
 
 The params file is validated against `params/schema.json` when Nextflow starts.
 
+The `gates` block records the statistical decisions used by the run. Keep it in the params file so the thresholds are copied into `params.lock.yaml` and remain attached to the results. `cis_mr` controls instrument selection, F statistics, Steiger filtering, the Wald and IVW FDR thresholds, and the heterogeneity tests. `coloc` controls the coloc priors and the minimum PP4. `smr` controls SNP selection for SMR and HEIDI, then the final SMR FDR and HEIDI thresholds. `hyprcoloc` controls the priors and sensitivity grid. `pwcoco` controls the conditional colocalisation PP4 threshold. `phewas` controls the Bonferroni alpha used for the safety screen.
+
+```yaml
+gates:
+  cis_mr:
+    wald_fdr_q: 0.05
+    ivw_fdr_q: 0.05
+    cochran_q_pval: 0.05
+    egger_intercept_pval_min: 0
+    min_instruments_for_ivw: 3
+    apply_steiger_filter: true
+    clump_kb: 10000
+    clump_r2: 0.001
+    instrument_pval_threshold: 5.0e-8
+    min_f_stat: 10
+  coloc:
+    pp4_threshold: 0.7
+    p1: 1.0e-4
+    p2: 1.0e-4
+    p12: 1.0e-5
+  smr:
+    p_qtl_smr: 5.0e-8
+    p_qtl_heidi: 1.57e-3
+    p_smr_threshold: 0.05
+    p_heidi_threshold: 0.01
+  hyprcoloc:
+    prior_1: 1.0e-4
+    prior_c: [0.05, 0.02, 0.01, 0.005]
+    reg_thresh: [0.5, 0.6, 0.7]
+    align_thresh: [0.5, 0.6, 0.7]
+    equal_thresholds: true
+  pwcoco:
+    pp4_threshold: 0.7
+  phewas:
+    bonferroni_alpha: 0.05
+```
+
+These values affect which targets proceed. Changing a gate and running with `-resume` invalidates tasks whose commands contain that value while allowing unrelated completed tasks to remain cached.
+
 ## The QTL manifest
 
 `assets/qtl_manifest.csv` is the dataset registry. It keeps dataset specific paths and column names out of the analysis code.
@@ -67,6 +106,24 @@ The params values `pqtl_dataset`, `bulk_qtl_datasets`, and `sc_qtl_dataset` refe
 5. How its SNP, allele, effect, standard error, p value, chromosome, position, and frequency columns are named.
 6. Whether several rows belong to one parent collection, such as the tissues in `gtex_v10`.
 
+Dataset matching is case insensitive. `metabrain`, `MetaBrain`, and `METABRAIN` resolve to the same `dataset` value. Parent matching is also case insensitive. Use one consistent lowercase spelling in new params files and manifest rows because that keeps run IDs and output directory names predictable.
+
+`pqtl_dataset` must resolve to one pQTL dataset row. `sc_qtl_dataset` must resolve to one dataset row, which may use a wildcard to cover several cell type files. Each value in `bulk_qtl_datasets` may resolve in either of two ways. It can match one dataset row such as `metabrain`, or it can match a shared `parent_dataset` value such as `gtex_v10`.
+
+For a grouped resource, give every tissue its own unique `dataset` value and give every row the same `parent_dataset`. Then place the parent name in `bulk_qtl_datasets`:
+
+```yaml
+bulk_qtl_datasets: [metabrain, gtex_v10]
+```
+
+```text
+dataset,path,...,parent_dataset
+gtex_brain_amygdala_v10,../../data/eQTL/bulk-eQTL/GTEx_v10/Brain_Amygdala/Brain_Amygdala.parquet,...,gtex_v10
+gtex_brain_cortex_v10,../../data/eQTL/bulk-eQTL/GTEx_v10/Brain_Cortex/Brain_Cortex.parquet,...,gtex_v10
+```
+
+Selecting `gtex_v10` runs the registered tissues as one bulk QTL collection. Selecting `gtex_brain_amygdala_v10` addresses that individual manifest row instead.
+
 A simplified manifest looks like this:
 
 ```text
@@ -79,8 +136,6 @@ singlebrain,../../data/eQTL/sc-eQTL/SingleBrain/*.parquet,GENE,eqtl,GRCh38,N,983
 
 Paths may name one file or use a wildcard to register many files. They may be repository relative or absolute. On Linux, path case matters. `data/GWAS` and `data/gwas` are different directories.
 
-## Supported QTL inputs
-
 Raw QTL summary statistics can be supplied as:
 
 1. Parquet files ending in `.parquet`.
@@ -89,8 +144,6 @@ Raw QTL summary statistics can be supplied as:
 4. Tab separated text files ending in `.txt`.
 
 The source format and original column names do not change the downstream analysis. The manifest normalises each dataset to the columns used by drugMR.
-
-## Existing SMR files
 
 drugMR can use a QTL dataset that is already in SMR format. A complete SMR dataset prefix contains:
 
@@ -120,7 +173,13 @@ drugMR searches this location recursively and reuses every complete triple. An i
 
 If no complete SMR triples are found, drugMR reads the registered Parquet, CSV, TSV, or TXT source, converts it chromosome by chromosome in `synthesis/qtl_esd/`, and moves the completed triples into a dataset specific directory beside the declared source. The source location must be writable when this conversion is required.
 
-## Check paths before a run
+## The synthesis workspace
+
+`synthesis/` contains reusable intermediate data that is expensive to create but is not part of one portable run. `synthesis/qtl_esd/` is the temporary and restartable workspace used while tabular QTL files are converted to ESD, FLIST, and BESD form. Completed `.besd`, `.esi`, and `.epi` triples are moved beside the manifest source, so later outcomes can discover and reuse them. `synthesis/SMR/` stores reusable SMR calculations by QTL dataset and outcome. Other subdirectories hold derived target summaries and manifests used across stages.
+
+Do not treat `synthesis/` as the final results directory. Final run outputs are copied to `runs/<run_id>/results/`. Do not routinely delete `synthesis/` between runs because doing so can force expensive conversion or SMR work to run again. It can be rebuilt from the registered inputs, but only if those inputs remain available and their destination directories are writable.
+
+## Validate the configuration
 
 Run path checks from the repository root because relative paths are resolved from there:
 

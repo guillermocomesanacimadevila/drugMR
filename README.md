@@ -32,6 +32,7 @@ drugMR takes an outcome GWAS and a panel of protein QTLs and returns a ranked, s
 ```bash
 git clone --recurse-submodules https://github.com/guillermocomesanacimadevila/drugMR.git
 cd drugMR
+wget -c -O ref.zip "https://zenodo.org/records/22706705/files/ref.zip?download=1" && unzip ref.zip -d ref && rm ref.zip
 ./env/bootstrap.sh       # first clone only, or after dependency changes
 source env/activate.sh   # every new login or shell
 

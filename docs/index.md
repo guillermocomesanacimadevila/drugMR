@@ -12,6 +12,7 @@
 - [Results and dashboard](results-dashboard.md): fetch completed runs, load PostgreSQL, and explore the Streamlit dashboard.
 - [Output schema](RESULTS_SCHEMA.md): column reference for every results TSV.
 - [Troubleshooting](troubleshooting.md): diagnose SLURM, memory, paths, containers, and interrupted runs.
+- [Reach out](reach-out.md): contact Guillermo or Valentina for technical and scientific questions.
 
 ## Workflow
 
@@ -27,13 +28,12 @@
 
 ## Choose where each part runs
 
-**drugMR** can run across different compute environments using Nextflow profiles, including locally or on HPC. The results dashboard runs on whichever machine calls `dm.results()`.
+**drugMR** can run across different compute environments using Nextflow profiles, including locally or on HPC. The results dashboard runs on a machine with Docker Compose, normally the local computer.
 
 | Situation | What to do |
 | --- | --- |
 | Pipeline and dashboard on one machine | Run Nextflow, then pass the run's `params.lock.yaml` to `dm.results()`. |
-| Pipeline on HPC, dashboard on your computer | Run Nextflow on HPC, assign the value returned by `dm.fetch_run()` to `config`, then call `dm.results(config=config)` locally. |
-| Pipeline and dashboard on HPC | Pass the run's `params.lock.yaml` to `dm.results()` on HPC; use SSH port forwarding to view Streamlit. |
+| Pipeline on HPC, dashboard on your computer | Run Nextflow on HPC, fetch the completed run with `dm.fetch_run()`, then call `dm.results(config=config)` locally with Docker running. |
 
 ```{note}
 `dm.fetch_run()` is only needed when the Nextflow run is on a remote HPC or cloud machine and the dashboard will run elsewhere. It transfers the run's locked parameter snapshot along with its results.
@@ -59,4 +59,5 @@ running
 results-dashboard
 RESULTS_SCHEMA
 troubleshooting
+reach-out
 ```
