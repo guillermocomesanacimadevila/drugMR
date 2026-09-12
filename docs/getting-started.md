@@ -1,6 +1,6 @@
 # Install drugMR
 
-drugMR runs from a complete clone of this repository. The source repository is approximately 70 MB before reference data, QTL data, containers, work files, and results are added.
+drugMR runs from a complete clone of this repository. The source repository is approximately 70 MB before reference data (1.51 Gb unzipped), QTL data, containers, work files, and results are added.
 
 ## What you need
 
@@ -11,8 +11,6 @@ drugMR runs from a complete clone of this repository. The source repository is a
 5. One supported container runtime. The available profiles are Docker, Apptainer, Singularity, Podman, Shifter, and Charliecloud.
 6. Docker Compose and PostgreSQL 16 or newer on the machine that will run the dashboard.
 7. `rsync` on both machines when a completed run will be fetched from HPC.
-
-The bootstrap script creates the pinned Python environment and installs a compatible Nextflow release. Pipeline software is otherwise supplied by the selected container.
 
 ## Example: local installation
 

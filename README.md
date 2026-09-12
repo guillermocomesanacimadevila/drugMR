@@ -128,7 +128,7 @@ Gate thresholds live in the optional `gates` block of your params file. See [`do
 
 drugMR was written by:
 
-**Guillermo Comesaña Cimadevila**<sup>1,2</sup>, **Marie-Joe Dib**<sup>3</sup>, **Matthew Bracher-Smith**<sup>1</sup>, **Christian Pepler**<sup>2</sup>, **Dervis Salih**<sup>4</sup>, **Nicholas Bray**<sup>2</sup>, **Emily Simmonds**<sup>1</sup>, **Valentina Escott-Price**<sup>1,2</sup>
+**Guillermo Comesaña Cimadevila**<sup>1,2</sup>, **Marie-Joe Dib**<sup>3</sup>, **Matthew Bracher-Smith**<sup>1</sup>, **Dervis Salih**<sup>4</sup>, **Nicholas Bray**<sup>2</sup>, **Emily Simmonds**<sup>1</sup>, **Valentina Escott-Price**<sup>1,2</sup>
 
 <sup>1</sup> UK Dementia Research Institute at Cardiff University, Cardiff, UK
 <sup>2</sup> MRC Centre for Neuropsychiatric Genetics and Genomics, Cardiff University, Cardiff, UK

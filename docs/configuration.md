@@ -50,11 +50,16 @@ remove_mhc: true
 remove_apoe: false
 ```
 
-The outcome GWAS is read as a tab separated summary statistics file. Its column names are declared in the params file. The file can use any supported column names because drugMR maps them using `snp_col`, `a1_col`, `a2_col`, `beta_col`, `se_col`, `p_col`, `pos_col`, `chr_col`, and `af_col`.
+The outcome GWAS is read as a tab separated (`separator=\t`) summary statistics file. Its column names are declared in the params file. The file can use any supported column names because drugMR maps them using `snp_col`, `a1_col`, `a2_col`, `beta_col`, `se_col`, `p_col`, `pos_col`, `chr_col`, and `af_col`. The params file is validated against `params/schema.json` when Nextflow starts.
 
-The params file is validated against `params/schema.json` when Nextflow starts.
+The `gates` block records the statistical thresholds used by the run. Keep it in the params file, so the values are copied into `params.lock.yaml` and stay attached to the results.
 
-The `gates` block records the statistical decisions used by the run. Keep it in the params file so the thresholds are copied into `params.lock.yaml` and remain attached to the results. `cis_mr` controls instrument selection, F statistics, Steiger filtering, the Wald and IVW FDR thresholds, and the heterogeneity tests. `coloc` controls the coloc priors and the minimum PP4. `smr` controls SNP selection for SMR and HEIDI, then the final SMR FDR and HEIDI thresholds. `hyprcoloc` controls the priors and sensitivity grid. `pwcoco` controls the conditional colocalisation PP4 threshold. `phewas` controls the Bonferroni alpha used for the safety screen.
+- `cis_mr`: instrument selection, F statistic, Steiger filtering, Wald and IVW FDR thresholds, heterogeneity tests.
+- `coloc`: coloc priors and the minimum PP4.
+- `smr`: SNP selection for SMR and HEIDI, then the final SMR FDR and HEIDI thresholds.
+- `hyprcoloc`: priors and sensitivity grid.
+- `pwcoco`: conditional colocalisation PP4 threshold.
+- `phewas`: Bonferroni alpha for the safety screen.
 
 ```yaml
 gates:
@@ -97,7 +102,7 @@ These values affect which targets proceed. Changing a gate and running with `-re
 
 `assets/qtl_manifest.csv` is the dataset registry. It keeps dataset specific paths and column names out of the analysis code.
 
-The params values `pqtl_dataset`, `bulk_qtl_datasets`, and `sc_qtl_dataset` refer to IDs in the `dataset` column. The corresponding manifest row tells drugMR:
+The params values (within `params/*.yml`) `pqtl_dataset`, `bulk_qtl_datasets`, and `sc_qtl_dataset` refer to IDs in the `dataset` column. The corresponding manifest row tells drugMR:
 
 1. Where the files live.
 2. Whether the dataset is a pQTL or another QTL type.
@@ -175,9 +180,13 @@ If no complete SMR triples are found, drugMR reads the registered Parquet, CSV, 
 
 ## The synthesis workspace
 
-`synthesis/` contains reusable intermediate data that is expensive to create but is not part of one portable run. `synthesis/qtl_esd/` is the temporary and restartable workspace used while tabular QTL files are converted to ESD, FLIST, and BESD form. Completed `.besd`, `.esi`, and `.epi` triples are moved beside the manifest source, so later outcomes can discover and reuse them. `synthesis/SMR/` stores reusable SMR calculations by QTL dataset and outcome. Other subdirectories hold derived target summaries and manifests used across stages.
+`synthesis/` holds reusable intermediate data that is expensive to create but is not part of any one portable run.
 
-For example, consider one SCZ run using the `wingo_brain` pQTL panel and MetaBrain as a bulk QTL dataset. The MetaBrain SMR calculation compares the SCZ outcome GWAS with MetaBrain. It does not depend on the `wingo_brain` pQTL panel. If a later run uses the same SCZ outcome with the `ukb_ppp` pQTL panel and MetaBrain again, the SCZ and MetaBrain SMR calculation is unchanged. drugMR keeps that completed calculation under `synthesis/SMR/` and reuses it instead of running the same chromosome level SMR analysis again. A different outcome GWAS or a different QTL dataset requires a different SMR calculation.
+- `synthesis/qtl_esd/`: temporary, restartable workspace where tabular QTL files are converted to ESD, FLIST, and BESD form. Completed `.besd`, `.esi`, and `.epi` triples are moved beside the manifest source so later runs can reuse them.
+- `synthesis/SMR/`: reusable SMR calculations, stored by QTL dataset and outcome.
+- Other subdirectories hold derived target summaries and manifests shared across stages.
+
+For example, an SCZ run using the `wingo_brain` pQTL panel and MetaBrain as a bulk QTL dataset produces an SCZ and MetaBrain SMR calculation that does not depend on `wingo_brain`. A later SCZ run using `ukb_ppp` and MetaBrain again reuses that same calculation from `synthesis/SMR/`, instead of repeating the chromosome level SMR analysis. A different outcome GWAS or QTL dataset needs its own calculation.
 
 ```text
 Run 1

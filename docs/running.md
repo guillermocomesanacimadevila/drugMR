@@ -47,11 +47,11 @@ dm.results(
 
 Docker must be running on the machine that calls `dm.results()` because it starts PostgreSQL with Docker Compose.
 
-## Example: HPC
+## Example: HPC (on a SLURM cluster!)
 
 This example runs Nextflow on HPC and runs the dashboard on a local computer. Keep a complete clone of the repository on both machines.
 
-SLURM and Nextflow control different levels of the run. SLURM allocates cluster resources. Nextflow decides where each pipeline process is executed. The `falcon` profile selects the SLURM executor and Apptainer. The `local` profile selects the local Nextflow executor. Here, local means inside the machine or allocation where the Nextflow controller is already running. It does not mean your laptop.
+SLURM and Nextflow control different levels of the run. SLURM allocates cluster resources. Nextflow decides where each pipeline process is executed. The `falcon` profile for example, selects the SLURM executor and Apptainer. The `local` profile selects the local Nextflow executor. Here, local means inside the machine or allocation where the Nextflow controller is already running. It does not mean your laptop.
 
 Use `falcon` when Nextflow starts outside an allocation and should submit each process to SLURM. Use `falcon,local` when `sbatch` has already created an allocation for the whole workflow. In that second arrangement, the `falcon` part still supplies the Falcon and Apptainer settings, while the final `local` part stops Nextflow from submitting another SLURM job from inside the first SLURM job.
 
@@ -121,7 +121,7 @@ cd /shared/scratch/YOUR_PROJECT/pipelines
 sbatch run_drugmr.sbatch
 ```
 
-The profile order matters. `falcon,local` allows the Falcon settings and Apptainer configuration to load first, then makes each process run inside the existing allocation. Using `falcon` alone inside an `sbatch` job submits nested SLURM jobs.
+The profile order matters. `falcon,local` allows the Falcon settings and Apptainer configuration to load first, then makes each process run inside the existing allocation. Using `falcon` alone inside an `sbatch` job submits nested SLURM jobs. It could also be noted as `<profile>,local` instead of falcon if you're running drugMR on a non-SLURM cluster with different container software.
 
 Monitor the controller job:
 
@@ -196,7 +196,7 @@ import drugmr as dm
 config = dm.fetch_run(
     run_id="SCZ_wingo_brain_20260912_fe5675a",
     user="your_username",
-    host="login.your-cluster.ac.uk",
+    host="login.your-cluster.ac.uk", # without the @ (Do not include the @!)
     remote_root="/shared/scratch/YOUR_PROJECT/pipelines/drugMR/runs",
 )
 
