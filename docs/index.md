@@ -12,7 +12,7 @@
 - [Results and dashboard](results-dashboard.md): fetch completed runs, load PostgreSQL, and explore the Streamlit dashboard.
 - [Output schema](RESULTS_SCHEMA.md): column reference for every results TSV.
 - [Troubleshooting](troubleshooting.md): diagnose SLURM, memory, paths, containers, and interrupted runs.
-- [Reach out](reach-out.md): contact Guillermo or Valentina for technical and scientific questions.
+- [Reach out](reach-out.md): points of contact in case any issue arises.
 
 ## Workflow
 
