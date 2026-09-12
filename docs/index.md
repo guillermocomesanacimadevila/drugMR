@@ -15,9 +15,7 @@
 
 ## Workflow
 
-[![Animated drugMR analysis pipeline](nf-metro-animated.gif)](nf-metro-animated.svg)
-
-*The marker movement follows each analysis pathway. Select the diagram to open the full-resolution animated SVG.*
+![drugMR analysis pipeline](nf-metro.png)
 
 1. Quality-control the outcome GWAS and extract the cis region for each protein.
 2. Run cis-MR using the selected pQTL panel.

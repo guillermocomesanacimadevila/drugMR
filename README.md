@@ -18,9 +18,7 @@ drugMR takes an outcome GWAS and a panel of protein QTLs and returns a ranked, s
 
 ## Workflow
 
-[![Animated drugMR analysis pipeline](docs/nf-metro-animated.gif)](docs/nf-metro-animated.svg)
-
-*The marker movement follows each analysis pathway. Select the diagram to open the full-resolution animated SVG.*
+![drugMR analysis pipeline](docs/nf-metro.png)
 
 ## Quick start
 
