@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import argparse
+import json
 import os
 import subprocess
 import tempfile
@@ -712,10 +713,16 @@ GWAS_SIGNIFICANCE_P = 5e-8
 
 
 @st.cache_data(show_spinner=False)
-def load_regional_cis_data(pqtl_dataset: str, protein: str):
+def load_regional_cis_data(pqtl_dataset: str, protein: str, run_id: str | None = None):
     """Full regional pQTL + GWAS summary stats for 1 target's cis window."""
     project_dir = Path(__file__).resolve().parent.parent
-    cis_dir = project_dir / "dat" / "cis_regions" / pqtl_dataset / protein
+    cis_dir = None
+    if run_id:
+        bundled_dir = project_dir / paths.run_results_dir(run_id) / "locus_data" / protein
+        if bundled_dir.is_dir():
+            cis_dir = bundled_dir
+    if cis_dir is None:
+        cis_dir = project_dir / "dat" / "cis_regions" / pqtl_dataset / protein
     pqtl_file = cis_dir / "pqtl.parquet"
     gwas_file = cis_dir / "gwas.parquet"
 
@@ -874,6 +881,29 @@ def load_regional_ld(candidate_snp: str, chrom, window_kb: int = 5000):
         if "snp_b" not in ld.columns or "r2" not in ld.columns:
             return pd.DataFrame()
         return ld[["snp_b", "r2"]].rename(columns={"snp_b": "snp"})
+
+
+@st.cache_data(show_spinner=False)
+def load_bundled_regional_ld(run_id: str | None, protein: str, candidate_snp: str) -> pd.DataFrame:
+    """Load LD packaged with a run, falling back to live PLINK in the caller."""
+    if not run_id:
+        return pd.DataFrame()
+    project_dir = Path(__file__).resolve().parent.parent
+    bundle_dir = project_dir / paths.run_results_dir(run_id) / "locus_data" / protein
+    ld_file = bundle_dir / "ld.parquet"
+    metadata_file = bundle_dir / "metadata.json"
+    if not ld_file.is_file():
+        return pd.DataFrame()
+    if metadata_file.is_file():
+        try:
+            metadata = json.loads(metadata_file.read_text())
+        except (json.JSONDecodeError, OSError):
+            return pd.DataFrame()
+        if str(metadata.get("candidate_snp")) != str(candidate_snp):
+            return pd.DataFrame()
+    ld = pl.read_parquet(ld_file).to_pandas()
+    ld.columns = ld.columns.str.lower()
+    return ld if {"snp", "r2"}.issubset(ld.columns) else pd.DataFrame()
 
 
 @st.cache_data(show_spinner=False)
@@ -1060,16 +1090,17 @@ def _regional_eqtl_options(smr_rows: pd.DataFrame):
     return options, default_label
 
 
-def render_regional_locus_plot(protein: str, pqtl_dataset: str, smr_rows: pd.DataFrame, hypr_rows: pd.DataFrame, key_prefix: str):
+def render_regional_locus_plot(protein: str, pqtl_dataset: str, smr_rows: pd.DataFrame, hypr_rows: pd.DataFrame, key_prefix: str, run_id: str | None = None):
     """Stacked regional association plot (GWAS + pQTL, optional eQTL, optional
     gene track) for 1 target - the visual counterpart to the PP.H4/H4 badges
     shown above it: do these signals actually overlap at this locus?"""
-    pqtl_df, gwas_df = load_regional_cis_data(pqtl_dataset, protein)
+    pqtl_df, gwas_df = load_regional_cis_data(pqtl_dataset, protein, run_id=run_id)
 
     if pqtl_df.empty or gwas_df.empty:
         st.info(
             "No regional cis-window summary statistics found on disk for this target. "
-            "The plot needs `dat/cis_regions/.../{pqtl,gwas}.parquet`, produced alongside PWCoCo."
+            "The plot needs a fetched run's `results/locus_data/...` bundle or local "
+            "`dat/cis_regions/.../{pqtl,gwas}.parquet` files."
         )
         return
 
@@ -1180,8 +1211,8 @@ def render_regional_locus_plot(protein: str, pqtl_dataset: str, smr_rows: pd.Dat
     # r² against the candidate SNP, from the pipeline's own 1000G EUR reference -
     # graceful no-op (flat single colour per track) if plink/the reference panel
     # is unavailable, or the candidate itself isn't in the panel
-    ld_df = pd.DataFrame()
-    if candidate_chr is not None:
+    ld_df = load_bundled_regional_ld(run_id, protein, candidate_snp)
+    if ld_df.empty and candidate_chr is not None:
         ld_df = load_regional_ld(candidate_snp, candidate_chr)
     ld_available = not ld_df.empty
 
@@ -1858,6 +1889,7 @@ def render_phewas_section(
 def render_target_profile(
     protein: str,
     pqtl_dataset: str,
+    run_id: str | None,
     mr_outcome: pd.DataFrame,
     mr_pass_proteins: set,
     coloc_outcome: pd.DataFrame,
@@ -1983,6 +2015,7 @@ def render_target_profile(
             smr_rows=smr_rows,
             hypr_rows=hypr_rows,
             key_prefix="target_profile",
+            run_id=run_id,
         )
 
     # --- Stage 3 / 4: phenome-wide MR (FinnGen primary, UKB fallback) ---
@@ -3406,6 +3439,7 @@ def dashboard(
             render_target_profile(
                 protein=selected_target,
                 pqtl_dataset=pqtl_dataset,
+                run_id=run_id,
                 mr_outcome=mr_outcome,
                 mr_pass_proteins=mr_pass_proteins_for_profile,
                 coloc_outcome=coloc_outcome,

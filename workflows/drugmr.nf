@@ -7,6 +7,7 @@ include { MR_ON_CIS_REGIONS } from '../subworkflows/cis_mr/main.nf'
 include { COLOC } from '../subworkflows/pairwise_coloc/main.nf'
 include { PWCOCO_WF } from '../subworkflows/pwcoco/main.nf'
 include { TARGET_HITS } from '../subworkflows/target_hits/main.nf'
+include { LOCUS_ASSETS_WF } from '../subworkflows/locus_assets/main.nf'
 include { SMR } from '../subworkflows/smr/main.nf'
 include { PWCOCO_QTL_WF } from '../subworkflows/pwcoco_qtl/main.nf'
 include { HYPRCOLOC_WF } from '../subworkflows/hyprcoloc/main.nf'
@@ -30,6 +31,7 @@ workflow DRUGMR {
     COLOC(MR_ON_CIS_REGIONS.out.mr_results, PREP_CIS_REGIONS.out.protein_dirs)
     PWCOCO_WF(MR_ON_CIS_REGIONS.out.mr_results, PREP_CIS_REGIONS.out.protein_dirs)
     TARGET_HITS(COLOC.out.coloc_results, PWCOCO_WF.out.pwcoco_results, PREP_CIS_REGIONS.out.protein_dirs)
+    LOCUS_ASSETS_WF(TARGET_HITS.out.target_stats, PREP_CIS_REGIONS.out.protein_dirs)
     SMR(QC_GWAS.out.qc_tsv, MR_ON_CIS_REGIONS.out.mr_results, COLOC.out.coloc_results, PWCOCO_WF.out.pwcoco_results)
     PWCOCO_QTL_WF(SMR.out.smr_final_targets, PWCOCO_WF.out.pwcoco_results, PREP_CIS_REGIONS.out.protein_dirs)
     HYPRCOLOC_WF(SMR.out.smr_final_targets, PREP_CIS_REGIONS.out.protein_dirs)

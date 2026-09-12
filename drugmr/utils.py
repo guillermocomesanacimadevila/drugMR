@@ -1,8 +1,10 @@
 import subprocess
+import tempfile
 from pathlib import Path
 
 import liftover
 import numpy as np
+import pandas as pd
 import polars as pl
 
 # generic 3+ trait SNP matcher for multi-trait coloc-style analyses (HyPrColoc,
@@ -92,6 +94,61 @@ def impute_ld_matrix(snps, out_prefix, ref_bfile):
     with open(f"{out_prefix}.snplist") as f:
         snp_order = [line.strip() for line in f]
     return ld, snp_order
+
+
+def compute_ld_to_lead(ref_bfile, lead_snp, chromosome, out_file, window_kb: int = 5000):
+    """Write the one-to-many LD vector used by a regional association plot."""
+
+    ref_bfile = Path(ref_bfile)
+    out_file = Path(out_file)
+    missing = [
+        Path(f"{ref_bfile}.{suffix}")
+        for suffix in ("bed", "bim", "fam")
+        if not Path(f"{ref_bfile}.{suffix}").is_file()
+    ]
+    if missing:
+        raise FileNotFoundError(
+            "Missing PLINK reference file(s): " + ", ".join(str(path) for path in missing)
+        )
+
+    try:
+        chromosome = int(str(chromosome).removeprefix("chr"))
+    except ValueError as error:
+        raise ValueError(f"Invalid chromosome for LD calculation: {chromosome!r}") from error
+
+    out_file.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="drugmr_ld_") as temp_dir:
+        out_prefix = Path(temp_dir) / "ld"
+        cmd = [
+            "plink", "--bfile", str(ref_bfile),
+            "--chr", str(chromosome),
+            "--r2", "--ld-snp", str(lead_snp),
+            "--ld-window-kb", str(window_kb),
+            "--ld-window", "999999",
+            "--ld-window-r2", "0",
+            "--out", str(out_prefix),
+        ]
+        try:
+            subprocess.run(cmd, check=True, capture_output=True, text=True)
+        except FileNotFoundError as error:
+            raise RuntimeError("PLINK is not installed or is not available on PATH") from error
+        except subprocess.CalledProcessError as error:
+            raise RuntimeError(
+                f"PLINK LD calculation failed for {lead_snp}: {error.stderr.strip()}"
+            ) from error
+
+        ld_path = out_prefix.with_suffix(".ld")
+        if not ld_path.is_file() or ld_path.stat().st_size == 0:
+            raise RuntimeError(f"PLINK produced no LD output for {lead_snp}")
+
+        ld = pd.read_csv(ld_path, sep=r"\s+")
+        if not {"SNP_B", "R2"}.issubset(ld.columns):
+            raise RuntimeError(
+                f"Unexpected PLINK LD columns for {lead_snp}: {', '.join(ld.columns)}"
+            )
+        result = pl.from_pandas(ld[["SNP_B", "R2"]]).rename({"SNP_B": "SNP"})
+        result.write_parquet(out_file)
+        return result
 
 
 # canonical cis-MR pass/fail rule - shared by standard COLOC's own protein

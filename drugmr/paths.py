@@ -1,7 +1,5 @@
 from pathlib import Path
 
-
-
 DEFAULT_QTL_MANIFEST_PATH = "assets/qtl_manifest.csv"
 
 
