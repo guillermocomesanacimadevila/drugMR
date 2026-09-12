@@ -69,7 +69,7 @@ The params values `pqtl_dataset`, `bulk_qtl_datasets`, and `sc_qtl_dataset` refe
 
 A simplified manifest looks like this:
 
-```csv
+```text
 dataset,path,key_col,qtl_type,build,n_col,sample_size,snp_col,a1_col,a2_col,beta_col,se_col,p_col,chr_col,pos_col,eaf_col,parent_dataset
 wingo_brain,../../data/pQTL/mass-spec/wingo_brain/*.parquet,,pqtl,GRCh38,,1013,SNP,A1,A2,BETA,SE,P,CHR,BP,FRQ,
 metabrain,../../data/eQTL/bulk-eQTL/MetaBrain/BrainMeta_cis_eQTL.parquet,Gene,eqtl,GRCh37,N,2865,SNP,A1,A2,b,SE,p,Chr,BP,Freq,
