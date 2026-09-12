@@ -16,6 +16,12 @@
 
 drugMR takes an outcome GWAS and a panel of protein QTLs and returns a ranked, safety screened shortlist of druggable targets, end to end with no manual steps between stages: Mendelian randomisation, colocalisation, SMR, HyPrColoc, then a phenome wide PheWAS safety screen. It runs via a Nextflow pipeline or a Python orchestrator, against any outcome GWAS and any pQTL cohort registered in its dataset manifest. The downstream SMR, PWCoCo and HyPrColoc stages run against bulk or single cell QTL panels of any type, eQTL, sQTL, mQTL or otherwise, for genuine multi-omics triangulation.
 
+## Workflow
+
+[![Animated drugMR analysis pipeline](docs/nf-metro-animated.gif)](docs/nf-metro-animated.svg)
+
+*The marker movement follows each analysis pathway. Select the diagram to open the full-resolution animated SVG.*
+
 ## Quick start
 
 1. Install Java (required by Nextflow; on HPC, whatever `module load java` or equivalent provides is fine)

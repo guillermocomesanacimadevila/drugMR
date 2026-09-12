@@ -2,9 +2,7 @@
 
 ## Overview
 
-**drugMR** is a multi-omics pipeline for genetically anchored drug target discovery. It takes an outcome GWAS and a panel of protein QTLs and produces a ranked, safety-screened shortlist of druggable targets.
-
-The pipeline is built using [Nextflow](https://www.nextflow.io), a workflow tool to run tasks across multiple compute infrastructures in a portable manner. It uses Docker/Apptainer/Singularity containers for reproducible execution, and connects Mendelian randomisation, colocalisation, SMR and HEIDI, PWCoCo, HyPrColoc, and phenome-wide safety screening into a single reproducible run.
+**drugMR** is a multi-omics pipeline for genetically anchored drug target discovery. It takes an outcome GWAS and a panel of protein QTLs and produces a ranked, safety-screened shortlist of druggable targets. The pipeline is built using [Nextflow](https://www.nextflow.io) DSL2, and leverages Docker/Apptainer/Singularity containers for reproducible execution, and connects cis-Mendelian randomisation, colocalisation, xQTL triangulation via SMR and HEIDI, PWCoCo, HyPrColoc, and phenome-wide safety screening into a single reproducible run.
 
 ## Documentation
 
@@ -17,17 +15,21 @@ The pipeline is built using [Nextflow](https://www.nextflow.io), a workflow tool
 
 ## Workflow
 
-![drugMR analysis pipeline](pipeline.png)
+[![Animated drugMR analysis pipeline](nf-metro-animated.gif)](nf-metro-animated.svg)
 
-1. Quality-control the outcome GWAS and extract cis regions.
-2. Run cis-MR and pairwise colocalisation against the selected pQTL panel.
-3. Triangulate promising targets with registered bulk and single-cell QTL datasets.
-4. Run PheWAS safety screens using FinnGen and UK Biobank data.
-5. Load a completed run into PostgreSQL and explore it in the Streamlit dashboard.
+*The marker movement follows each analysis pathway. Select the diagram to open the full-resolution animated SVG.*
+
+1. Quality-control the outcome GWAS and extract the cis region for each protein.
+2. Run cis-MR using the selected pQTL panel.
+3. Run pairwise COLOC and conditional PWCoCo between the pQTL and outcome GWAS.
+4. Screen supported targets across FinnGen and UK Biobank for safety and repurposing signals.
+5. Triangulate targets with bulk and single-cell QTL data using SMR and HEIDI.
+6. Run QTL PWCoCo and HyPrColoc across the pQTL, QTL and outcome GWAS signals.
+7. Save the completed run under `runs/<run_id>/`, then load it into PostgreSQL and explore it in the Streamlit dashboard.
 
 ## Choose where each part runs
 
-The computational pipeline can run locally or through SLURM. The results dashboard runs on whichever machine calls `dm.results()`.
+**drugMR** can run across different compute environments using Nextflow profiles, including locally or on HPC. The results dashboard runs on whichever machine calls `dm.results()`.
 
 | Situation | What to do |
 | --- | --- |
