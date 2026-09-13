@@ -21,13 +21,15 @@ process HYPRCOLOC {
     tuple val(meta), val(qtl_dataset), path(smr_final_targets, stageAs: "smr/final_multi_omics_targets.tsv"), path(protein_dirs, stageAs: "protein_dirs/*")
 
     output:
-    tuple val(meta), val(qtl_dataset), path("hyprcoloc/by_eqtl_source/${qtl_dataset}/hyprcoloc.tsv"), path("hyprcoloc/by_eqtl_source/*.pdf"), emit: hyprcoloc_results
+    tuple val(meta), val(qtl_dataset), path("hyprcoloc/by_eqtl_source/${qtl_dataset}/hyprcoloc.tsv"), emit: hyprcoloc_results
+    path("hyprcoloc/by_eqtl_source/*.pdf"), optional: true, emit: hyprcoloc_plots
 
     // --manifest_path is pinned explicitly here (belt and braces), since
     // hyprcoloc_targets.py also uses SMRUtils to load eQTL rows, same as
     // sort_smr.py - this happens to resolve to the same real file sort_smr.py
     // gets from its own default, just spelled out rather than relied upon.
     script:
+    def manifestPath = new File(params.manifest_path as String).isAbsolute() ? params.manifest_path : "${projectDir}/${params.manifest_path}"
     """
     export PYTHONPATH=${projectDir}
     python ${projectDir}/bin/hyprcoloc_targets.py \\
@@ -36,7 +38,7 @@ process HYPRCOLOC {
         --qtl_dataset ${qtl_dataset} \\
         --local_results_dir . \\
         --repo_root ${projectDir} \\
-        --manifest_path ${projectDir}/assets/qtl_manifest.csv \\
+        --manifest_path ${manifestPath} \\
         --prior_1 ${meta.gates.hyprcoloc.prior_1} \\
         --prior_c ${meta.gates.hyprcoloc.prior_c.join(',')} \\
         --reg_thresh ${meta.gates.hyprcoloc.reg_thresh.join(',')} \\

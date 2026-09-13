@@ -29,6 +29,7 @@ process SMR_BULK {
     // underlying script has a different or no useful default need to pin it
     // explicitly (see hyprcoloc.nf/pwcoco_qtl.nf).
     script:
+    def manifestPath = new File(params.manifest_path as String).isAbsolute() ? params.manifest_path : "${projectDir}/${params.manifest_path}"
     """
     export PYTHONPATH=${projectDir}
     export PYTHONUNBUFFERED=1
@@ -45,6 +46,7 @@ process SMR_BULK {
         --local_results_dir . \\
         --repo_root ${projectDir} \\
         --synthesis_dir ${projectDir}/synthesis \\
+        --manifest_path ${manifestPath} \\
         --coloc_file coloc/coloc.tsv \\
         --wald_fdr_q ${meta.gates.cis_mr.wald_fdr_q} \\
         --ivw_fdr_q ${meta.gates.cis_mr.ivw_fdr_q} \\
@@ -83,6 +85,7 @@ process SMR_SC {
     // underlying script has a different or no useful default need to pin it
     // explicitly (see hyprcoloc.nf/pwcoco_qtl.nf).
     script:
+    def manifestPath = new File(params.manifest_path as String).isAbsolute() ? params.manifest_path : "${projectDir}/${params.manifest_path}"
     """
     export PYTHONPATH=${projectDir}
     export PYTHONUNBUFFERED=1
@@ -99,6 +102,7 @@ process SMR_SC {
         --local_results_dir . \\
         --repo_root ${projectDir} \\
         --synthesis_dir ${projectDir}/synthesis \\
+        --manifest_path ${manifestPath} \\
         --coloc_file coloc/coloc.tsv \\
         --wald_fdr_q ${meta.gates.cis_mr.wald_fdr_q} \\
         --ivw_fdr_q ${meta.gates.cis_mr.ivw_fdr_q} \\

@@ -643,6 +643,24 @@ def ingest_bulk_smr(pqtl_dataset: str, qtl_dataset: str, pheno_id: str, local_re
         print(f"[TRACKING] Compiled promising target SMR results saved to {out_file}")
     else:
         print(f"[CONCERN] No pre-computed bulk SMR results found for the promising {pqtl_dataset} targets")
+        empty = read_smr_tsv(smr_files[0]).head(0)
+        rename_map = {}
+        if "index" in empty.columns and "Gene" not in empty.columns:
+            rename_map["index"] = "Gene"
+        if "p_SMR_FDR" in empty.columns and "q_SMR" not in empty.columns:
+            rename_map["p_SMR_FDR"] = "q_SMR"
+        if rename_map:
+            empty = empty.rename(rename_map)
+        empty = empty.with_columns(
+            pl.lit(None, dtype=pl.Utf8).alias("protein"),
+            pl.lit(None, dtype=pl.Utf8).alias("cell_type"),
+            pl.lit("bulk").alias("data_type"),
+            pl.lit(pheno_id).alias("phenotype"),
+            pl.lit(qtl_dataset).alias("qtl_dataset"),
+            pl.lit(pqtl_dataset).alias("pqtl_dataset"),
+            pl.lit(resolve_qtl_type(qtl_dataset)).alias("qtl_type"),
+        )
+        empty.write_csv(out_file, separator="\t")
 
 
 # match sql/schema.sql's smr_results column names - the SMR tool's own output
@@ -677,6 +695,10 @@ def filter_smr_targets(df: pl.DataFrame, qtl_dataset: str, p_smr_threshold: floa
 
     final_targets_df = (
         df
+        .with_columns(
+            pl.col("q_SMR").cast(pl.Float64, strict=False),
+            pl.col(heidi_col).cast(pl.Float64, strict=False),
+        )
         .filter(
             pl.col("q_SMR").is_not_null(),
             pl.col(heidi_col).is_not_null(),
@@ -760,7 +782,16 @@ def merge_multi_omics_targets_batch(pheno_id: str, pqtl_dataset: str, inputs: li
 
     if not filtered_frames:
         print(f"[CONCERN] No drug targets passed cis-MR (pQTLs) + COLOC + QTL SMR across any of {len(inputs)} QTL dataset(s)")
-        pl.DataFrame().write_csv(combined_file, separator="\t")
+        pl.DataFrame(schema={
+            "protein": pl.Utf8,
+            "cell_type": pl.Utf8,
+            "probe_id": pl.Utf8,
+            "data_type": pl.Utf8,
+            "qtl_type": pl.Utf8,
+            "qtl_dataset": pl.Utf8,
+            "q_SMR": pl.Float64,
+            "p_HEIDI": pl.Float64,
+        }).write_csv(combined_file, separator="\t")
         return []
 
     combined_df = pl.concat(filtered_frames, how="diagonal_relaxed")

@@ -125,6 +125,13 @@ def phewas_mr_on_ukbb(pqtl_dataset: str, pheno_id: str, local_results_dir: str =
     df_finngen_coverage = pl.read_csv(finngen_coverage_file, separator="\t")
     finngen_uncovered_targets = (
         df_finngen_coverage
+        .with_columns(
+            pl.col("finngen_covered")
+            .cast(pl.Utf8)
+            .str.to_lowercase()
+            .eq("true")
+            .alias("finngen_covered")
+        )
         .filter(~pl.col("finngen_covered"))
         .select(pl.col("protein").cast(pl.Utf8))
         .unique(maintain_order=True)

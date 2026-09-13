@@ -29,7 +29,7 @@ workflow HYPRCOLOC_WF {
 
 
     ch_merge_in = HYPRCOLOC.out.hyprcoloc_results
-        .map { meta, qtl_dataset, dataset_file, pdfs -> tuple([meta.pheno_id, meta.pqtl_dataset], meta, qtl_dataset, dataset_file) }
+        .map { meta, qtl_dataset, dataset_file -> tuple([meta.pheno_id, meta.pqtl_dataset], meta, qtl_dataset, dataset_file) }
         .groupTuple(by: 0)
         .map { key, metas, labels, files -> tuple(metas[0], labels, files) }
 

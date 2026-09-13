@@ -1,0 +1,66 @@
+pheno_id: TEST
+sumstats: tests/data/gwas.tsv
+n_cases: 500
+n_controls: 500
+genome_build: GRCh38
+target_build: GRCh38
+
+snp_col: SNP
+a1_col: A1
+a2_col: A2
+beta_col: BETA
+se_col: SE
+p_col: P
+pos_col: BP
+chr_col: CHR
+af_col: FRQ
+
+pqtl_dataset: test_pqtl
+
+reference_data:
+  ref_bfile: tests/data/reference/tiny
+  liftover_dir: tests/data/reference
+  gene_annotation: tests/data/genes.tsv
+
+run_smr: true
+bulk_qtl_datasets: [test_eqtl]
+sc_qtl_dataset: ""
+
+maf: 0.01
+overwrite: false
+remove_mhc: false
+remove_apoe: false
+
+gates:
+  cis_mr:
+    wald_fdr_q: 0
+    ivw_fdr_q: 0
+    cochran_q_pval: 0
+    egger_intercept_pval_min: 0
+    min_instruments_for_ivw: 3
+    apply_steiger_filter: false
+    clump_kb: 10000
+    clump_r2: 0.001
+    instrument_pval_threshold: 5e-8
+    min_f_stat: 10
+  coloc:
+    pp4_threshold: 0
+    p1: 1e-4
+    p2: 1e-4
+    p12: 1e-5
+  smr:
+    p_qtl_smr: 5e-8
+    p_qtl_heidi: 1.57e-3
+    p_smr_threshold: 1
+    p_heidi_threshold: 0
+  hyprcoloc:
+    prior_1: 1e-4
+    prior_c: [0.05]
+    reg_thresh: [0.5]
+    align_thresh: [0.5]
+    equal_thresholds: true
+  pwcoco:
+    pp4_threshold: 0
+  phewas:
+    bonferroni_alpha: 0.05
+    coloc_threshold: 1

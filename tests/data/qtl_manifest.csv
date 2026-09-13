@@ -1,0 +1,3 @@
+dataset,path,key_col,qtl_type,build,n_col,sample_size,snp_col,a1_col,a2_col,beta_col,se_col,p_col,chr_col,pos_col,eaf_col,parent_dataset
+test_pqtl,tests/data/pqtl/*.tsv,,pqtl,GRCh38,,1000,SNP,A1,A2,BETA,SE,P,CHR,BP,FRQ,
+test_eqtl,tests/data/eqtl/test_eqtl.1.tsv,Gene,eqtl,GRCh38,,500,SNP,A1,A2,BETA,SE,P,CHR,BP,FRQ,

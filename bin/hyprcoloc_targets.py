@@ -247,6 +247,17 @@ def hyprcoloc_targets(pqtl_dataset: str, pheno_id: str, qtl_dataset: str, local_
 
     if len(results) == 0:
         print(f"[CONCERN] No HyPrColoc results generated for any {qtl_dataset} target")
+        per_dataset_file = paths.hyprcoloc_dataset_out(
+            pqtl_dataset, qtl_dataset, pheno_id, local_results_dir
+        )
+        per_dataset_file.parent.mkdir(parents=True, exist_ok=True)
+        pl.DataFrame(schema={
+            "protein": pl.Utf8,
+            "qtl_dataset": pl.Utf8,
+            "cell_type": pl.Utf8,
+            "data_type": pl.Utf8,
+            "qtl_type": pl.Utf8,
+        }).write_csv(per_dataset_file, separator="\t")
         return
 
     dataset_results = pl.concat(results, how="diagonal_relaxed")
