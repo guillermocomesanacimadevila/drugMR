@@ -1,8 +1,8 @@
-pheno_id: AD                                                # Outcome phenotype prefix (e.g. AD = Alzheimer's disease)
-sumstats: dat/gwas/AD.tsv                                   # Path to GWAS summary statistics pertaining to your outcome trait of interest
-n_cases: 128681                                             # Number of cases for outcome GWAS
-n_controls: 849833                                          # Number of controls for outcome GWAS
-genome_build: GRCh38                                        # Genome build under which your GWAS was built upon
+pheno_id: SCZ                                               # Outcome phenotype prefix (e.g. AD = Alzheimer's disease)
+sumstats: dat/gwas/SCZ.tsv                                  # Path to GWAS summary statistics pertaining to your outcome trait of interest
+n_cases: 67390                                              # Number of cases for outcome GWAS
+n_controls: 94015                                           # Number of controls for outcome GWAS
+genome_build: GRCh37                                        # Genome build under which your GWAS was built upon
 target_build: GRCh38                                        # Target genome build for liftover package
 snp_col: SNP                                                # SNP column name in outcome GWAS
 a1_col: A1                                                  # Effect allele column name in outcome GWAS
@@ -10,11 +10,11 @@ a2_col: A2                                                  # Other allele colum
 beta_col: BETA                                              # Beta column name in outcome GWAS
 se_col: SE                                                  # Standard error column name in outcome GWAS
 p_col: P                                                    # P-value (not -log10 converted) column name in outcome GWAS
-pos_col: BP                                                 # Position column name in outcome GWAS
+pos_col: POS                                                # Position column name in outcome GWAS
 chr_col: CHR                                                # Chromosome column name in outcome GWAS
 af_col: FRQ                                                 # Minor allele frequency column name in outcome GWAS
 
-pqtl_dataset: test_ukb_ppp                                  # pQTL dataset ID
+pqtl_dataset: wu_csf                                        # pQTL dataset ID
 reference_data:
   ref_bfile: dat/ref/1000G_EUR_Phase3_plink/1000G.EUR.QC.ALL
   liftover_dir: dat/ref/liftover
