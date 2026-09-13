@@ -1,6 +1,7 @@
 .DS_Store
 .idea/
 .pytest_cache/
+tests/output/
 *.egg-info/
 .RData
 .Rhistory
