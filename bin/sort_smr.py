@@ -222,7 +222,11 @@ def align_to_risk_allele(df: pl.DataFrame):
         print("[CONCERN] Cannot align alleles to the AD risk allele - missing A1 / A2 / b_GWAS")
         return df
 
-    flip = pl.col("b_GWAS") < 0
+    # Materialise this before changing b_GWAS. Reusing `pl.col("b_GWAS") < 0`
+    # in later with_columns calls would see the already-positive value and fail
+    # to flip the QTL beta and frequency.
+    df = df.with_columns((pl.col("b_GWAS") < 0).alias("_flip_to_risk_allele"))
+    flip = pl.col("_flip_to_risk_allele")
 
     df = df.with_columns(
         pl.when(flip).then(pl.col("A2")).otherwise(pl.col("A1")).alias("A1"),
@@ -230,9 +234,15 @@ def align_to_risk_allele(df: pl.DataFrame):
         pl.when(flip).then(-pl.col("b_GWAS")).otherwise(pl.col("b_GWAS")).alias("b_GWAS")
     )
 
-    if "b_QTL" in df.columns:
+    # Raw SMR output calls this b_eQTL. Keep compatibility with any already
+    # normalised/generalised QTL frame that uses b_QTL instead.
+    qtl_beta_col = next((col for col in ("b_eQTL", "b_QTL") if col in df.columns), None)
+    if qtl_beta_col is not None:
         df = df.with_columns(
-            pl.when(flip).then(-pl.col("b_QTL")).otherwise(pl.col("b_QTL")).alias("b_QTL")
+            pl.when(flip)
+            .then(-pl.col(qtl_beta_col))
+            .otherwise(pl.col(qtl_beta_col))
+            .alias(qtl_beta_col)
         )
 
     if "Freq" in df.columns:
@@ -240,7 +250,7 @@ def align_to_risk_allele(df: pl.DataFrame):
             pl.when(flip).then(1 - pl.col("Freq")).otherwise(pl.col("Freq")).alias("Freq")
         )
 
-    return df
+    return df.drop("_flip_to_risk_allele")
 
 
 # for single-cell targets, replace the SMR-reported QTL beta with the value from the
@@ -249,6 +259,17 @@ def align_to_risk_allele(df: pl.DataFrame):
 # internally consistent). Not used for bulk - those files are ingested as pre-computed.
 def pull_original_sc_qtl_beta(target_smr: pl.DataFrame, qtl_dataset: str, cell: str):
     if target_smr.height == 0:
+        return target_smr
+
+    # The SMR binary names the molecular-trait effect b_eQTL, including for
+    # single-cell data. Accept b_QTL as a compatibility alias without changing
+    # the incoming/output schema.
+    qtl_beta_col = next(
+        (col for col in ("b_eQTL", "b_QTL") if col in target_smr.columns),
+        None,
+    )
+    if qtl_beta_col is None:
+        print(f"[CONCERN] QTL beta column not found for {cell}; expected b_eQTL or b_QTL")
         return target_smr
 
     parquet_path = _smr_utils.resolve_sc_qtl_file(qtl_dataset, cell)
@@ -289,21 +310,21 @@ def pull_original_sc_qtl_beta(target_smr: pl.DataFrame, qtl_dataset: str, cell: 
     if n_mismatched > 0:
         print(
             f"[CONCERN] {n_mismatched} row(s) in {cell} had an allele mismatch between "
-            f"the SMR A1/A2 and the original QTL file - b_QTL left as SMR-reported"
+            f"the SMR A1/A2 and the original QTL file - {qtl_beta_col} left as SMR-reported"
         )
 
     target_smr = target_smr.with_columns(
         pl.when(pl.col("b_qtl_from_source").is_not_null())
         .then(pl.col("b_qtl_from_source"))
-        .otherwise(pl.col("b_QTL"))
-        .alias("b_QTL")
+        .otherwise(pl.col(qtl_beta_col))
+        .alias(qtl_beta_col)
     ).drop(["orig_EA", "orig_BETA", "b_qtl_from_source"])
 
-    # b_SMR is a ratio of b_GWAS/b_QTL - recompute so it stays consistent with the
-    # (possibly now different-signed) b_QTL rather than leaving a stale ratio
+    # b_SMR is a ratio of b_GWAS/QTL beta - recompute so it stays consistent with
+    # the (possibly now different-signed) source beta rather than leaving a stale ratio
     target_smr = target_smr.with_columns(
-        pl.when(pl.col("b_QTL") != 0)
-        .then(pl.col("b_GWAS") / pl.col("b_QTL"))
+        pl.when(pl.col(qtl_beta_col) != 0)
+        .then(pl.col("b_GWAS") / pl.col(qtl_beta_col))
         .otherwise(pl.col("b_SMR"))
         .alias("b_SMR")
     )
