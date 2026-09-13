@@ -93,7 +93,7 @@ Use this option when Nextflow itself must be submitted with `sbatch`:
 #SBATCH --partition=htc_genoa
 #SBATCH --time=24:00:00
 #SBATCH --cpus-per-task=8
-#SBATCH --mem=32G
+#SBATCH --mem=64G
 #SBATCH --output=drugMR/%x_%j.out
 #SBATCH --error=drugMR/%x_%j.err
 #SBATCH --account=YOUR_ACCOUNT
