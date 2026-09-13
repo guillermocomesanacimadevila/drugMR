@@ -89,9 +89,9 @@ Use this option when Nextflow itself must be submitted with `sbatch`:
 
 ```bash
 #!/bin/bash
-#SBATCH --job-name=drugmr_SCZ_wingo
+#SBATCH --job-name=<YOUR_JOB_NAME>
 #SBATCH --partition=htc_genoa
-#SBATCH --time=24:00:00
+#SBATCH --time=48:00:00
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=64G
 #SBATCH --output=drugMR/%x_%j.out
