@@ -23,7 +23,7 @@ cd drugMR
 source env/activate.sh
 ```
 
-Download the reference bundle:
+Download the reference bundle from `Zenodo`(https://doi.org/10.5281/zenodo.22706705):
 
 ```bash
 wget -c -O ref.zip "https://zenodo.org/records/22706705/files/ref.zip?download=1"
