@@ -19,7 +19,7 @@ Then run one configured outcome and pQTL pair:
 
 ```bash
 nextflow run main.nf \
-  -profile docker \
+  -profile local,docker \
   -params-file params/AD.ukb_ppp.yaml \
   --manifest_path assets/qtl_manifest.csv \
   -resume
