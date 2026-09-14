@@ -332,7 +332,7 @@ def pull_original_sc_qtl_beta(target_smr: pl.DataFrame, qtl_dataset: str, cell: 
     return target_smr
 
 
-def run_single_cell_smr(pqtl_dataset: str, qtl_dataset: str, pheno_id: str, sumstats: str, ref_bfile: str, maf: float, local_results_dir: str = "results", synthesis_dir: str = "synthesis", coloc_file: str | None = None, wald_fdr_q: float = 0.05, ivw_fdr_q: float = 0.05, cochran_q_pval: float = 0.05, pp4_threshold: float = 0.75, p_qtl_smr: float = 5.0e-8, p_qtl_heidi: float = 1.57e-3):
+def run_single_cell_smr(pqtl_dataset: str, qtl_dataset: str, pheno_id: str, sumstats: str, ref_bfile: str, maf: float, local_results_dir: str = "results", synthesis_dir: str = "synthesis", coloc_file: str | None = None, wald_fdr_q: float = 0.05, ivw_fdr_q: float = 0.05, cochran_q_pval: float = 0.05, pp4_threshold: float = 0.75, p_qtl_smr: float = 5.0e-8, p_qtl_heidi: float = 1.57e-3, diff_freq_prop: float = 0.3):
     ref_bfile = Path(ref_bfile)
     qtl_temp = qtl_dataset.lower()
 
@@ -368,6 +368,7 @@ def run_single_cell_smr(pqtl_dataset: str, qtl_dataset: str, pheno_id: str, sums
                     qtl_dataset=f"sc/{qtl_dataset}/{cell}",
                     p_qtl_smr=p_qtl_smr,
                     p_qtl_heidi=p_qtl_heidi,
+                    diff_freq_prop=diff_freq_prop,
                     thread_num=8,
                     maf=maf,
                     out_dir=synthesis_dir
@@ -489,7 +490,7 @@ def bulk_tissue_prefixes(qtl_dataset: str, synthesis_dir: str = "synthesis"):
 # idempotency convention as run_single_cell_smr). A literal qtl_name column is stamped onto
 # the concatenated output and it's FDR-corrected via the same helper single-cell SMR uses,
 # so the result is indistinguishable from a "pre-computed" bulk file to ingest_bulk_smr.
-def run_bulk_smr(pqtl_dataset: str, qtl_dataset: str, pheno_id: str, sumstats: str, ref_bfile: str, maf: float, local_results_dir: str = "results", synthesis_dir: str = "synthesis", p_qtl_smr: float = 5.0e-8, p_qtl_heidi: float = 1.57e-3):
+def run_bulk_smr(pqtl_dataset: str, qtl_dataset: str, pheno_id: str, sumstats: str, ref_bfile: str, maf: float, local_results_dir: str = "results", synthesis_dir: str = "synthesis", p_qtl_smr: float = 5.0e-8, p_qtl_heidi: float = 1.57e-3, diff_freq_prop: float = 0.3):
     tissues = bulk_tissue_prefixes(qtl_dataset, synthesis_dir=synthesis_dir)
 
     if not tissues:
@@ -532,6 +533,7 @@ def run_bulk_smr(pqtl_dataset: str, qtl_dataset: str, pheno_id: str, sumstats: s
                 qtl_dataset=f"bulk_raw/{qtl_dataset}/{label}/chr{chr_num}",
                 p_qtl_smr=p_qtl_smr,
                 p_qtl_heidi=p_qtl_heidi,
+                diff_freq_prop=diff_freq_prop,
                 thread_num=8,
                 maf=maf,
                 out_dir=synthesis_dir
@@ -842,6 +844,7 @@ def main():
     p.add_argument("--pp4_threshold", type=float, default=0.75)
     p.add_argument("--p_qtl_smr", type=float, default=5.0e-8)
     p.add_argument("--p_qtl_heidi", type=float, default=1.57e-3)
+    p.add_argument("--diff_freq_prop", type=float, default=0.3)
     p.add_argument("--p_smr_threshold", type=float, default=0.05)
     p.add_argument("--p_heidi_threshold", type=float, default=0.01)
     p.add_argument("--skip_merge", action="store_true")
@@ -895,7 +898,8 @@ def main():
             local_results_dir=args.local_results_dir,
             synthesis_dir=args.synthesis_dir,
             p_qtl_smr=args.p_qtl_smr,
-            p_qtl_heidi=args.p_qtl_heidi
+            p_qtl_heidi=args.p_qtl_heidi,
+            diff_freq_prop=args.diff_freq_prop
         )
         ingest_bulk_smr(
             pqtl_dataset=args.pqtl_dataset,
@@ -925,7 +929,8 @@ def main():
             cochran_q_pval=args.cochran_q_pval,
             pp4_threshold=args.pp4_threshold,
             p_qtl_smr=args.p_qtl_smr,
-            p_qtl_heidi=args.p_qtl_heidi
+            p_qtl_heidi=args.p_qtl_heidi,
+            diff_freq_prop=args.diff_freq_prop
         )
 
     if not args.skip_merge:

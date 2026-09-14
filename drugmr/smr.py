@@ -546,6 +546,7 @@ class SMRUtils:
             p_qtl_heidi: float,
             thread_num: int,
             maf: float,
+            diff_freq_prop: float = 0.3,
             out_dir: str = "synthesis"
     ):
         ref_bfile = Path(ref_bfile)
@@ -572,6 +573,7 @@ class SMRUtils:
             "--maf", str(maf),
             "--peqtl-smr", str(p_qtl_smr),
             "--peqtl-heidi", str(p_qtl_heidi),
+            "--diff-freq-prop", str(diff_freq_prop),
             "--thread-num", str(thread_num),
             "--out", str(out_file),
         ]

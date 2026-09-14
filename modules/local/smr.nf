@@ -53,6 +53,7 @@ process SMR_BULK {
         --cochran_q_pval ${meta.gates.cis_mr.cochran_q_pval} \\
         --p_qtl_smr ${meta.gates.smr.p_qtl_smr} \\
         --p_qtl_heidi ${meta.gates.smr.p_qtl_heidi} \\
+        --diff_freq_prop ${meta.gates.smr.diff_freq_prop} \\
         --skip_merge
     """
 }
@@ -109,6 +110,7 @@ process SMR_SC {
         --cochran_q_pval ${meta.gates.cis_mr.cochran_q_pval} \\
         --p_qtl_smr ${meta.gates.smr.p_qtl_smr} \\
         --p_qtl_heidi ${meta.gates.smr.p_qtl_heidi} \\
+        --diff_freq_prop ${meta.gates.smr.diff_freq_prop} \\
         --skip_merge
     """
 }
