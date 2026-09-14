@@ -50,6 +50,7 @@ gates:
   smr:
     p_qtl_smr: 5.0e-8                # QTL p-value threshold SMR uses to pick the top cis-QTL per probe
     p_qtl_heidi: 1.57e-3             # QTL p-value threshold SMR uses to select SNPs for the HEIDI test
+    diff_freq_prop: 0.30              # Max fraction of SNPs failing SMR's allele-frequency check before aborting
     p_smr_threshold: 0.05            # Max q_SMR (FDR-corrected) to pass
     p_heidi_threshold: 0.01          # Min p_HEIDI to pass (no evidence of linkage/pleiotropy)
   hyprcoloc:

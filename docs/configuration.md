@@ -82,6 +82,7 @@ gates:
   smr:
     p_qtl_smr: 5.0e-8
     p_qtl_heidi: 1.57e-3
+    diff_freq_prop: 0.30
     p_smr_threshold: 0.05
     p_heidi_threshold: 0.01
   hyprcoloc:

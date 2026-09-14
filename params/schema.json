@@ -167,6 +167,7 @@
           "properties": {
             "p_qtl_smr": { "type": "number", "minimum": 0, "maximum": 1, "default": 5.0e-8, "description": "QTL p-value threshold the SMR tool uses to select the top cis-QTL per probe." },
             "p_qtl_heidi": { "type": "number", "minimum": 0, "maximum": 1, "default": 1.57e-3, "description": "QTL p-value threshold the SMR tool uses to select SNPs included in the HEIDI test." },
+            "diff_freq_prop": { "type": "number", "minimum": 0, "maximum": 1, "default": 0.3, "description": "Maximum proportion of SNPs SMR permits to fail its allele-frequency difference check before aborting." },
             "p_smr_threshold": { "type": "number", "minimum": 0, "maximum": 1, "default": 0.05, "description": "Maximum q_SMR (FDR-corrected) to pass the SMR result gate." },
             "p_heidi_threshold": { "type": "number", "minimum": 0, "maximum": 1, "default": 0.01, "description": "Minimum p_HEIDI to pass the SMR result gate (i.e. no evidence of linkage/pleiotropy)." }
           }
