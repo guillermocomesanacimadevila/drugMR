@@ -438,7 +438,45 @@ def run_single_cell_smr(pqtl_dataset: str, qtl_dataset: str, pheno_id: str, sums
             final_smr_df.write_csv(out_file, separator="\t")
             print(f"[TRACKING] Compiled promising target SMR results saved to {out_file}")
         else:
-            print(f"[CONCERN] No SMR results found for the promising {pqtl_dataset} targets")
+            # Zero upstream cis-MR/COLOC hits is a valid negative result.  The
+            # Nextflow process still promises a per-dataset TSV, so always
+            # materialise a schema-valid, header-only file instead of exiting
+            # successfully without the declared output.
+            empty = None
+            for cell in cell_types:
+                cell_dir = paths.smr_raw_dir(f"sc/{qtl_dataset}/{cell}", pheno_id, synthesis_dir)
+                source = next(
+                    (f for f in sorted(cell_dir.glob("*.smr")) if pheno_id in f.name),
+                    None,
+                )
+                if source is not None:
+                    empty = read_smr_tsv(source).head(0)
+                    break
+
+            # The raw file normally supplies the complete SMR schema. Keep a
+            # minimal fallback so even an unexpectedly absent raw result does
+            # not violate the workflow's output contract.
+            if empty is None:
+                empty = pl.DataFrame(schema={
+                    "Gene": pl.Utf8,
+                    "q_SMR": pl.Float64,
+                    "p_HEIDI": pl.Float64,
+                })
+
+            empty = empty.with_columns(
+                pl.lit(None, dtype=pl.Utf8).alias("protein"),
+                pl.lit(None, dtype=pl.Utf8).alias("cell_type"),
+                pl.lit("single_cell").alias("data_type"),
+                pl.lit(pheno_id).alias("phenotype"),
+                pl.lit(qtl_dataset).alias("qtl_dataset"),
+                pl.lit(pqtl_dataset).alias("pqtl_dataset"),
+                pl.lit(resolve_qtl_type(qtl_dataset)).alias("qtl_type"),
+            )
+            empty.write_csv(out_file, separator="\t")
+            print(
+                f"[TRACKING] No {pqtl_dataset} targets passed the cis-MR and "
+                f"colocalisation gates; wrote header-only SMR results to {out_file}"
+            )
 
 
 # manifest-driven replacement for the old directory-scanning version - verified
