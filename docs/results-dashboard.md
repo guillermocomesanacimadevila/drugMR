@@ -23,6 +23,8 @@ config = dm.fetch_run(
 
 The `remote_root` value ends at the remote `runs` directory. `fetch_run()` appends the supplied `run_id` itself.
 
+A worked example of this fetch and results flow is in `notebooks/00_drugmr.ipynb`. Do not use that notebook for the fetch step when SSH needs a password or key passphrase, since the notebook kernel does not reliably expose an interactive SSH prompt and the fetch can hang or fail silently. Use the notebook for `dm.results()` once the run is already local, or for the fetch step only when SSH keys are already configured for passwordless login.
+
 ### Prefer the command line for SSH prompts
 
 If SSH requests a password or private-key passphrase, run the fetch in a local terminal. Notebook interfaces do not always expose an interactive SSH prompt reliably.

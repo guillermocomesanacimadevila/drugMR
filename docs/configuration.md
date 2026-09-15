@@ -52,11 +52,13 @@ remove_apoe: false
 
 The outcome GWAS is read as a tab separated (`separator=\t`) summary statistics file. Its column names are declared in the params file. The file can use any supported column names because drugMR maps them using `snp_col`, `a1_col`, `a2_col`, `beta_col`, `se_col`, `p_col`, `pos_col`, `chr_col`, and `af_col`. The params file is validated against `params/schema.json` when Nextflow starts.
 
+`maf` sets the minor allele frequency threshold applied during GWAS QC and SMR, below which a variant is dropped. `overwrite` controls whether an existing completed stage for this run is rerun or reused: set it to `true` to force every stage to rerun, or leave it `false` to reuse output already on disk. drugMR does not track staleness automatically, so changing an input file without setting `overwrite: true` or deleting the stale output will not trigger a rerun on its own. `remove_mhc` and `remove_apoe` drop GWAS variants inside the MHC region on chromosome 6 and the APOE region on chromosome 19, using build specific coordinates for `target_build`. Both flags apply during GWAS QC, before any downstream MR or colocalisation stage sees the summary statistics.
+
 The `gates` block records the statistical thresholds used by the run. Keep it in the params file, so the values are copied into `params.lock.yaml` and stay attached to the results.
 
 - `cis_mr`: instrument selection, F statistic, Steiger filtering, Wald and IVW FDR thresholds, heterogeneity tests.
 - `coloc`: coloc priors and the minimum PP4.
-- `smr`: SNP selection for SMR and HEIDI, then the final SMR FDR and HEIDI thresholds.
+- `smr`: SNP selection for SMR and HEIDI, an allele frequency concordance check between the QTL and outcome GWAS (`diff_freq_prop`), then the final SMR FDR and HEIDI thresholds.
 - `hyprcoloc`: priors and sensitivity grid.
 - `pwcoco`: conditional colocalisation PP4 threshold.
 - `phewas`: Bonferroni alpha for the safety screen.

@@ -9,7 +9,7 @@
 - [Install](getting-started.md): set up the pinned environment and choose a container runtime.
 - [Configure a run](configuration.md): define an outcome GWAS, register QTL datasets, and set analysis thresholds.
 - [Run the pipeline](running.md): launch and monitor an analysis.
-- [Results and dashboard](results-dashboard.md): fetch completed runs, load PostgreSQL, and explore the Streamlit dashboard.
+- [Results and dashboard](results-dashboard.md): fetch completed runs, load PostgreSQL, and explore the Streamlit dashboard. `notebooks/00_drugmr.ipynb` provides a worked notebook version of this same step.
 - [Output schema](RESULTS_SCHEMA.md): column reference for every results TSV.
 - [Troubleshooting](troubleshooting.md): diagnose SLURM, memory, paths, containers, and interrupted runs.
 - [Reach out](reach-out.md): points of contact in case any issue arises.

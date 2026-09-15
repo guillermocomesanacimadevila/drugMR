@@ -24,6 +24,10 @@ tail -20 tmp/nf-work/XX/HASH/.command.out
 
 Use `tail -f` to follow it and press ++ctrl+c++ to stop following. This does not cancel the SLURM job.
 
+## An SMR results file has a header but no rows
+
+This is expected when no target passed the upstream cis-MR and colocalisation gates for that pQTL and QTL dataset pair. drugMR still writes a schema valid, header-only TSV so the declared Nextflow output exists, rather than failing the process. Check the upstream `cis_mr` and `coloc` results and gate thresholds for that run if targets were expected. This is not a pipeline failure.
+
 ## Graphviz warnings
 
 Graphviz is only needed to render the execution DAG. A missing Graphviz installation does not explain an analysis process failure. The execution report and timeline warnings should be investigated separately if those artifacts are required.
