@@ -347,6 +347,7 @@ def local(config: str, run_id: str = None):
     p12 = cfg.gate("coloc", "p12", 1e-5)
     p_qtl_smr = cfg.gate("smr", "p_qtl_smr", 5.0e-8)
     p_qtl_heidi = cfg.gate("smr", "p_qtl_heidi", 1.57e-3)
+    diff_freq_prop = cfg.gate("smr", "diff_freq_prop", 0.30)
     p_smr_threshold = cfg.gate("smr", "p_smr_threshold", 0.05)
     p_heidi_threshold = cfg.gate("smr", "p_heidi_threshold", 0.01)
     hc_prior_1 = cfg.gate("hyprcoloc", "prior_1", 1e-4)
@@ -370,7 +371,7 @@ def local(config: str, run_id: str = None):
     # reused as-is (its own check_output()/require_output() gates then decide what
     # still needs to run)
     git_sha7 = registry.current_git_sha7(cwd=project_root)
-    date_str = datetime.now().strftime("%Y%m%d")
+    date_str = datetime.now().strftime("%Y%m%d_%H%M%S")
     if run_id is None:
         run_id = paths.make_run_id(pheno_id, pqtl_dataset, date_str, git_sha7)
     elif not run_id.startswith(f"{pheno_id}_{pqtl_dataset}_"):
@@ -670,6 +671,7 @@ def local(config: str, run_id: str = None):
                     "--cochran_q_pval", str(cochran_q_pval),
                     "--p_qtl_smr", str(p_qtl_smr),
                     "--p_qtl_heidi", str(p_qtl_heidi),
+                    "--diff_freq_prop", str(diff_freq_prop),
                     "--p_smr_threshold", str(p_smr_threshold),
                     "--p_heidi_threshold", str(p_heidi_threshold),
                 ]
@@ -702,6 +704,7 @@ def local(config: str, run_id: str = None):
                 "--cochran_q_pval", str(cochran_q_pval),
                 "--p_qtl_smr", str(p_qtl_smr),
                 "--p_qtl_heidi", str(p_qtl_heidi),
+                "--diff_freq_prop", str(diff_freq_prop),
                 "--p_smr_threshold", str(p_smr_threshold),
                 "--p_heidi_threshold", str(p_heidi_threshold),
             ]

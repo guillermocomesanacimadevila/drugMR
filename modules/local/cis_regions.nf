@@ -6,7 +6,7 @@ process EXTRACT_CIS_REGIONS {
     tag "extract_cis_regions_${meta.pheno_id}_${meta.pqtl_dataset}"
     label "process_medium"
 
-    publishDir { "./dat/cis_regions/${meta.pqtl_dataset}"}, mode: "copy"
+    publishDir { "./dat/cis_regions/${meta.pheno_id}/${meta.pqtl_dataset}"}, mode: "copy"
 
     container {
         if (params.image_name) {

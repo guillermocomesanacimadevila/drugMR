@@ -12,7 +12,7 @@ Skip this step when the completed run already exists on the machine where the da
 
 ```python
 config = dm.fetch_run(
-    run_id="AD_test_20260911_abcdef0",
+    run_id="AD_test_20260911_143022_abcdef0",
     user="your_username",
     host="login.your-cluster.ac.uk",
     remote_root="/path/to/drugMR/runs",
@@ -29,7 +29,7 @@ If SSH requests a password or private-key passphrase, run the fetch in a local t
 
 ```bash
 python -c 'import drugmr as dm; config = dm.fetch_run(
-    run_id="AD_test_20260911_abcdef0",
+    run_id="AD_test_20260911_143022_abcdef0",
     user="your_username",
     host="login.your-cluster.ac.uk",
     remote_root="/path/to/drugMR/runs"
@@ -55,7 +55,7 @@ Here, `config` is the path returned by `dm.fetch_run()`.
 To open one exact local run, point directly to its saved snapshot:
 
 ```python
-dm.results(config="runs/AD_test_20260911_abcdef0/params.lock.yaml")
+dm.results(config="runs/AD_test_20260911_143022_abcdef0/params.lock.yaml")
 ```
 
 To open the latest successful run matching a phenotype and pQTL dataset, use the original parameter file:

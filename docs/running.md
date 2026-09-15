@@ -140,10 +140,10 @@ sacct -j JOB_ID \
 
 ## Output from one Nextflow run
 
-A successful run ID contains the outcome, pQTL dataset, date, and Git revision:
+A successful run ID contains the outcome, pQTL dataset, a full date and time (so same-day repeat runs don't collide), and Git revision:
 
 ```text
-SCZ_wingo_brain_20260912_fe5675a
+SCZ_wingo_brain_2026-09-12_14-30-22_fe5675a
 ```
 
 The complete portable run is written under `runs/<run_id>/`:
@@ -194,7 +194,7 @@ Run this on the local computer, from its own drugMR clone:
 import drugmr as dm
 
 config = dm.fetch_run(
-    run_id="SCZ_wingo_brain_20260912_fe5675a",
+    run_id="SCZ_wingo_brain_2026-09-12_14-30-22_fe5675a",
     user="your_username",
     host="login.your-cluster.ac.uk", # without the @ (Do not include the @!)
     remote_root="/shared/scratch/YOUR_PROJECT/pipelines/drugMR/runs",

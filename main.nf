@@ -19,7 +19,7 @@ workflow {
     onComplete:
     if (workflow.preview) {
         println "[TRACKING] -preview run - registry NOT updated for run_id=${params.run_id}"
-    } else if (workflow.success) {
+    } else {
         def pheno_id = params.inputs[0].pheno_id
         def pqtl_dataset = params.inputs[0].pqtl_dataset
         def host
@@ -28,6 +28,7 @@ workflow {
         } catch (Exception e) {
             host = "unknown"
         }
+        def status = workflow.success ? "success" : "failed"
         // Run bookkeeping with the same pinned Python environment validated by
         // env/activate.sh.  Groovy's execute(envp, dir) does not reliably retain
         // the activated shell PATH on HPC, so a bare `python3` can resolve to a
@@ -42,6 +43,7 @@ workflow {
             "--git_sha7", "${workflow.commitId ?: 'unknown'}",
             "--image_name", "${params.image_name}",
             "--host", host,
+            "--status", status,
             "--params_json", groovy.json.JsonOutput.toJson(params.inputs[0])
         ]
         def proc = cmd.execute(["PYTHONPATH=${projectDir}"], new File("${projectDir}"))
@@ -49,8 +51,8 @@ workflow {
         println proc.in.text
         if (proc.exitValue() != 0) {
             println "[CONCERN] Failed to record run in registry: ${proc.err.text}"
+        } else if (!workflow.success) {
+            println "[CONCERN] Pipeline did not complete successfully, run recorded as failed for run_id=${params.run_id}"
         }
-    } else {
-        println "[CONCERN] Pipeline did not complete successfully, registry NOT updated for run_id=${params.run_id}"
     }
 }

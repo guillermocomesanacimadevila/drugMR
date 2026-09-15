@@ -40,6 +40,7 @@ process PWCOCO_QTL {
     // pwcoco_qtl_wrapper.py also uses SMRUtils to load eQTL rows for
     // triangulation, same as sort_smr.py/hyprcoloc_targets.py.
     script:
+    def manifestPath = new File(params.manifest_path as String).isAbsolute() ? params.manifest_path : "${projectDir}/${params.manifest_path}"
     """
     export PYTHONPATH=${projectDir}
     python ${projectDir}/bin/pwcoco_qtl_wrapper.py \\
@@ -50,7 +51,7 @@ process PWCOCO_QTL {
         --n_controls ${meta.n_controls} \\
         --local_results_dir . \\
         --repo_root ${projectDir} \\
-        --manifest_path ${projectDir}/assets/qtl_manifest.csv \\
+        --manifest_path ${manifestPath} \\
         --cis_regions_dir protein_dirs \\
         --pp4_threshold ${meta.gates.pwcoco.pp4_threshold}
     """

@@ -45,7 +45,7 @@ def define_loci_from_cis_regions(pqtl_dataset: str, pheno_id: str, manifest_path
         resolved = {protein_label: resolved}
 
     for protein, df in resolved.items():
-        protein_out_dir = Path(out_dir) / protein if out_dir else Path(f"./dat/cis_regions/{pqtl_dataset}/{protein}")
+        protein_out_dir = Path(out_dir) / protein if out_dir else Path(f"./dat/cis_regions/{pheno_id}/{pqtl_dataset}/{protein}")
         os.makedirs(protein_out_dir, exist_ok=True)
 
         if df.height == 0:

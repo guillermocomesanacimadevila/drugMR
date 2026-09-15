@@ -27,9 +27,12 @@ Download the reference bundle from [Zenodo](https://doi.org/10.5281/zenodo.22706
 
 ```bash
 wget -c -O ref.zip "https://zenodo.org/records/22706705/files/ref.zip?download=1"
-unzip ref.zip -d ref
+mkdir -p dat/ref
+unzip ref.zip -d dat/ref
 rm ref.zip
 ```
+
+The Zenodo bundle only contains the reference panel (1000G LD reference, liftover chains, gene annotation). It does not include outcome GWAS or pQTL/eQTL cohort data. Those are typically access controlled (UKB-PPP, deCODE, etc.) and must be obtained directly from their respective providers, then registered in `assets/qtl_manifest.csv`. To try the pipeline immediately with no external data, run the bundled toy fixture: `nextflow run <path> -profile test,docker -params-file tests/data/params.yaml`.
 
 Activate the environment in every new terminal:
 

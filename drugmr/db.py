@@ -10,10 +10,16 @@ SECRETS_PATH = Path(__file__).resolve().parents[1] / ".streamlit" / "secrets.tom
 def load_credentials() -> dict:
 
     """
-    Reads secrets.toml from .streamlit and 
+    Reads secrets.toml from .streamlit and
     returns each key as a dict with respective val
     """
-    
+
+    if not SECRETS_PATH.exists():
+        raise FileNotFoundError(
+            f"{SECRETS_PATH} not found. Run dm.results(...) at least once first, "
+            "it writes this file automatically from docker-compose.yml."
+        )
+
     with open(SECRETS_PATH, "rb") as f:
         secrets = tomllib.load(f)
     return secrets["connections"]["postgresql"]

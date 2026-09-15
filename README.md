@@ -32,11 +32,17 @@ drugMR takes an outcome GWAS and a panel of protein QTLs and returns a ranked, s
 ```bash
 git clone --recurse-submodules https://github.com/guillermocomesanacimadevila/drugMR.git
 cd drugMR
-wget -c -O ref.zip "https://zenodo.org/records/22706705/files/ref.zip?download=1" && unzip ref.zip -d ref && rm ref.zip
+mkdir -p dat/ref && wget -c -O ref.zip "https://zenodo.org/records/22706705/files/ref.zip?download=1" && unzip ref.zip -d dat/ref && rm ref.zip
 ./env/bootstrap.sh       # first clone only, or after dependency changes
 source env/activate.sh   # every new login or shell
 
 nextflow run /path/to/cloned/drugMR/main.nf -profile docker -params-file params/AD.ukb_ppp.yaml --manifest_path assets/qtl_manifest.csv
+```
+
+Have no GWAS or pQTL data yet and just want to see the pipeline run? Skip the download above and run the bundled toy fixture instead, no external data required:
+
+```bash
+nextflow run /path/to/cloned/drugMR/main.nf -profile test,docker -params-file tests/data/params.yaml
 ```
 
 ## Run on your own data
@@ -86,7 +92,7 @@ After Nextflow completes successfully, its run directory contains `params.lock.y
 import drugmr as dm
 
 config = dm.fetch_run(
-    run_id="AD_ukb_ppp_YYYYMMDD_abcdef0",
+    run_id="AD_ukb_ppp_YYYYMMDD_HHMMSS_abcdef0",
     user="your_username",
     host="login.your-cluster.ac.uk",
     remote_root="/path/to/drugMR/runs",
@@ -101,7 +107,7 @@ For a local Nextflow run, use either the exact run snapshot or the original para
 
 ```python
 # Open one exact local run
-dm.results(config="runs/AD_test_20260911_abcdef0/params.lock.yaml")
+dm.results(config="runs/AD_test_20260911_143022_abcdef0/params.lock.yaml")
 
 # Or open the latest successful run matching this phenotype and pQTL dataset
 dm.results(config="params/AD.test.yaml")

@@ -46,14 +46,14 @@ def compile_top_cis_hits(pheno_id: str, pqtl_dataset: str, local_results_dir: st
         pwcoco_res = pl.read_csv(pwcoco_file, separator="\t")
         pwcoco_only_proteins = set(pwcoco_res["protein"].unique().to_list()) - set(target_top_snp.keys())
         for pwcoco_target in pwcoco_only_proteins:
-            pwcoco_target_dir = Path(cis_regions_dir) / pwcoco_target if cis_regions_dir else Path(f"./dat/cis_regions/{pqtl_dataset}/{pwcoco_target}")
+            pwcoco_target_dir = Path(cis_regions_dir) / pwcoco_target if cis_regions_dir else Path(f"./dat/cis_regions/{pheno_id}/{pqtl_dataset}/{pwcoco_target}")
             pwcoco_pqtl = pl.read_parquet(pwcoco_target_dir / "pqtl.parquet")
             target_top_snp[pwcoco_target] = str(pwcoco_pqtl.sort("P").row(0, named=True)["SNP"])
 
     top_hits = []
     for target, snp_id in target_top_snp.items():
         # dir for the gwas and pQTL
-        cis_r = Path(cis_regions_dir) / target if cis_regions_dir else Path(f"./dat/cis_regions/{pqtl_dataset}/{target}")
+        cis_r = Path(cis_regions_dir) / target if cis_regions_dir else Path(f"./dat/cis_regions/{pheno_id}/{pqtl_dataset}/{target}")
         gwas = cis_r / "gwas.parquet"
         pqtl = cis_r / "pqtl.parquet"
         gwas = pl.read_parquet(gwas)

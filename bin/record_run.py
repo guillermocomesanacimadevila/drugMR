@@ -16,6 +16,7 @@ def main():
     p.add_argument("--image_name", default="unknown")
     p.add_argument("--host", default="unknown")
     p.add_argument("--params_json", required=True)
+    p.add_argument("--status", default="success", choices=["success", "failed"])
     args = p.parse_args()
 
     run_params = json.loads(args.params_json)
@@ -33,6 +34,7 @@ def main():
             "date": datetime.now().strftime("%Y%m%d"),
             "created_at": datetime.now().isoformat(),
             "mode": "nextflow",
+            "status": args.status,
             "image_name": args.image_name,
             "host": args.host,
             "overwrite": False,
@@ -40,8 +42,12 @@ def main():
         },
         root=args.root,
     )
-    registry.record_successful_run(args.pheno_id, args.pqtl_dataset, args.run_id, root=args.root)
-    print(f"[DONE] Recorded successful run in registry: {args.run_id}")
+
+    if args.status == "success":
+        registry.record_successful_run(args.pheno_id, args.pqtl_dataset, args.run_id, root=args.root)
+        print(f"[DONE] Recorded successful run in registry: {args.run_id}")
+    else:
+        print(f"[DONE] Recorded failed run's manifest (not marked latest): {args.run_id}")
 
 
 if __name__ == "__main__":
