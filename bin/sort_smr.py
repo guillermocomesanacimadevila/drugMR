@@ -719,6 +719,12 @@ def rename_smr_to_schema(frame: pl.DataFrame) -> pl.DataFrame:
         "topSNP_bp": "top_snp_bp",
         "start": "start_bp",
         "end": "end_bp",
+        "b_eQTL": "b_qtl",
+        "b_QTL": "b_qtl",
+        "se_eQTL": "se_qtl",
+        "se_QTL": "se_qtl",
+        "p_eQTL": "p_qtl",
+        "p_QTL": "p_qtl",
     }
     rename_map = {k: v for k, v in rename_map.items() if k in frame.columns}
     return frame.rename(rename_map) if rename_map else frame
