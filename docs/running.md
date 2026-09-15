@@ -81,6 +81,8 @@ nextflow run main.nf \
   -resume
 ```
 
+Only `-profile` and `-params-file` are strictly required. `--manifest_path` defaults to `assets/qtl_manifest.csv`, so it is only needed here if you are pointing at a manifest you created yourself.
+
 Nextflow remains the controller and submits each process as its own SLURM job.
 
 ### Option 2: run Nextflow inside one SLURM allocation
@@ -113,6 +115,8 @@ nextflow run main.nf \
   --container_bind /shared/scratch/YOUR_PROJECT/data \
   -resume
 ```
+
+Only `-profile` and `-params-file` are strictly required. `--manifest_path` defaults to `assets/qtl_manifest.csv`, so it is only needed here if you are pointing at a manifest you created yourself.
 
 Save this as `run_drugmr.sbatch`, then submit it from the directory above the repository:
 
