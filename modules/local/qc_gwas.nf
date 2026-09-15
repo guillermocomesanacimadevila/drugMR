@@ -37,11 +37,11 @@ process GWAS_QC {
         info_args = "--info-col ${meta.info_col} --info_threshold ${meta.info_threshold}"
     }
 
-    if (meta.remove_mhc != null) {
+    if (meta.remove_mhc) {
         mhc_flag = "--remove_mhc"
     }
 
-    if (meta.remove_apoe != null) {
+    if (meta.remove_apoe) {
         apoe_flag = "--remove_apoe"
     }
 
