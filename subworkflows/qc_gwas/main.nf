@@ -135,6 +135,7 @@ workflow QC_GWAS {
             def p12_gate
             def p_qtl_smr_gate
             def p_qtl_heidi_gate
+            def diff_freq_prop_gate
             def p_smr_threshold_gate
             def p_heidi_threshold_gate
             def prior_1_gate
@@ -242,6 +243,12 @@ workflow QC_GWAS {
                 p_qtl_heidi_gate = 1.57e-3
             }
 
+            if (gates_smr.containsKey("diff_freq_prop")) {
+                diff_freq_prop_gate = gates_smr.diff_freq_prop
+            } else {
+                diff_freq_prop_gate = 0.30
+            }
+
             if (gates_smr.containsKey("p_smr_threshold")) {
                 p_smr_threshold_gate = gates_smr.p_smr_threshold
             } else {
@@ -324,6 +331,7 @@ workflow QC_GWAS {
                 smr: [
                     p_qtl_smr        : p_qtl_smr_gate,
                     p_qtl_heidi      : p_qtl_heidi_gate,
+                    diff_freq_prop   : diff_freq_prop_gate,
                     p_smr_threshold  : p_smr_threshold_gate,
                     p_heidi_threshold: p_heidi_threshold_gate
                 ],
