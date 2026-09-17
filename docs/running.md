@@ -51,14 +51,14 @@ Docker must be running on the machine that calls `dm.results()` because it start
 
 This example runs Nextflow on HPC and runs the dashboard on a local computer. Keep a complete clone of the repository on both machines.
 
-SLURM and Nextflow control different levels of the run. SLURM allocates cluster resources. Nextflow decides where each pipeline process is executed. The `falcon` profile for example, selects the SLURM executor and Apptainer. The `local` profile selects the local Nextflow executor. Here, local means inside the machine or allocation where the Nextflow controller is already running. It does not mean your laptop.
+SLURM and Nextflow control different levels of the run. SLURM allocates cluster resources. Nextflow decides where each pipeline process is executed. The `slurm` profile for example, selects the SLURM executor and Apptainer. The `local` profile selects the local Nextflow executor. Here, local means inside the machine or allocation where the Nextflow controller is already running. It does not mean your laptop.
 
-Use `falcon` when Nextflow starts outside an allocation and should submit each process to SLURM. Use `falcon,local` when `sbatch` has already created an allocation for the whole workflow. In that second arrangement, the `falcon` part still supplies the Falcon and Apptainer settings, while the final `local` part stops Nextflow from submitting another SLURM job from inside the first SLURM job.
+Use `slurm` when Nextflow starts outside an allocation and should submit each process to SLURM. Use `slurm,local` when `sbatch` has already created an allocation for the whole workflow. In that second arrangement, the `slurm` part still supplies the SLURM and Apptainer settings, while the final `local` part stops Nextflow from submitting another SLURM job from inside the first SLURM job.
 
 | How Nextflow is started | Profile | What happens |
 | --- | --- | --- |
-| Directly on a permitted login or workflow node | `falcon` | Each Nextflow process becomes a separate SLURM job with its own requested resources. |
-| Through `sbatch run_drugmr.sbatch` | `falcon,local` | The controller and all processes run inside the resources requested by that one allocation. |
+| Directly on a permitted login or workflow node | `slurm` | Each Nextflow process becomes a separate SLURM job with its own requested resources. |
+| Through `sbatch run_drugmr.sbatch` | `slurm,local` | The controller and all processes run inside the resources requested by that one allocation. |
 
 The second mode is useful on clusters with a one node per user policy because nested jobs can remain pending while the controller holds the permitted node. Its tradeoff is that the single `sbatch` request must provide enough CPUs, memory, and time for the largest process that will run inside it.
 
@@ -72,7 +72,7 @@ cd /shared/scratch/YOUR_PROJECT/pipelines/drugMR
 source env/activate.sh
 
 nextflow run main.nf \
-  -profile falcon \
+  -profile slurm \
   -params-file params/SCZ.wingo.yaml \
   --manifest_path assets/qtl_manifest.csv \
   --slurm_account YOUR_ACCOUNT \
@@ -107,7 +107,7 @@ cd /shared/scratch/YOUR_PROJECT/pipelines/drugMR
 source env/activate.sh
 
 nextflow run main.nf \
-  -profile falcon,local \
+  -profile slurm,local \
   -params-file params/SCZ.wingo.yaml \
   --manifest_path assets/qtl_manifest.csv \
   --slurm_account YOUR_ACCOUNT \
@@ -125,7 +125,7 @@ cd /shared/scratch/YOUR_PROJECT/pipelines
 sbatch run_drugmr.sbatch
 ```
 
-The profile order matters. `falcon,local` allows the Falcon settings and Apptainer configuration to load first, then makes each process run inside the existing allocation. Using `falcon` alone inside an `sbatch` job submits nested SLURM jobs. It could also be noted as `<profile>,local` instead of falcon if you're running drugMR on a non-SLURM cluster with different container software.
+The profile order matters. `slurm,local` allows the SLURM settings and Apptainer configuration to load first, then makes each process run inside the existing allocation. Using `slurm` alone inside an `sbatch` job submits nested SLURM jobs. It could also be noted as `<profile>,local` instead of slurm if you're running drugMR on a non-SLURM cluster with different container software.
 
 Monitor the controller job:
 

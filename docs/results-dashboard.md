@@ -77,7 +77,7 @@ This command:
 5. Loads the run's MR and colocalisation results into PostgreSQL.
 6. Starts the Streamlit dashboard.
 
-Run `dm.results(config=config)` on the local computer after `fetch_run()`. The machine running the dashboard must support Docker Compose because drugMR starts PostgreSQL in Docker. Standard HPC environments such as Falcon use Apptainer for pipeline jobs and do not provide a user Docker daemon, so the dashboard should not be launched there.
+Run `dm.results(config=config)` on the local computer after `fetch_run()`. The machine running the dashboard must support Docker Compose because drugMR starts PostgreSQL in Docker. Standard HPC environments use Apptainer for pipeline jobs and do not provide a user Docker daemon, so the dashboard should not be launched there.
 
 ```{warning}
 Fetch only completed runs. The successful Nextflow controller creates `manifest.json` and `params.lock.yaml` and records the run only after all required stages finish. Older runs created before parameter snapshots were introduced still require their original file under `params/`.
