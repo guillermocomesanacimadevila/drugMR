@@ -384,6 +384,40 @@ def extract_gene_coordinates(
 
 
 
+def render_dag(dot_file, out_file=None, fmt: str | None = None) -> Path:
+    """Render a Nextflow-emitted .dot DAG file into an image via Graphviz.
+
+    Nextflow's DAG renderer runs on the machine that launches `nextflow run`,
+    not inside any process container - on a host without Graphviz's `dot`
+    binary (e.g. most HPC login nodes) it silently falls back to writing the
+    raw .dot file instead of the requested .svg/.png/.pdf. Pull the .dot file
+    down and render it here instead.
+    """
+
+    dot_file = Path(dot_file)
+    if not dot_file.is_file():
+        raise FileNotFoundError(f"DAG file not found: {dot_file}")
+
+    if out_file is None:
+        out_file = dot_file.with_suffix(f".{fmt or 'svg'}")
+    out_file = Path(out_file)
+    fmt = fmt or out_file.suffix.lstrip(".") or "svg"
+
+    cmd = ["dot", f"-T{fmt}", str(dot_file), "-o", str(out_file)]
+    try:
+        subprocess.run(cmd, check=True, capture_output=True, text=True)
+    except FileNotFoundError as error:
+        raise RuntimeError(
+            "Graphviz 'dot' is not installed or not on PATH"
+        ) from error
+    except subprocess.CalledProcessError as error:
+        raise RuntimeError(
+            f"Graphviz failed to render {dot_file}: {error.stderr.strip()}"
+        ) from error
+
+    return out_file
+
+
 def needs_chr_split_etl(df: pl.DataFrame, chr_col: str) -> bool:
     return df[chr_col].n_unique() > 1
 

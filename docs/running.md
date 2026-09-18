@@ -208,3 +208,15 @@ dm.results(config=config)
 ```
 
 `dm.fetch_run()` copies the selected run into the local `runs/` directory and returns its local `params.lock.yaml`. The dashboard then uses the copied results and portable locus files. The original QTL and GWAS datasets can remain on HPC.
+
+## Render the pipeline DAG
+
+Nextflow's DAG renderer runs on the machine that launches `nextflow run`, not inside any process container. On a host without Graphviz's `dot` binary on `PATH`, such as most HPC login nodes, it silently falls back to writing the raw `.dot` file instead of the requested `.svg`. Render it locally with:
+
+```python
+import drugmr as dm
+
+dm.render_dag("runs/<run_id>/pipeline_info/pipeline_dag_<timestamp>.dot")
+```
+
+This writes `pipeline_dag_<timestamp>.svg` next to the `.dot` file. Pass `out_file` or `fmt` to choose a different path or format, such as `png` or `pdf`. Graphviz must be installed on the machine that calls `dm.render_dag()`.
