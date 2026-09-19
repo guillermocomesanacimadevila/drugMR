@@ -142,6 +142,36 @@ sacct -j JOB_ID \
   --units=G
 ```
 
+## Example: cloud (AWS Batch or GCP Batch)
+
+These profiles submit each process as a Batch job instead of running it on a shared filesystem. Set `workDir` to a bucket, since cloud workers have no shared disk to stage intermediate files on:
+
+```bash
+nextflow run main.nf \
+  -profile aws \
+  -params-file params/AD.ukb_ppp.yaml \
+  --manifest_path assets/qtl_manifest.csv \
+  --aws_batch_queue YOUR_QUEUE \
+  --aws_region eu-west-2 \
+  -work-dir s3://YOUR_BUCKET/nf-work \
+  -resume
+```
+
+```bash
+nextflow run main.nf \
+  -profile gcp \
+  -params-file params/AD.ukb_ppp.yaml \
+  --manifest_path assets/qtl_manifest.csv \
+  --gcp_project YOUR_PROJECT \
+  --gcp_location europe-west2 \
+  -work-dir gs://YOUR_BUCKET/nf-work \
+  -resume
+```
+
+`--aws_batch_queue` must name a Batch job queue already provisioned in AWS. `--gcp_project` must name a GCP project with the Batch API enabled. Both profiles already enable Docker, so no separate container profile is needed.
+
+Reference and QTL inputs must resolve to a location Nextflow can stage from. On these profiles, point `sumstats`, `ref_bfile`, and manifest paths at `s3://` or `gs://` URIs rather than local paths. `--container_bind` does not apply here, since there is no host filesystem to bind into a Batch worker.
+
 ## Output from one Nextflow run
 
 A successful run ID contains the outcome, pQTL dataset, a full date and time (so same-day repeat runs don't collide), and Git revision:
