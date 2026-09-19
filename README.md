@@ -115,7 +115,7 @@ dm.results(config="params/AD.test.yaml")
 
 `dm.results()` always requires `config`; calling it without an argument is not supported.
 
-Full installation, configuration, HPC, fetch, and dashboard instructions are available on the [drugMR documentation site](https://guillermocomesanacimadevila.github.io/drugMR/).
+Full installation, configuration, HPC, AWS/GCP, fetch, and dashboard instructions are available on the [drugMR documentation site](https://guillermocomesanacimadevila.github.io/drugMR/).
 
 ## Pipeline summary
 
