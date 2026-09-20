@@ -144,6 +144,8 @@ singlebrain,../../data/eQTL/sc-eQTL/SingleBrain/*.parquet,GENE,eqtl,GRCh38,N,983
 
 Paths may name one file or use a wildcard to register many files. They may be repository relative or absolute. On Linux, path case matters. `data/GWAS` and `data/gwas` are different directories.
 
+Notice that `wingo_brain` above has a blank `key_col`, because a wildcard pQTL path points at one file per protein rather than one file holding many proteins under a gene column. With no gene column inside the file, drugMR reads the protein identifier from the filename itself, so every file under that wildcard should be named `gene_id.parquet`, for example `A1BG_P04217.parquet`. `gene` is the gene symbol, and `id` is a stable key unique to that protein or aptamer, a UniProt accession, a SomaScan or Olink probe code, or similar. The `id` half is what keeps files unique when a panel measures the same gene with more than one aptamer. drugMR treats everything after the gene symbol as one opaque key, so an identifier that itself contains underscores works fine, for example deCODE's `A1BG_16561_9.parquet`.
+
 Raw QTL summary statistics can be supplied as:
 
 1. Parquet files ending in `.parquet`.

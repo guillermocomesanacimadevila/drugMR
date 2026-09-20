@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 import argparse
+import glob
 import json
+import math
 import os
 import subprocess
 import tempfile
@@ -3001,6 +3003,30 @@ def dashboard(
     # it from one of these sets/counts rather than re-deriving it locally.
     mr_pass_proteins = set(mr_pass["protein"].dropna().astype(str)) if "protein" in mr_pass.columns else set()
 
+    # 2 stages upstream of cis-MR itself, for the Final Targets Sankey only (the
+    # Overview funnel starts at "Tested" already): the full pQTL panel (every
+    # protein with a raw per-protein file, from the manifest's glob pattern,
+    # regardless of whether it ever got a usable instrument) and the subset of
+    # those eligible for cis-MR (>=1 retained instrument after the pipeline's
+    # own P < 5e-8 / F >= 10 selection - the same proteins mr_outcome already
+    # holds a row for, since cis_mr.R never emits a row for a protein it
+    # couldn't instrument).
+    try:
+        pqtl_panel_pattern = str(project_dir / _qtl_manifest.get_row(pqtl_dataset)["path"])
+        all_panel_proteins_set = {Path(f).stem for f in glob.glob(pqtl_panel_pattern)}
+    except ValueError:
+        all_panel_proteins_set = set()
+
+    cis_mr_eligible_set = (
+        set(mr_outcome["protein"].dropna().astype(str)) if "protein" in mr_outcome.columns else set()
+    )
+    # a protein file that couldn't be matched back to the manifest's naming
+    # convention would otherwise show up as a phantom "eligible but not in
+    # panel" node - union it in instead so the panel total never undercounts
+    all_panel_proteins_set |= cis_mr_eligible_set
+    not_eligible_set = all_panel_proteins_set - cis_mr_eligible_set
+    cis_mr_fail_set = cis_mr_eligible_set - mr_pass_proteins
+
     # coloc_support_status (computed in STAGE 2b above) already records, per
     # protein, which of standard COLOC / PWCoCo (or both) supported it
     coloc_support_pass_set = mr_pass_proteins & set(coloc_support_status.keys())
@@ -4068,9 +4094,13 @@ def dashboard(
 
         with st.expander("How each stage is decided"):
             st.markdown(
-                "- **cis-MR**: this flow starts from the proteins that already passed; the "
-                "much larger screening drop-off across every tested protein is the funnel in "
-                "the Overview tab.\n"
+                "- **All proteins**: every protein with its own file in this pQTL dataset's "
+                "panel, whether or not it was ever instrumentable.\n"
+                "- **cis-MR eligible**: at least 1 retained instrument after the pipeline's own "
+                "instrument-selection filters (P < 5E-8 and/or F >= 10, then LD clumping and "
+                "Steiger filtering); a protein with none is dropped before cis-MR ever runs.\n"
+                "- **cis-MR passed**: of those eligible, the ones clearing the MR FDR and "
+                "Cochran Q thresholds set in the sidebar.\n"
                 "- **pQTL–GWAS COLOC**: passes on the posterior-probability threshold set in "
                 "the sidebar. PWCoCo (a conditional-analysis variant of COLOC, see the "
                 "**PWCoCo** tab) runs alongside it on the same targets: passing *either* "
@@ -4108,43 +4138,53 @@ def dashboard(
             # without wrapping), `name` is the formal stage name used on hover
             # and in the selector.
             sankey_groups = [
-                dict(key="mr", column=0, name="cis-MR passed", label="cis-MR passed",
+                dict(key="all_panel", column=0, name="All proteins in pQTL panel", label="All proteins",
+                     proteins=all_panel_proteins_set, color=STATUS_MUTED, dropout=False),
+                dict(key="cis_mr_eligible", column=1, name="Eligible for cis-MR", label="cis-MR eligible",
+                     proteins=cis_mr_eligible_set, color=STATUS_MUTED, dropout=False),
+                dict(key="not_eligible", column=1, name="Not eligible for cis-MR", label="Not eligible",
+                     proteins=not_eligible_set, color=STATUS_CRITICAL, dropout=True),
+                dict(key="mr", column=2, name="cis-MR passed", label="cis-MR passed",
                      proteins=mr_pass_proteins, color=STATUS_MUTED, dropout=False),
-                dict(key="coloc_support_both", column=1, name="COLOC + PWCoCo agree", label="Both methods",
+                dict(key="cis_mr_fail", column=2, name="Eligible, but did not pass cis-MR", label="Did not pass",
+                     proteins=cis_mr_fail_set, color=STATUS_CRITICAL, dropout=True),
+                dict(key="coloc_support_both", column=3, name="COLOC + PWCoCo agree", label="Both methods",
                      proteins=coloc_support_both_set, color=COLOC_SUPPORT_BOTH_COLOR, dropout=False),
-                dict(key="coloc_support_coloc_only", column=1, name="COLOC passed, PWCoCo did not", label="COLOC only",
+                dict(key="coloc_support_coloc_only", column=3, name="COLOC passed, PWCoCo did not", label="COLOC only",
                      proteins=coloc_support_coloc_only_set, color=COLOC_SUPPORT_COLOC_ONLY_COLOR, dropout=False),
-                dict(key="coloc_support_pwcoco_only", column=1, name="PWCoCo passed, COLOC did not", label="PWCoCo only",
+                dict(key="coloc_support_pwcoco_only", column=3, name="PWCoCo passed, COLOC did not", label="PWCoCo only",
                      proteins=coloc_support_pwcoco_only_set, color=COLOC_SUPPORT_PWCOCO_ONLY_COLOR, dropout=False),
-                dict(key="coloc_fail", column=1, name="Neither COLOC nor PWCoCo passed", label="Neither",
+                dict(key="coloc_fail", column=3, name="Neither COLOC nor PWCoCo passed", label="Neither",
                      proteins=coloc_fail_set, color=STATUS_CRITICAL, dropout=True),
-                dict(key="finngen_pass", column=2, name="FinnGen safety passed", label="FinnGen passed",
+                dict(key="finngen_pass", column=4, name="FinnGen safety passed", label="FinnGen passed",
                      proteins=finngen_pass_set, color=STATUS_GOOD, dropout=False),
-                dict(key="finngen_fail", column=2, name="FinnGen safety failed", label="FinnGen failed",
+                dict(key="finngen_fail", column=4, name="FinnGen safety failed", label="FinnGen failed",
                      proteins=finngen_fail_set, color=STATUS_CRITICAL, dropout=True),
-                dict(key="ukb_pass", column=3, name="UKB safety passed", label="UKB passed",
+                dict(key="ukb_pass", column=5, name="UKB safety passed", label="UKB passed",
                      proteins=ukb_pass_set, color=STATUS_GOOD, dropout=False),
-                dict(key="ukb_fail", column=3, name="UKB safety failed", label="UKB failed",
+                dict(key="ukb_fail", column=5, name="UKB safety failed", label="UKB failed",
                      proteins=ukb_fail_set, color=STATUS_CRITICAL, dropout=True),
-                dict(key="smr_both", column=4, name="SMR bulk + single-cell", label="Bulk + single-cell",
+                dict(key="smr_both", column=6, name="SMR bulk + single-cell", label="Bulk + single-cell",
                      proteins=both_set, color=SANKEY_BOTH_COLOR, dropout=False),
-                dict(key="smr_bulk", column=4, name="SMR bulk only", label="Bulk only",
+                dict(key="smr_bulk", column=6, name="SMR bulk only", label="Bulk only",
                      proteins=bulk_only_set, color=SANKEY_BULK_COLOR, dropout=False),
-                dict(key="smr_sc", column=4, name="SMR single-cell only", label="Single-cell only",
+                dict(key="smr_sc", column=6, name="SMR single-cell only", label="Single-cell only",
                      proteins=sc_only_set, color=SANKEY_SC_COLOR, dropout=False),
-                dict(key="smr_none", column=4, name="SMR: no support", label="No SMR support",
+                dict(key="smr_none", column=6, name="SMR: no support", label="No SMR support",
                      proteins=neither_set, color=STATUS_MUTED, dropout=True),
-                dict(key="three_trait_both", column=5, name="HyPrColoc AND PWCoCo-QTL triangulation agree", label="Both methods",
+                dict(key="three_trait_both", column=7, name="HyPrColoc AND PWCoCo-QTL triangulation agree", label="Both methods",
                      proteins=three_trait_both_set, color=COLOC_SUPPORT_BOTH_COLOR, dropout=False),
-                dict(key="three_trait_hyprcoloc_only", column=5, name="HyPrColoc passed, PWCoCo-QTL did not triangulate", label="HyPrColoc only",
+                dict(key="three_trait_hyprcoloc_only", column=7, name="HyPrColoc passed, PWCoCo-QTL did not triangulate", label="HyPrColoc only",
                      proteins=three_trait_hyprcoloc_only_set, color=COLOC_SUPPORT_COLOC_ONLY_COLOR, dropout=False),
-                dict(key="three_trait_pwcoco_qtl_only", column=5, name="PWCoCo-QTL triangulated, HyPrColoc did not", label="PWCoCo-QTL only",
+                dict(key="three_trait_pwcoco_qtl_only", column=7, name="PWCoCo-QTL triangulated, HyPrColoc did not", label="PWCoCo-QTL only",
                      proteins=three_trait_pwcoco_qtl_only_set, color=COLOC_SUPPORT_PWCOCO_ONLY_COLOR, dropout=False),
-                dict(key="three_trait_fail", column=5, name="Neither HyPrColoc nor PWCoCo-QTL supported", label="Neither",
+                dict(key="three_trait_fail", column=7, name="Neither HyPrColoc nor PWCoCo-QTL supported", label="Neither",
                      proteins=three_trait_fail_set, color=STATUS_CRITICAL, dropout=True),
             ]
 
             sankey_edges = [
+                ("all_panel", "cis_mr_eligible"), ("all_panel", "not_eligible"),
+                ("cis_mr_eligible", "mr"), ("cis_mr_eligible", "cis_mr_fail"),
                 ("mr", "coloc_support_both"), ("mr", "coloc_support_coloc_only"),
                 ("mr", "coloc_support_pwcoco_only"), ("mr", "coloc_fail"),
                 ("coloc_support_both", "finngen_pass"), ("coloc_support_both", "finngen_fail"),
@@ -4171,21 +4211,70 @@ def dashboard(
             # left of its nodes rather than letting them run into the margin - so
             # the right margin stays thin and the gap before the last column is the
             # widest, giving those flipped labels room to sit without overlapping
-            # the SMR column's nodes. The early columns (mr -> coloc_support ->
-            # finngen) carry the widest ribbons (the biggest drop-offs happen
-            # here), which used to visually cover the trailing "(n)" on each
-            # label - widened those gaps specifically rather than spacing every
-            # column evenly.
-            column_x = [0.02, 0.19, 0.37, 0.55, 0.68, 0.99]
+            # the SMR column's nodes. The earliest columns (all proteins -> cis-MR
+            # eligible -> cis-MR passed -> coloc_support) carry by far the widest
+            # ribbons - the panel-to-eligible and eligible-to-passed drop-offs are
+            # routinely 10-100x, dwarfing every later stage's own drop-off - which
+            # used to visually cover the trailing "(n)" on each label - widened
+            # those gaps specifically rather than spacing every column evenly.
+            column_x = [0.02, 0.15, 0.27, 0.40, 0.53, 0.65, 0.78, 0.99]
 
-            node_values = [len(group["proteins"]) for group in drawn]
-            node_labels = [f"{group['label']} ({value})" for group, value in zip(drawn, node_values)]
+            # true, un-transformed counts - shown on the node itself (as a
+            # 2nd, smaller line under the name) and in hover. Stacking the
+            # count under the name rather than beside it ("Name (1,234)")
+            # keeps a node's on-screen footprint as wide as its name alone,
+            # so 8 columns of labelled nodes still fit a normal dashboard
+            # viewport without 1 column's count running into the next
+            # column's node
+            node_counts = [len(group["proteins"]) for group in drawn]
+            node_labels = [
+                f"{group['label']}<br><span style='font-size:9px;color:#6b6b6b'>{value:,}</span>"
+                for group, value in zip(drawn, node_counts)
+            ]
             node_colors = [group["color"] for group in drawn]
             node_x = [column_x[group["column"]] for group in drawn]
             node_hover = [
                 f"<b>{group['name']}: {value} target(s)</b><br><br>"
                 f"{format_protein_list_html(group['proteins'])}"
-                for group, value in zip(drawn, node_values)
+                for group, value in zip(drawn, node_counts)
+            ]
+
+            edges = [
+                (node_index[source], node_index[target])
+                for source, target in sankey_edges
+                if source in node_index and target in node_index
+            ]
+
+            # the full pQTL panel (thousands of proteins) now sits on the same
+            # diagram as stages with single-digit/low-tens counts (e.g. "COLOC
+            # only"): drawing ribbon width proportional to the raw count makes
+            # everything from "cis-MR passed" onward an unreadable sliver under
+            # the panel-scale ribbons. log1p compresses that ~3,000x spread down
+            # to a readable range while staying monotonic (so bigger stages
+            # still draw wider than smaller ones) - the same log-scale fix
+            # already used for this exact problem on the Overview funnel chart.
+            # Labels/hover above stay on the true counts; only ribbon width and
+            # node layout below use this compressed value.
+            raw_edge_values = [
+                len(drawn[source]["proteins"] & drawn[target]["proteins"])
+                for source, target in edges
+            ]
+            visual_edge_values = [math.log1p(value) for value in raw_edge_values]
+
+            # a nonlinear transform breaks exact flow conservation (log1p(a) +
+            # log1p(b) != log1p(a + b)), so a node's incoming and outgoing
+            # ribbons no longer sum to the same visual total - take whichever
+            # side is larger as that node's own visual weight for layout, so
+            # the smaller side's ribbons simply sit inset within it rather than
+            # the node being sized too small to hold them
+            outgoing_sums = [0.0] * len(drawn)
+            incoming_sums = [0.0] * len(drawn)
+            for (source, target), value in zip(edges, visual_edge_values):
+                outgoing_sums[source] += value
+                incoming_sums[target] += value
+            node_visual_weights = [
+                max(outgoing_sums[index], incoming_sums[index]) or node_counts[index]
+                for index in range(len(drawn))
             ]
 
             # `drawn` is already pass-lane-first within each column, so taking
@@ -4194,17 +4283,31 @@ def dashboard(
                 [node_index[group["key"]] for group in drawn if group["column"] == column]
                 for column in range(len(column_x))
             ]
-            node_y = layout_sankey_columns(column_indices, node_values, len(drawn))
 
-            edges = [
-                (node_index[source], node_index[target])
-                for source, target in sankey_edges
-                if source in node_index and target in node_index
-            ]
+            # layout_sankey_columns sizes every column against 1 shared scale
+            # (the biggest column's own total), which is exactly right when
+            # values are literal counts - but the pQTL-panel columns always
+            # carry the biggest total here, so later columns (far fewer
+            # surviving targets) only fill a fraction of the plot height,
+            # leaving them stranded near the top with dead space below. Since
+            # only the RELATIVE size of nodes within the same column still
+            # needs to be right (the ribbons already carry the real cross-
+            # column drop-off), rescale each column's own weights up to a
+            # shared total first, so every column uses the full height
+            column_fill_target = 100.0
+            layout_weights = list(node_visual_weights)
+            for indices in column_indices:
+                column_total = sum(node_visual_weights[index] for index in indices)
+                if column_total > 0:
+                    factor = column_fill_target / column_total
+                    for index in indices:
+                        layout_weights[index] = node_visual_weights[index] * factor
+
+            node_y = layout_sankey_columns(column_indices, layout_weights, len(drawn))
 
             sankey_fig = go.Figure(go.Sankey(
                 arrangement="fixed",
-                textfont=dict(size=11, color="#2b2b33"),
+                textfont=dict(size=10, color="#2b2b33"),
                 node=dict(
                     label=node_labels,
                     color=node_colors,
@@ -4212,25 +4315,25 @@ def dashboard(
                     hovertemplate="%{customdata}<extra></extra>",
                     x=node_x,
                     y=node_y,
-                    pad=18,
-                    thickness=14,
+                    pad=22,
+                    thickness=16,
                     line=dict(color="rgba(255,255,255,0.9)", width=0.8)
                 ),
                 link=dict(
                     source=[source for source, _ in edges],
                     target=[target for _, target in edges],
-                    # a target can have more than 1 source (e.g. the 3 SMR support
-                    # lanes all feed HyPrColoc), so each ribbon's value/hover must be
-                    # the proteins actually shared between its own source and target -
-                    # not the target's total, which would double- or triple-count them
-                    value=[
-                        len(drawn[source]["proteins"] & drawn[target]["proteins"])
-                        for source, target in edges
-                    ],
-                    # ribbons take the colour of where they land, and drop-out
-                    # ribbons sit fainter so the eye follows the surviving lane
+                    # width is drawn from the log1p-compressed value computed
+                    # above, not the raw intersection count (see the comment
+                    # by visual_edge_values) - the hover text just below still
+                    # states the real count
+                    value=visual_edge_values,
+                    # ribbons take the colour of where they land. Drop-out
+                    # ribbons sit much fainter and surviving ribbons sit bolder
+                    # than before, so the eye follows the surviving lane
+                    # straight through the diagram instead of getting lost in
+                    # the dropout background
                     color=[
-                        hex_to_rgba(node_colors[target], 0.25 if drawn[target]["dropout"] else 0.4)
+                        hex_to_rgba(node_colors[target], 0.14 if drawn[target]["dropout"] else 0.55)
                         for _, target in edges
                     ],
                     customdata=[
@@ -4245,12 +4348,17 @@ def dashboard(
 
             apply_chart_theme(
                 sankey_fig,
-                height=420,
-                margin=dict(l=14, r=20, t=18, b=18),
+                height=520,
+                margin=dict(l=14, r=26, t=18, b=18),
                 hoverlabel=dict(align="left", bgcolor="white", bordercolor="rgba(0,0,0,0.15)", font=dict(size=12))
             )
 
-            st.plotly_chart(sankey_fig, width="stretch")
+            # 8 columns of labelled nodes need real horizontal room that a
+            # narrow browser window/split screen can't always give without
+            # text overlapping the next column - a fixed pixel width (with
+            # the container scrolling horizontally if it's narrower) keeps
+            # every label legible instead of squeezing it to fit
+            st.plotly_chart(sankey_fig, width=1250)
 
         st.divider()
         st.subheader("Final target list")

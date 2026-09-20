@@ -77,6 +77,8 @@ sc_qtl_dataset: SingleBrain
 
 `pqtl_dataset`, `bulk_qtl_datasets` and `sc_qtl_dataset` must match a dataset registered in `assets/qtl_manifest.csv`. Registering a new one is a new row there, parquet, csv, tsv or txt all work, no code changes.
 
+A pQTL dataset registered with a wildcard path (one file per protein, for example `dat/pqtl/ukb_ppp/*.parquet`) has no gene column inside each file, so drugMR reads the protein identifier straight from the filename. Name every file `gene_id.parquet`, for example `A1BG_P04217.parquet`. `gene` is the gene symbol, and `id` is a stable per protein key, a UniProt accession, a SomaScan or Olink aptamer code, or any other identifier unique to that assay. The `id` half matters because one panel can carry several aptamers for the same gene, so `gene` alone would not be unique. Everything after the gene symbol is treated as one opaque key throughout the pipeline, so an identifier that itself contains underscores (deCODE's `A1BG_16561_9.parquet`, for example) is fine.
+
 When a registered QTL dataset has no SMR-format files, drugMR builds them chromosome by chromosome in `synthesis/qtl_esd/`, then moves each complete `.besd`/`.esi`/`.epi` triple into a dataset-specific subdirectory beside the manifest-declared source. That location must be writable. Subsequent phenotypes reuse those files without converting the QTL dataset again.
 
 ```bash
