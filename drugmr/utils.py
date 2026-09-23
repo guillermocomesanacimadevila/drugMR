@@ -290,6 +290,23 @@ def sample_overlap_relative_bias(lambda_funct, f_statistic):
     return percent
 
 
+def _find_gene_row(gene_id: str, ref: pl.DataFrame) -> dict:
+    for row in ref.iter_rows(named=True):
+        if gene_id == row["Symbol"]:
+            return row
+    for row in ref.iter_rows(named=True):
+        if gene_id in (row["Synonyms"] or "").split(","):
+            return row
+    # QTL datasets keyed by Ensembl ID (e.g. SingleBrain-style single-cell files),
+    # with or without a version suffix
+    base_id = str(gene_id).split(".")[0]
+    if base_id.startswith("ENSG"):
+        for row in ref.iter_rows(named=True):
+            if row["Ensembl_ID"] and str(row["Ensembl_ID"]).split(".")[0] == base_id:
+                return row
+    raise ValueError(f"Gene '{gene_id}' not found in reference")
+
+
 def extract_gene_coordinates(
         gene_id: str,
         ref: pl.DataFrame,
@@ -307,25 +324,12 @@ def extract_gene_coordinates(
     ensembl_id = None
 
     if genome_build == "hg38":
-        for row in ref.iter_rows(named=True):
-            if gene_id == row["Symbol"]:
-                start = int(row["Begin"])
-                end = int(row["End"])
-                chr = int(row["Chromosome"])
-                orientation = str(row["Orientation"])
-                ensembl_id = row["Ensembl_ID"]
-                break
-        else:
-            for row in ref.iter_rows(named=True):
-                if gene_id in (row["Synonyms"] or "").split(","):
-                    start = int(row["Begin"])
-                    end = int(row["End"])
-                    chr = int(row["Chromosome"])
-                    orientation = str(row["Orientation"])
-                    ensembl_id = row["Ensembl_ID"]
-                    break
-            else:
-                raise ValueError(f"Gene '{gene_id}' not found in reference")
+        row = _find_gene_row(gene_id, ref)
+        start = int(row["Begin"])
+        end = int(row["End"])
+        chr = int(row["Chromosome"])
+        orientation = str(row["Orientation"])
+        ensembl_id = row["Ensembl_ID"]
 
         accum_dict = {
             "ORIENTATION": orientation,
@@ -333,6 +337,7 @@ def extract_gene_coordinates(
             "START": start,
             "END": end,
             "ENSEMBL_ID": ensembl_id,
+            "SYMBOL": row["Symbol"],
         }
         df = pl.DataFrame(accum_dict)
         return df
@@ -350,25 +355,12 @@ def extract_gene_coordinates(
                 )
             return mapped[0][1]
 
-        for row in ref.iter_rows(named=True):
-            if gene_id == row["Symbol"]:
-                chr = str(row["Chromosome"])
-                start = lift_position(chr, row["Begin"])
-                end = lift_position(chr, row["End"])
-                orientation = str(row["Orientation"])
-                ensembl_id = row["Ensembl_ID"]
-                break
-        else:
-            for row in ref.iter_rows(named=True):
-                if gene_id in (row["Synonyms"] or "").split(","):
-                    chr = str(row["Chromosome"])
-                    start = lift_position(chr, row["Begin"])
-                    end = lift_position(chr, row["End"])
-                    orientation = str(row["Orientation"])
-                    ensembl_id = row["Ensembl_ID"]
-                    break
-            else:
-                raise ValueError(f"Gene '{gene_id}' not found in reference")
+        row = _find_gene_row(gene_id, ref)
+        chr = str(row["Chromosome"])
+        start = lift_position(chr, row["Begin"])
+        end = lift_position(chr, row["End"])
+        orientation = str(row["Orientation"])
+        ensembl_id = row["Ensembl_ID"]
 
         accum_dict = {
             "ORIENTATION": orientation,
@@ -376,6 +368,7 @@ def extract_gene_coordinates(
             "START": start,
             "END": end,
             "ENSEMBL_ID": ensembl_id,
+            "SYMBOL": row["Symbol"],
         }
         df = pl.DataFrame(accum_dict)
         return df

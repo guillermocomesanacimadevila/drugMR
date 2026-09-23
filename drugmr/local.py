@@ -141,8 +141,10 @@ def results(
     db_script: str = "bin/load_db_into_postgres.py",
     write_secrets_script: str = "bin/write_streamlit_secrets.py",
     port_number: int = 5433,
+    runs_root: str = "runs",
 ):
     project_root = Path(__file__).resolve().parents[1]
+    runs_dir = Path(runs_root) if Path(runs_root).is_absolute() else project_root / runs_root
     config_path = Path(config)
     if not config_path.is_absolute():
         config_path = project_root / config_path
@@ -156,23 +158,24 @@ def results(
     # latest-successful-run behaviour.
     run_id = None
     if config_path.name == "params.lock.yaml":
+        # the lock file sits at <runs_root>/<run_id>/params.lock.yaml, so its own
+        # location identifies both the run and the runs folder it belongs to
         candidate_run_id = config_path.parent.name
-        candidate_manifest = paths.run_manifest_path(
-            candidate_run_id, root=str(project_root / "runs")
-        )
+        candidate_manifest = config_path.parent / "manifest.json"
         if candidate_manifest.exists():
             run_id = candidate_run_id
+            runs_dir = config_path.parent.parent
 
     if run_id is None:
         run_id = registry.get_latest_run_id(
-            pheno_id, pqtl_dataset, root=str(project_root / "runs")
+            pheno_id, pqtl_dataset, root=str(runs_dir)
         )
     if run_id is None:
         raise FileNotFoundError(
             f"No recorded run found for pheno_id={pheno_id!r}, pqtl_dataset={pqtl_dataset!r}. "
             "Run dm.local(config=...) (or dm.hpc(...)) first."
         )
-    out_dir = str(paths.run_results_dir(run_id, root=str(project_root / "runs")))
+    out_dir = str(paths.run_results_dir(run_id, root=str(runs_dir)))
 
     mr_res = project_root / paths.mr_out(pqtl_dataset, pheno_id, out_dir)
     coloc_res = project_root / paths.coloc_out(pqtl_dataset, pheno_id, out_dir)
@@ -212,6 +215,8 @@ def results(
             pqtl_dataset,
             "--table",
             "cis_mr_results",
+            "--runs_root",
+            str(runs_dir),
         ],
         check=True,
     )
@@ -232,6 +237,8 @@ def results(
             pqtl_dataset,
             "--table",
             "coloc_results",
+            "--runs_root",
+            str(runs_dir),
         ],
         check=True,
     )
@@ -273,6 +280,8 @@ def results(
             pqtl_dataset,
             "--run_id",
             run_id,
+            "--runs_root",
+            str(runs_dir),
         ],
         cwd=str(project_root),
         env=dashboard_env,
@@ -669,6 +678,9 @@ def local(config: str, run_id: str = None):
                     "--wald_fdr_q", str(wald_fdr_q),
                     "--ivw_fdr_q", str(ivw_fdr_q),
                     "--cochran_q_pval", str(cochran_q_pval),
+                    "--egger_intercept_pval_min", str(egger_intercept_pval_min),
+                    "--pp4_threshold", str(pp4_threshold),
+                    "--pwcoco_pp4_threshold", str(pwcoco_pp4_threshold),
                     "--p_qtl_smr", str(p_qtl_smr),
                     "--p_qtl_heidi", str(p_qtl_heidi),
                     "--diff_freq_prop", str(diff_freq_prop),
@@ -702,6 +714,9 @@ def local(config: str, run_id: str = None):
                 "--wald_fdr_q", str(wald_fdr_q),
                 "--ivw_fdr_q", str(ivw_fdr_q),
                 "--cochran_q_pval", str(cochran_q_pval),
+                "--egger_intercept_pval_min", str(egger_intercept_pval_min),
+                "--pp4_threshold", str(pp4_threshold),
+                "--pwcoco_pp4_threshold", str(pwcoco_pp4_threshold),
                 "--p_qtl_smr", str(p_qtl_smr),
                 "--p_qtl_heidi", str(p_qtl_heidi),
                 "--diff_freq_prop", str(diff_freq_prop),

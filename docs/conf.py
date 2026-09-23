@@ -7,6 +7,9 @@ extensions = [
     "myst_parser",
 ]
 
+# lets Markdown links point at a section by its heading, e.g. getting-started.md#try-the-demo
+myst_heading_anchors = 3
+
 source_suffix = {
     ".md": "markdown",
 }

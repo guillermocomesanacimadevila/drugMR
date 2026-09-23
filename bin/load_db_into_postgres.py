@@ -52,16 +52,18 @@ class PostgresLoader:
     def __init__(
             self,
             run_id: str,
-            db_id: str = None):
+            db_id: str = None,
+            runs_root: str = "runs"):
 
         self.run_id = run_id
         self.engine = get_engine(db_id=db_id)
-        self.manifest = self._load_manifest(run_id)
+        self.manifest = self._load_manifest(run_id, runs_root)
         self._ensure_run_row()
 
     @staticmethod
-    def _load_manifest(run_id: str) -> dict:
-        manifest_path = paths.run_manifest_path(run_id, root=str(PROJECT_ROOT / "runs"))
+    def _load_manifest(run_id: str, runs_root: str = "runs") -> dict:
+        root = Path(runs_root) if Path(runs_root).is_absolute() else PROJECT_ROOT / runs_root
+        manifest_path = paths.run_manifest_path(run_id, root=str(root))
         if not manifest_path.exists():
             raise FileNotFoundError(f"No manifest found for run '{run_id}': {manifest_path}")
         with open(manifest_path) as f:
@@ -118,9 +120,10 @@ def main():
     p.add_argument("--pqtl_dataset", required=True, type=str)
     p.add_argument("--table", required=True, type=str)
     p.add_argument("--db_id", required=False, type=str, default=None)
+    p.add_argument("--runs_root", required=False, type=str, default="runs")
     args = p.parse_args()
 
-    loader = PostgresLoader(run_id=args.run_id, db_id=args.db_id)
+    loader = PostgresLoader(run_id=args.run_id, db_id=args.db_id, runs_root=args.runs_root)
     loader.load_table(
         results_file=args.results_file,
         pqtl_dataset=args.pqtl_dataset,

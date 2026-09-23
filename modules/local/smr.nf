@@ -51,6 +51,9 @@ process SMR_BULK {
         --wald_fdr_q ${meta.gates.cis_mr.wald_fdr_q} \\
         --ivw_fdr_q ${meta.gates.cis_mr.ivw_fdr_q} \\
         --cochran_q_pval ${meta.gates.cis_mr.cochran_q_pval} \\
+        --egger_intercept_pval_min ${meta.gates.cis_mr.egger_intercept_pval_min} \\
+        --pp4_threshold ${meta.gates.coloc.pp4_threshold} \\
+        --pwcoco_pp4_threshold ${meta.gates.pwcoco.pp4_threshold} \\
         --p_qtl_smr ${meta.gates.smr.p_qtl_smr} \\
         --p_qtl_heidi ${meta.gates.smr.p_qtl_heidi} \\
         --diff_freq_prop ${meta.gates.smr.diff_freq_prop ?: 0.30} \\
@@ -108,6 +111,9 @@ process SMR_SC {
         --wald_fdr_q ${meta.gates.cis_mr.wald_fdr_q} \\
         --ivw_fdr_q ${meta.gates.cis_mr.ivw_fdr_q} \\
         --cochran_q_pval ${meta.gates.cis_mr.cochran_q_pval} \\
+        --egger_intercept_pval_min ${meta.gates.cis_mr.egger_intercept_pval_min} \\
+        --pp4_threshold ${meta.gates.coloc.pp4_threshold} \\
+        --pwcoco_pp4_threshold ${meta.gates.pwcoco.pp4_threshold} \\
         --p_qtl_smr ${meta.gates.smr.p_qtl_smr} \\
         --p_qtl_heidi ${meta.gates.smr.p_qtl_heidi} \\
         --diff_freq_prop ${meta.gates.smr.diff_freq_prop ?: 0.30} \\

@@ -7,6 +7,7 @@
 ## Documentation
 
 - [Install](getting-started.md): set up the pinned environment and choose a container runtime.
+- [Try the demo](getting-started.md#try-the-demo): run every stage in a few minutes on a small synthetic [dataset](https://doi.org/10.5281/zenodo.22917384).
 - [Configure a run](configuration.md): define an outcome GWAS, register QTL datasets, and set analysis thresholds.
 - [Run the pipeline](running.md): launch and monitor an analysis.
 - [Results and dashboard](results-dashboard.md): fetch completed runs, load PostgreSQL, and explore the Streamlit dashboard. `notebooks/00_drugmr.ipynb` provides a worked notebook version of this same step.

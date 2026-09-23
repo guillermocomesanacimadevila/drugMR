@@ -44,7 +44,7 @@ workflow {
             "--image_name", "${params.image_name}",
             "--host", host,
             "--status", status,
-            "--params_json", groovy.json.JsonOutput.toJson(params.inputs[0])
+            "--params_json", groovy.json.JsonOutput.toJson(params.inputs[0] + [manifest_path: params.manifest_path])
         ]
         def proc = cmd.execute(["PYTHONPATH=${projectDir}"], new File("${projectDir}"))
         proc.waitFor()

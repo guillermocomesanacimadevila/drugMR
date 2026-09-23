@@ -10,6 +10,7 @@ from statsmodels.stats.multitest import fdrcorrection
 
 from drugmr import paths
 from drugmr.smr import SMRUtils
+from drugmr.utils import grab_cis_mr_hits
 
 _smr_utils = SMRUtils(manifest_path=paths.DEFAULT_QTL_MANIFEST_PATH)  # ncbi_ref_path not needed - BESD is always pre-built for registered datasets, ETL-from-scratch never triggers
 
@@ -46,32 +47,35 @@ def extract_promising_targets(
         wald_fdr_q: float = 0.05,
         ivw_fdr_q: float = 0.05,
         cochran_q_pval: float = 0.05,
-        pp4_threshold: float = 0.75,
+        pp4_threshold: float = 0.7,
+        pwcoco_pp4_threshold: float | None = None,
+        egger_intercept_pval_min: float = 0,
 ):
     # extract stuff from here
     cis_mr_res = paths.mr_out(pqtl_dataset, pheno_id, local_results_dir)
     cis_mr_df = pl.read_csv(cis_mr_res, separator="\t")
     coloc_res = coloc_file or paths.coloc_out(pqtl_dataset, pheno_id, local_results_dir)
     coloc_df = pl.read_csv(coloc_res, separator="\t")
+    if pwcoco_pp4_threshold is None:
+        pwcoco_pp4_threshold = pp4_threshold
 
-    wald_hits = []
-    ivw_hits = []
+    # the same cis-MR gate COLOC and PWCoCo already applied (drugmr.utils), so a
+    # protein that passed cis-MR and colocalised is never dropped again here
+    mr_passing = set(grab_cis_mr_hits(
+        cis_mr_res,
+        wald_fdr_q=wald_fdr_q,
+        ivw_fdr_q=ivw_fdr_q,
+        cochran_q_pval=cochran_q_pval,
+        egger_intercept_pval_min=egger_intercept_pval_min,
+    ))
+    single_instrument = set(cis_mr_df.filter(pl.col("n_instruments") == 1)["protein"].to_list())
+    wald_hits = [p for p in cis_mr_df["protein"].to_list() if p in mr_passing and p in single_instrument]
+    ivw_hits = [p for p in cis_mr_df["protein"].to_list() if p in mr_passing and p not in single_instrument]
     coloc_hits = set()
-
-    for row in cis_mr_df.iter_rows(named=True):
-        # separate where n_instruments == 1 or > 1
-        n_instruments = row["n_instruments"]
-        wald_fdr = row["Wald_FDR_q"]
-        ivw_fdr = row["IVW_FDR_q"]
-        cochran_q = row["Q_pval"]
-        if n_instruments == 1 and wald_fdr is not None and wald_fdr < wald_fdr_q:
-            wald_hits.append(row["protein"])
-        elif (n_instruments > 1 and ivw_fdr is not None and ivw_fdr < ivw_fdr_q and cochran_q is not None and cochran_q > cochran_q_pval):
-            ivw_hits.append(row["protein"])
 
     for row in coloc_df.iter_rows(named=True):
         pp4 = row["PP.H4.abf"]
-        if pp4 is not None and pp4 > pp4_threshold:
+        if pp4 is not None and pp4 >= pp4_threshold:
             coloc_hits.add(row["protein"])
 
     # PWCoCo (conditional coloc) - complementary to standard COLOC above, not a
@@ -85,7 +89,7 @@ def extract_promising_targets(
         pwcoco_df = pl.read_csv(pwcoco_res, separator="\t")
         for row in pwcoco_df.iter_rows(named=True):
             h4 = row["H4"]
-            if h4 is not None and h4 > pp4_threshold:
+            if h4 is not None and h4 >= pwcoco_pp4_threshold:
                 coloc_hits.add(row["protein"])
     else:
         print(f"[TRACKING] No PWCoCo output found at {pwcoco_res}; using standard COLOC hits only...")
@@ -332,40 +336,64 @@ def pull_original_sc_qtl_beta(target_smr: pl.DataFrame, qtl_dataset: str, cell: 
     return target_smr
 
 
-def run_single_cell_smr(pqtl_dataset: str, qtl_dataset: str, pheno_id: str, sumstats: str, ref_bfile: str, maf: float, local_results_dir: str = "results", synthesis_dir: str = "synthesis", coloc_file: str | None = None, wald_fdr_q: float = 0.05, ivw_fdr_q: float = 0.05, cochran_q_pval: float = 0.05, pp4_threshold: float = 0.75, p_qtl_smr: float = 5.0e-8, p_qtl_heidi: float = 1.57e-3, diff_freq_prop: float = 0.3):
+def run_single_cell_smr(pqtl_dataset: str, qtl_dataset: str, pheno_id: str, sumstats: str, ref_bfile: str, maf: float, local_results_dir: str = "results", synthesis_dir: str = "synthesis", coloc_file: str | None = None, wald_fdr_q: float = 0.05, ivw_fdr_q: float = 0.05, cochran_q_pval: float = 0.05, pp4_threshold: float = 0.7, p_qtl_smr: float = 5.0e-8, p_qtl_heidi: float = 1.57e-3, diff_freq_prop: float = 0.3, pwcoco_pp4_threshold: float | None = None, egger_intercept_pval_min: float = 0):
     ref_bfile = Path(ref_bfile)
     qtl_temp = qtl_dataset.lower()
 
-    if qtl_temp == "singlebrain":
-        temp_sumstats = prepare_smr_gwas(sumstats, pheno_id, local_results_dir)
+    temp_sumstats = prepare_smr_gwas(sumstats, pheno_id, local_results_dir)
 
-        # manifest-driven BESD discovery (detect_qtl_split finds the real
-        # SMR_ready/<cell>/<cell>.besd triples) instead of a hardcoded cell
-        # list + manual path/existence checks - verified byte-identical
-        # against the old hardcoded discovery for all 7 real cell types
-        besd_prefixes = _smr_utils.ensure_besd(qtl_temp, esd_dir=Path(synthesis_dir) / "qtl_esd")
-        cell_types = sorted(prefix.name for prefix in besd_prefixes.values())
+    # manifest-driven BESD discovery (detect_qtl_split finds the real
+    # SMR_ready/<cell>/<cell>.besd triples) instead of a hardcoded cell
+    # list + manual path/existence checks - verified byte-identical
+    # against the old hardcoded discovery for all 7 real cell types
+    besd_prefixes = _smr_utils.ensure_besd(qtl_temp, esd_dir=Path(synthesis_dir) / "qtl_esd")
+    # group BESD prefixes by cell type. SingleBrain ships 1 pre-built BESD per cell
+    # (SMR_ready/<cell>/<cell>), while a BESD the pipeline builds itself is split per
+    # chromosome (<cell>/chr<N>); in both layouts the prefix's parent folder is the cell
+    cell_prefixes = {}
+    for prefix in besd_prefixes.values():
+        cell_prefixes.setdefault(prefix.parent.name, []).append(prefix)
+    cell_types = sorted(cell_prefixes)
 
-        for cell in cell_types:
-            beqtl_summary = next(p for p in besd_prefixes.values() if p.name == cell)
-            print(f"[TRACKING] Cell type {cell} found!")
+    for cell in cell_types:
+        print(f"[TRACKING] Cell type {cell} found!")
 
-            # check whether SMR has already been ran for trait X in cell type Y - this
-            # depends only on (pheno_id, qtl_dataset, cell), never on pqtl_dataset, so
-            # it's looked up under the shared synthesis/ tree (not local_results_dir)
-            # and reused by every pqtl_dataset run instead of being recomputed per run
-            smr_res = paths.smr_raw_dir(f"sc/{qtl_dataset}/{cell}", pheno_id, synthesis_dir)
-            existing_smr = [f for f in smr_res.glob(f"*{pheno_id}*.smr") if f.stat().st_size > 0]
+        # check whether SMR has already been ran for trait X in cell type Y - this
+        # depends only on (pheno_id, qtl_dataset, cell), never on pqtl_dataset, so
+        # it's looked up under the shared synthesis/ tree (not local_results_dir)
+        # and reused by every pqtl_dataset run instead of being recomputed per run
+        smr_res = paths.smr_raw_dir(f"sc/{qtl_dataset}/{cell}", pheno_id, synthesis_dir)
+        existing_smr = [f for f in smr_res.glob(f"*{pheno_id}*.smr") if f.stat().st_size > 0]
 
-            if len(existing_smr) > 0:
-                print(f"[TRACKING] SMR already completed for {pheno_id} in {cell} - skipping SMR")
-            else:
+        if len(existing_smr) > 0:
+            print(f"[TRACKING] SMR already completed for {pheno_id} in {cell} - skipping SMR")
+        elif len(cell_prefixes[cell]) == 1:
+            _smr_utils.run_smr(
+                pheno_id=pheno_id,
+                sumstats=temp_sumstats,
+                ref_bfile=ref_bfile,
+                beqtl_summary=cell_prefixes[cell][0],
+                qtl_dataset=f"sc/{qtl_dataset}/{cell}",
+                p_qtl_smr=p_qtl_smr,
+                p_qtl_heidi=p_qtl_heidi,
+                diff_freq_prop=diff_freq_prop,
+                thread_num=8,
+                maf=maf,
+                out_dir=synthesis_dir
+            )
+        else:
+            # per-chromosome BESD: run each, then write 1 genome-wide file per cell in
+            # the same place a single pre-built BESD's result goes, so the FDR step
+            # below is applied across the whole cell type rather than per chromosome
+            chr_smr_files = []
+            for prefix in sorted(cell_prefixes[cell], key=str):
+                part_label = f"sc_raw/{qtl_dataset}/{cell}/{prefix.name}"
                 _smr_utils.run_smr(
                     pheno_id=pheno_id,
                     sumstats=temp_sumstats,
                     ref_bfile=ref_bfile,
-                    beqtl_summary=beqtl_summary,
-                    qtl_dataset=f"sc/{qtl_dataset}/{cell}",
+                    beqtl_summary=prefix,
+                    qtl_dataset=part_label,
                     p_qtl_smr=p_qtl_smr,
                     p_qtl_heidi=p_qtl_heidi,
                     diff_freq_prop=diff_freq_prop,
@@ -373,110 +401,123 @@ def run_single_cell_smr(pqtl_dataset: str, qtl_dataset: str, pheno_id: str, sums
                     maf=maf,
                     out_dir=synthesis_dir
                 )
+                part_out = Path(f"{paths.smr_raw_prefix(part_label, pheno_id, synthesis_dir)}.smr")
+                if part_out.exists() and part_out.stat().st_size > 0:
+                    chr_smr_files.append(part_out)
+                else:
+                    print(f"[CONCERN] SMR produced no output for {cell} {prefix.name}")
+            if chr_smr_files:
+                cell_file = Path(f"{paths.smr_raw_prefix(f'sc/{qtl_dataset}/{cell}', pheno_id, synthesis_dir)}.smr")
+                cell_file.parent.mkdir(parents=True, exist_ok=True)
+                pl.concat([read_smr_tsv(f) for f in chr_smr_files], how="diagonal_relaxed").write_csv(cell_file, separator="\t")
+                print(f"[DONE] Saved genome-wide single-cell SMR results for {cell}: {cell_file}")
+            scratch_dir = Path(synthesis_dir) / "SMR" / "sc_raw" / qtl_dataset / cell
+            if scratch_dir.exists():
+                shutil.rmtree(scratch_dir)
 
-            # load SMR results
-            # saving into out_dir 1 results file per cell type for trait X
-            # synthesis/SMR/sc/SingleBrain/{cell}/{pheno_id}/...
-            smr_res = paths.smr_raw_dir(f"sc/{qtl_dataset}/{cell}", pheno_id, synthesis_dir)
-            for f in smr_res.glob("*.smr"):
-                if pheno_id in f.name:
-                    fdr_correct_smr_file(f, pheno_id, cell)
+        # load SMR results
+        # saving into out_dir 1 results file per cell type for trait X
+        # synthesis/SMR/sc/SingleBrain/{cell}/{pheno_id}/...
+        smr_res = paths.smr_raw_dir(f"sc/{qtl_dataset}/{cell}", pheno_id, synthesis_dir)
+        for f in smr_res.glob("*.smr"):
+            if pheno_id in f.name:
+                fdr_correct_smr_file(f, pheno_id, cell)
 
-        # delete temp GWAS .ma only after all cell types are ran
-        if temp_sumstats.exists():
-            temp_sumstats.unlink()
+    # delete temp GWAS .ma only after all cell types are ran
+    if temp_sumstats.exists():
+        temp_sumstats.unlink()
 
-        hits = extract_promising_targets(pheno_id=pheno_id, pqtl_dataset=pqtl_dataset, local_results_dir=local_results_dir, coloc_file=coloc_file, wald_fdr_q=wald_fdr_q, ivw_fdr_q=ivw_fdr_q, cochran_q_pval=cochran_q_pval, pp4_threshold=pp4_threshold)
-        # now extract all of the SMR data from the results for each cell type pertaining to those targets and store as a dataframe in results/SMR/dataset
-        # rows == 1 SMR result for target X on cell-type Y
-        # so 7 cell types x X targets in terms of rows
-        all_target_smr = []
+    hits = extract_promising_targets(pheno_id=pheno_id, pqtl_dataset=pqtl_dataset, local_results_dir=local_results_dir, coloc_file=coloc_file, wald_fdr_q=wald_fdr_q, ivw_fdr_q=ivw_fdr_q, cochran_q_pval=cochran_q_pval, pp4_threshold=pp4_threshold, pwcoco_pp4_threshold=pwcoco_pp4_threshold, egger_intercept_pval_min=egger_intercept_pval_min)
+    # now extract all of the SMR data from the results for each cell type pertaining to those targets and store as a dataframe in results/SMR/dataset
+    # rows == 1 SMR result for target X on cell-type Y
+    # so 7 cell types x X targets in terms of rows
+    all_target_smr = []
+    for cell in cell_types:
+        smr_res = paths.smr_raw_dir(f"sc/{qtl_dataset}/{cell}", pheno_id, synthesis_dir)
+        for f in smr_res.glob("*.smr"):
+            if pheno_id not in f.name:
+                continue
+            smr_df = read_smr_tsv(f)
+
+            # SMR usually calls the gene / probe column Probe
+            # match the gene part of GENE_UNIPROT targets to the SMR Probe column
+            if "Gene" not in smr_df.columns:
+                print(f"[CONCERN] Gene column not found in {f.name}")
+                continue
+
+            target_map = {
+                target.split("_")[0]: target for target in hits
+            }
+
+            target_genes = list(target_map.keys())
+
+            target_smr = (
+                smr_df
+                .filter(pl.col("Gene").is_in(target_genes))
+                .with_columns(
+                    pl.col("Gene").replace(target_map).alias("protein"),
+                    pl.lit(cell).alias("cell_type"),
+                    pl.lit("single_cell").alias("data_type"),
+                    pl.lit(pheno_id).alias("phenotype"),
+                    pl.lit(qtl_dataset).alias("qtl_dataset"),
+                    pl.lit(pqtl_dataset).alias("pqtl_dataset"),
+                    pl.lit(resolve_qtl_type(qtl_dataset)).alias("qtl_type")
+                )
+            )
+
+            target_smr = pull_original_sc_qtl_beta(target_smr, qtl_dataset, cell)
+
+            if target_smr.height > 0:
+                all_target_smr.append(target_smr)
+
+    out_file = paths.smr_sc_out(pqtl_dataset, pheno_id, qtl_dataset, local_results_dir)
+    os.makedirs(out_file.parent, exist_ok=True)
+
+    if len(all_target_smr) > 0:
+        final_smr_df = pl.concat(all_target_smr, how="diagonal_relaxed")
+        final_smr_df = align_to_risk_allele(final_smr_df)
+        final_smr_df.write_csv(out_file, separator="\t")
+        print(f"[TRACKING] Compiled promising target SMR results saved to {out_file}")
+    else:
+        # Zero upstream cis-MR/COLOC hits is a valid negative result.  The
+        # Nextflow process still promises a per-dataset TSV, so always
+        # materialise a schema-valid, header-only file instead of exiting
+        # successfully without the declared output.
+        empty = None
         for cell in cell_types:
-            smr_res = paths.smr_raw_dir(f"sc/{qtl_dataset}/{cell}", pheno_id, synthesis_dir)
-            for f in smr_res.glob("*.smr"):
-                if pheno_id not in f.name:
-                    continue
-                smr_df = read_smr_tsv(f)
-
-                # SMR usually calls the gene / probe column Probe
-                # match the gene part of GENE_UNIPROT targets to the SMR Probe column
-                if "Gene" not in smr_df.columns:
-                    print(f"[CONCERN] Gene column not found in {f.name}")
-                    continue
-
-                target_map = {
-                    target.split("_")[0]: target for target in hits
-                }
-
-                target_genes = list(target_map.keys())
-
-                target_smr = (
-                    smr_df
-                    .filter(pl.col("Gene").is_in(target_genes))
-                    .with_columns(
-                        pl.col("Gene").replace(target_map).alias("protein"),
-                        pl.lit(cell).alias("cell_type"),
-                        pl.lit("single_cell").alias("data_type"),
-                        pl.lit(pheno_id).alias("phenotype"),
-                        pl.lit(qtl_dataset).alias("qtl_dataset"),
-                        pl.lit(pqtl_dataset).alias("pqtl_dataset"),
-                        pl.lit(resolve_qtl_type(qtl_dataset)).alias("qtl_type")
-                    )
-                )
-
-                target_smr = pull_original_sc_qtl_beta(target_smr, qtl_dataset, cell)
-
-                if target_smr.height > 0:
-                    all_target_smr.append(target_smr)
-
-        out_file = paths.smr_sc_out(pqtl_dataset, pheno_id, qtl_dataset, local_results_dir)
-        os.makedirs(out_file.parent, exist_ok=True)
-
-        if len(all_target_smr) > 0:
-            final_smr_df = pl.concat(all_target_smr, how="diagonal_relaxed")
-            final_smr_df = align_to_risk_allele(final_smr_df)
-            final_smr_df.write_csv(out_file, separator="\t")
-            print(f"[TRACKING] Compiled promising target SMR results saved to {out_file}")
-        else:
-            # Zero upstream cis-MR/COLOC hits is a valid negative result.  The
-            # Nextflow process still promises a per-dataset TSV, so always
-            # materialise a schema-valid, header-only file instead of exiting
-            # successfully without the declared output.
-            empty = None
-            for cell in cell_types:
-                cell_dir = paths.smr_raw_dir(f"sc/{qtl_dataset}/{cell}", pheno_id, synthesis_dir)
-                source = next(
-                    (f for f in sorted(cell_dir.glob("*.smr")) if pheno_id in f.name),
-                    None,
-                )
-                if source is not None:
-                    empty = read_smr_tsv(source).head(0)
-                    break
-
-            # The raw file normally supplies the complete SMR schema. Keep a
-            # minimal fallback so even an unexpectedly absent raw result does
-            # not violate the workflow's output contract.
-            if empty is None:
-                empty = pl.DataFrame(schema={
-                    "Gene": pl.Utf8,
-                    "q_SMR": pl.Float64,
-                    "p_HEIDI": pl.Float64,
-                })
-
-            empty = empty.with_columns(
-                pl.lit(None, dtype=pl.Utf8).alias("protein"),
-                pl.lit(None, dtype=pl.Utf8).alias("cell_type"),
-                pl.lit("single_cell").alias("data_type"),
-                pl.lit(pheno_id).alias("phenotype"),
-                pl.lit(qtl_dataset).alias("qtl_dataset"),
-                pl.lit(pqtl_dataset).alias("pqtl_dataset"),
-                pl.lit(resolve_qtl_type(qtl_dataset)).alias("qtl_type"),
+            cell_dir = paths.smr_raw_dir(f"sc/{qtl_dataset}/{cell}", pheno_id, synthesis_dir)
+            source = next(
+                (f for f in sorted(cell_dir.glob("*.smr")) if pheno_id in f.name),
+                None,
             )
-            empty.write_csv(out_file, separator="\t")
-            print(
-                f"[TRACKING] No {pqtl_dataset} targets passed the cis-MR and "
-                f"colocalisation gates; wrote header-only SMR results to {out_file}"
-            )
+            if source is not None:
+                empty = read_smr_tsv(source).head(0)
+                break
+
+        # The raw file normally supplies the complete SMR schema. Keep a
+        # minimal fallback so even an unexpectedly absent raw result does
+        # not violate the workflow's output contract.
+        if empty is None:
+            empty = pl.DataFrame(schema={
+                "Gene": pl.Utf8,
+                "q_SMR": pl.Float64,
+                "p_HEIDI": pl.Float64,
+            })
+
+        empty = empty.with_columns(
+            pl.lit(None, dtype=pl.Utf8).alias("protein"),
+            pl.lit(None, dtype=pl.Utf8).alias("cell_type"),
+            pl.lit("single_cell").alias("data_type"),
+            pl.lit(pheno_id).alias("phenotype"),
+            pl.lit(qtl_dataset).alias("qtl_dataset"),
+            pl.lit(pqtl_dataset).alias("pqtl_dataset"),
+            pl.lit(resolve_qtl_type(qtl_dataset)).alias("qtl_type"),
+        )
+        empty.write_csv(out_file, separator="\t")
+        print(
+            f"[TRACKING] No {pqtl_dataset} targets passed the cis-MR and "
+            f"colocalisation gates; wrote header-only SMR results to {out_file}"
+        )
 
 
 # manifest-driven replacement for the old directory-scanning version - verified
@@ -611,7 +652,7 @@ def run_bulk_smr(pqtl_dataset: str, qtl_dataset: str, pheno_id: str, sumstats: s
 # pre-computed elsewhere (a dataset with no raw dat/bulk-eQTL directory). GTEx_v10
 # is tissue-resolved (1 file per tissue via rglob, same idea as single-cell's per-cell
 # loop); MetaBrain is flat (1 file for the dataset).
-def ingest_bulk_smr(pqtl_dataset: str, qtl_dataset: str, pheno_id: str, local_results_dir: str = "results", synthesis_dir: str = "synthesis", coloc_file: str | None = None, wald_fdr_q: float = 0.05, ivw_fdr_q: float = 0.05, cochran_q_pval: float = 0.05, pp4_threshold: float = 0.75):
+def ingest_bulk_smr(pqtl_dataset: str, qtl_dataset: str, pheno_id: str, local_results_dir: str = "results", synthesis_dir: str = "synthesis", coloc_file: str | None = None, wald_fdr_q: float = 0.05, ivw_fdr_q: float = 0.05, cochran_q_pval: float = 0.05, pp4_threshold: float = 0.7, pwcoco_pp4_threshold: float | None = None, egger_intercept_pval_min: float = 0):
     # same shared synthesis/ tree run_bulk_smr() writes to/checks - independent of
     # local_results_dir (this dataset's run-scoped out_dir) since the underlying SMR
     # computation is keyed only by (pheno_id, qtl_dataset), not pqtl_dataset
@@ -624,7 +665,7 @@ def ingest_bulk_smr(pqtl_dataset: str, qtl_dataset: str, pheno_id: str, local_re
 
     print(f"[TRACKING] Found {len(smr_files)} pre-computed bulk SMR file(s) for {qtl_dataset}")
 
-    hits = extract_promising_targets(pheno_id=pheno_id, pqtl_dataset=pqtl_dataset, local_results_dir=local_results_dir, coloc_file=coloc_file, wald_fdr_q=wald_fdr_q, ivw_fdr_q=ivw_fdr_q, cochran_q_pval=cochran_q_pval, pp4_threshold=pp4_threshold)
+    hits = extract_promising_targets(pheno_id=pheno_id, pqtl_dataset=pqtl_dataset, local_results_dir=local_results_dir, coloc_file=coloc_file, wald_fdr_q=wald_fdr_q, ivw_fdr_q=ivw_fdr_q, cochran_q_pval=cochran_q_pval, pp4_threshold=pp4_threshold, pwcoco_pp4_threshold=pwcoco_pp4_threshold, egger_intercept_pval_min=egger_intercept_pval_min)
     target_map = {
         target.split("_")[0]: target for target in hits
     }
@@ -885,7 +926,9 @@ def main():
     p.add_argument("--wald_fdr_q", type=float, default=0.05)
     p.add_argument("--ivw_fdr_q", type=float, default=0.05)
     p.add_argument("--cochran_q_pval", type=float, default=0.05)
-    p.add_argument("--pp4_threshold", type=float, default=0.75)
+    p.add_argument("--pp4_threshold", type=float, default=0.7)
+    p.add_argument("--pwcoco_pp4_threshold", type=float, default=None)
+    p.add_argument("--egger_intercept_pval_min", type=float, default=0)
     p.add_argument("--p_qtl_smr", type=float, default=5.0e-8)
     p.add_argument("--p_qtl_heidi", type=float, default=1.57e-3)
     p.add_argument("--diff_freq_prop", type=float, default=0.3)
@@ -955,7 +998,9 @@ def main():
             wald_fdr_q=args.wald_fdr_q,
             ivw_fdr_q=args.ivw_fdr_q,
             cochran_q_pval=args.cochran_q_pval,
-            pp4_threshold=args.pp4_threshold
+            pp4_threshold=args.pp4_threshold,
+            pwcoco_pp4_threshold=args.pwcoco_pp4_threshold,
+            egger_intercept_pval_min=args.egger_intercept_pval_min
         )
     else:
         run_single_cell_smr(
@@ -974,7 +1019,9 @@ def main():
             pp4_threshold=args.pp4_threshold,
             p_qtl_smr=args.p_qtl_smr,
             p_qtl_heidi=args.p_qtl_heidi,
-            diff_freq_prop=args.diff_freq_prop
+            diff_freq_prop=args.diff_freq_prop,
+            pwcoco_pp4_threshold=args.pwcoco_pp4_threshold,
+            egger_intercept_pval_min=args.egger_intercept_pval_min
         )
 
     if not args.skip_merge:

@@ -32,7 +32,7 @@ unzip ref.zip -d dat/ref
 rm ref.zip
 ```
 
-The Zenodo bundle only contains the reference panel (1000G LD reference, liftover chains, gene annotation). It does not include outcome GWAS or pQTL/eQTL cohort data. Those are typically access controlled (UKB-PPP, deCODE, etc.) and must be obtained directly from their respective providers, then registered in `assets/qtl_manifest.csv`. To try the pipeline immediately with no external data, run the bundled toy fixture: `nextflow run <path> -profile test,docker -params-file tests/data/params.yaml`.
+The Zenodo bundle only contains the reference panel (1000G LD reference, liftover chains, gene annotation). It does not include outcome GWAS or pQTL/eQTL cohort data. Those are typically access controlled (UKB-PPP, deCODE, etc.) and must be obtained directly from their respective providers, then registered in `assets/qtl_manifest.csv`. To try the pipeline without them, see [Try the demo](#try-the-demo).
 
 Activate the environment in every new terminal:
 
@@ -47,6 +47,28 @@ Confirm the installation:
 python -c 'import drugmr; print("drugMR is ready")'
 nextflow -version
 ```
+
+## Try the demo
+
+The [demo dataset](https://doi.org/10.5281/zenodo.22917384) is a small, fully synthetic set of inputs (20 proteins, one outcome GWAS, bulk and single-cell eQTL) with its own reference files, so it needs neither the reference bundle above nor any access-controlled data. It runs every stage in a few minutes. From the repository root:
+
+```bash
+wget -O drugmr_demo_v1.tar.gz "https://zenodo.org/records/22917384/files/drugmr_demo_v1.tar.gz?download=1"
+tar -xzf drugmr_demo_v1.tar.gz && rm drugmr_demo_v1.tar.gz
+
+nextflow run main.nf \
+    -profile demo,docker \
+    -params-file params/demo_params.yaml
+```
+
+The archive unpacks to `demo_data/`, and results are written to `runs_demo/`, apart from any real runs. Open them in the dashboard with:
+
+```python
+import drugmr as dm
+dm.results(config="params/demo_params.yaml", runs_root="runs_demo")
+```
+
+Each demo protein is designed to reach a known result at every stage, listed in `demo_data/expected_outcomes.tsv`. PheWAS queries FinnGen and UK Biobank live, so the demo needs an internet connection.
 
 ## Example: HPC installation
 

@@ -470,6 +470,10 @@ def run_smr_step(
     diff_freq_prop: float = 0.30,
     p_smr_threshold: float = 0.05,
     p_heidi_threshold: float = 0.01,
+    gene_annotation: str = "",
+    pp4_threshold: float = 0.7,
+    pwcoco_pp4_threshold: float = 0.7,
+    egger_intercept_pval_min: float = 0,
 ):
     remote, sif = get_remote_paths(user, remote_repo_root)
 
@@ -493,6 +497,9 @@ apptainer exec --bind "{remote}:/work" \\
     --wald_fdr_q {wald_fdr_q} \\
     --ivw_fdr_q {ivw_fdr_q} \\
     --cochran_q_pval {cochran_q_pval} \\
+    --egger_intercept_pval_min {egger_intercept_pval_min} \\
+    --pp4_threshold {pp4_threshold} \\
+    --pwcoco_pp4_threshold {pwcoco_pp4_threshold} \\
     --p_qtl_smr {p_qtl_smr} \\
     --p_qtl_heidi {p_qtl_heidi} \\
     --diff_freq_prop {diff_freq_prop} \\
@@ -926,6 +933,7 @@ def hpc(
     pqtl_dataset = cfg.pqtl_dataset
     ref_bfile = cfg.ref_bfile
     gene_annotation = cfg.ncbi_ref_path or ""
+    liftover_dir = cfg.liftover_dir
     snp_col = cfg.snp_col
     a1_col = cfg.a1_col
     a2_col = cfg.a2_col
@@ -1265,6 +1273,10 @@ def hpc(
                         diff_freq_prop=diff_freq_prop,
                         p_smr_threshold=p_smr_threshold,
                         p_heidi_threshold=p_heidi_threshold,
+                        gene_annotation=gene_annotation,
+                        pp4_threshold=pp4_threshold,
+                        pwcoco_pp4_threshold=pwcoco_pp4_threshold,
+                        egger_intercept_pval_min=egger_intercept_pval_min,
                     )
         else:
             print("[TRACKING] No bulk_qtl_datasets specified, skipping bulk SMR.")
@@ -1299,6 +1311,10 @@ def hpc(
                     diff_freq_prop=diff_freq_prop,
                     p_smr_threshold=p_smr_threshold,
                     p_heidi_threshold=p_heidi_threshold,
+                    gene_annotation=gene_annotation,
+                    pp4_threshold=pp4_threshold,
+                    pwcoco_pp4_threshold=pwcoco_pp4_threshold,
+                    egger_intercept_pval_min=egger_intercept_pval_min,
                 )
         else:
             print("[TRACKING] No sc_qtl_dataset specified, skipping single-cell SMR.")

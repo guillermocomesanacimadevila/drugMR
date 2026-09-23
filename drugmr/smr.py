@@ -339,7 +339,9 @@ class SMRUtils:
                     "ProbeID": probe_id,
                     "GeneticDistance": 0,
                     "ProbeBp": coords["START"][0],
-                    "Gene": gene,
+                    # SMR target matching works on gene symbols, so an Ensembl-keyed
+                    # dataset gets the reference symbol here (ProbeID keeps the Ensembl ID)
+                    "Gene": coords["SYMBOL"][0] if str(gene).startswith("ENSG") and coords["SYMBOL"][0] else gene,
                     "Orientation": coords["ORIENTATION"][0],
                     "PathOfEsd": str(esd_path.resolve()),
                 })

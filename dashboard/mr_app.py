@@ -17,6 +17,7 @@ import plotly.graph_objects as go
 import polars as pl
 import requests
 import streamlit as st
+import yaml
 from liftover import ChainFile
 from plotly.subplots import make_subplots
 
@@ -368,19 +369,37 @@ def legacy_resolve_dataset_files(project_dir: Path, phenotype: str, dataset_id: 
     }
 
 
-def resolve_dataset_files(project_dir: Path, phenotype: str, dataset_id: str, run_id: str = "latest"):
+def _sample_size_from_run_manifest(project_dir: Path, runs_root: str, run_id: str | None, dataset: str):
+    """pQTL sample size from the QTL manifest a run recorded in its params.lock.yaml."""
+    if not run_id:
+        return None
+    lock_file = paths.run_params_lock_path(run_id, root=str(project_dir / runs_root))
+    try:
+        manifest_path = (yaml.safe_load(lock_file.read_text()) or {}).get("manifest_path")
+        if not manifest_path:
+            return None
+        manifest_file = Path(manifest_path)
+        if not manifest_file.is_absolute():
+            manifest_file = project_dir / manifest_file
+        return int(QTLManifest(str(manifest_file)).get_row(dataset)["sample_size"])
+    except Exception:
+        # any unreadable lock file or manifest just means "not recorded"
+        return None
+
+
+def resolve_dataset_files(project_dir: Path, phenotype: str, dataset_id: str, run_id: str = "latest", runs_root: str = "runs"):
     """Resolve this dataset's 6 dashboard files via runs/registry.json first -
     falling back to legacy_resolve_dataset_files() when this (phenotype,
     dataset_id) has no registry entry (never run through the migrated
     pipeline). Returns (run_id_used_or_None, {file_key: Path}).
     """
-    runs_root = str(project_dir / "runs")
+    runs_root = str(project_dir / runs_root)
     resolved_run_id = run_id
     if run_id == "latest":
         resolved_run_id = registry.get_latest_run_id(phenotype, dataset_id, root=runs_root)
 
     if resolved_run_id is not None:
-        out_dir = str(project_dir / paths.run_results_dir(resolved_run_id))
+        out_dir = str(paths.run_results_dir(resolved_run_id, root=runs_root))
         return resolved_run_id, {
             "mr": project_dir / paths.mr_out(dataset_id, phenotype, out_dir),
             "coloc": project_dir / paths.coloc_out(dataset_id, phenotype, out_dir),
@@ -457,16 +476,17 @@ def standardise_columns(df: pd.DataFrame):
 # is literally "unconditioned" for PWCoCo's own unconditioned row, and a
 # conditioned row's SNP carries a trailing "*" (PWCoCo's conditioning-SNP marker) -
 # stripped here so the same variant matches across combos regardless of source.
-def compute_snp_h4_map(df: pd.DataFrame, pp4_thresh: float):
+def compute_snp_h4_map(df: pd.DataFrame, pp4_thresh: float, by_cell_type: bool = False):
     m = {}
-    if df.empty or "protein" not in df.columns or "h4" not in df.columns:
+    needed = {"protein", "h4"} | ({"cell_type"} if by_cell_type else set())
+    if df.empty or not needed.issubset(df.columns):
         return m
 
     h4 = pd.to_numeric(df["h4"], errors="coerce")
     passing = df[h4.fillna(0) >= pp4_thresh]
 
     for _, row in passing.iterrows():
-        protein = str(row["protein"])
+        key = (str(row["protein"]), str(row["cell_type"])) if by_cell_type else str(row["protein"])
         row_h4 = float(row["h4"])
         for col in ("snp1", "snp2"):
             if col not in row.index or pd.isna(row[col]):
@@ -474,8 +494,8 @@ def compute_snp_h4_map(df: pd.DataFrame, pp4_thresh: float):
             snp = str(row[col])
             if snp and snp != "unconditioned":
                 snp = snp.rstrip("*")
-                protein_map = m.setdefault(protein, {})
-                protein_map[snp] = max(protein_map.get(snp, 0), row_h4)
+                key_map = m.setdefault(key, {})
+                key_map[snp] = max(key_map.get(snp, 0), row_h4)
 
     return m
 
@@ -504,7 +524,7 @@ def compute_unconditioned_h4_map(df: pd.DataFrame, pp4_thresh: float, by_cell_ty
 # 1 row per triangulated (target, SNP) pair, the live equivalent of
 # bin/pwcoco_qtl_wrapper.py's shared_rows. A target triangulates in 1 of 2 ways:
 # (1) the SAME conditioned SNP clears pp4_thresh in ALL 3 combos (pQTL-GWAS,
-# eQTL-pQTL, eQTL-GWAS), or (2) the unconditioned row clears pp4_thresh in all
+# eQTL-pQTL, eQTL-GWAS), with both QTL combos from the same cell type, or (2) the unconditioned row clears pp4_thresh in all
 # 3 combos, with both QTL combos from the same cell type. (2) is needed because
 # a single-signal locus only ever gets an unconditioned row, so (1) alone can
 # never pass it. (2) rows carry snp = "unconditioned": all 3 pairs colocalise,
@@ -512,20 +532,23 @@ def compute_unconditioned_h4_map(df: pd.DataFrame, pp4_thresh: float, by_cell_ty
 # are triangulated_proteins.
 def compute_shared_snp_table(pqtl_gwas_df: pd.DataFrame, qtl_pqtl_df: pd.DataFrame, qtl_gwas_df: pd.DataFrame, pp4_thresh: float):
     pg_map = compute_snp_h4_map(pqtl_gwas_df, pp4_thresh)
-    ep_map = compute_snp_h4_map(qtl_pqtl_df, pp4_thresh)
-    eg_map = compute_snp_h4_map(qtl_gwas_df, pp4_thresh)
+    ep_map = compute_snp_h4_map(qtl_pqtl_df, pp4_thresh, by_cell_type=True)
+    eg_map = compute_snp_h4_map(qtl_gwas_df, pp4_thresh, by_cell_type=True)
 
     rows = []
-    for protein in set(pg_map) & set(ep_map) & set(eg_map):
-        shared_snps = set(pg_map[protein]) & set(ep_map[protein]) & set(eg_map[protein])
-        for snp in shared_snps:
+    for protein, cell_type in sorted(set(ep_map) & set(eg_map)):
+        if protein not in pg_map:
+            continue
+        key = (protein, cell_type)
+        shared_snps = set(pg_map[protein]) & set(ep_map[key]) & set(eg_map[key])
+        for snp in sorted(shared_snps):
             rows.append({
                 "protein": protein,
                 "snp": snp,
-                "cell_type": None,
+                "cell_type": cell_type,
                 "pqtl_gwas_h4": pg_map[protein][snp],
-                "qtl_pqtl_h4": ep_map[protein][snp],
-                "qtl_gwas_h4": eg_map[protein][snp],
+                "qtl_pqtl_h4": ep_map[key][snp],
+                "qtl_gwas_h4": eg_map[key][snp],
             })
 
     pg_unc = compute_unconditioned_h4_map(pqtl_gwas_df, pp4_thresh)
@@ -819,12 +842,12 @@ GWAS_SIGNIFICANCE_P = 5e-8
 
 
 @st.cache_data(show_spinner=False)
-def load_regional_cis_data(pqtl_dataset: str, protein: str, run_id: str | None = None):
+def load_regional_cis_data(pqtl_dataset: str, protein: str, run_id: str | None = None, runs_root: str = "runs"):
     """Full regional pQTL + GWAS summary stats for 1 target's cis window."""
     project_dir = Path(__file__).resolve().parent.parent
     cis_dir = None
     if run_id:
-        bundled_dir = project_dir / paths.run_results_dir(run_id) / "locus_data" / protein
+        bundled_dir = paths.run_results_dir(run_id, root=str(project_dir / runs_root)) / "locus_data" / protein
         if bundled_dir.is_dir():
             cis_dir = bundled_dir
     if cis_dir is None:
@@ -990,12 +1013,12 @@ def load_regional_ld(candidate_snp: str, chrom, window_kb: int = 5000):
 
 
 @st.cache_data(show_spinner=False)
-def load_bundled_regional_ld(run_id: str | None, protein: str, candidate_snp: str) -> pd.DataFrame:
+def load_bundled_regional_ld(run_id: str | None, protein: str, candidate_snp: str, runs_root: str = "runs") -> pd.DataFrame:
     """Load LD packaged with a run, falling back to live PLINK in the caller."""
     if not run_id:
         return pd.DataFrame()
     project_dir = Path(__file__).resolve().parent.parent
-    bundle_dir = project_dir / paths.run_results_dir(run_id) / "locus_data" / protein
+    bundle_dir = paths.run_results_dir(run_id, root=str(project_dir / runs_root)) / "locus_data" / protein
     ld_file = bundle_dir / "ld.parquet"
     metadata_file = bundle_dir / "metadata.json"
     if not ld_file.is_file():
@@ -1196,11 +1219,11 @@ def _regional_eqtl_options(smr_rows: pd.DataFrame):
     return options, default_label
 
 
-def render_regional_locus_plot(protein: str, pqtl_dataset: str, smr_rows: pd.DataFrame, hypr_rows: pd.DataFrame, key_prefix: str, run_id: str | None = None):
+def render_regional_locus_plot(protein: str, pqtl_dataset: str, smr_rows: pd.DataFrame, hypr_rows: pd.DataFrame, key_prefix: str, run_id: str | None = None, runs_root: str = "runs"):
     """Stacked regional association plot (GWAS + pQTL, optional eQTL, optional
     gene track) for 1 target - the visual counterpart to the PP.H4/H4 badges
     shown above it: do these signals actually overlap at this locus?"""
-    pqtl_df, gwas_df = load_regional_cis_data(pqtl_dataset, protein, run_id=run_id)
+    pqtl_df, gwas_df = load_regional_cis_data(pqtl_dataset, protein, run_id=run_id, runs_root=runs_root)
 
     if pqtl_df.empty or gwas_df.empty:
         st.info(
@@ -1317,7 +1340,7 @@ def render_regional_locus_plot(protein: str, pqtl_dataset: str, smr_rows: pd.Dat
     # r² against the candidate SNP, from the pipeline's own 1000G EUR reference -
     # graceful no-op (flat single colour per track) if plink/the reference panel
     # is unavailable, or the candidate itself isn't in the panel
-    ld_df = load_bundled_regional_ld(run_id, protein, candidate_snp)
+    ld_df = load_bundled_regional_ld(run_id, protein, candidate_snp, runs_root=runs_root)
     if ld_df.empty and candidate_chr is not None:
         ld_df = load_regional_ld(candidate_snp, candidate_chr)
     ld_available = not ld_df.empty
@@ -1684,10 +1707,10 @@ def render_phewas_section(
             "endpoints actually tested for that protein in this source "
             "(Pₐₑᵢ < 0.05 defines significance).\n"
             "- Only Bonferroni-significant binary-disease associations are classified:\n"
-            "  - Higher protein abundance **increases** AD risk → inhibition indicated: "
+            "  - Higher protein abundance **increases** outcome risk → inhibition indicated: "
             "a **positive** PheWAS estimate is a potential **repurposing signal**; a "
             "**negative** estimate is a potential **adverse effect**.\n"
-            "  - Higher protein abundance **decreases** AD risk → augmentation "
+            "  - Higher protein abundance **decreases** outcome risk → augmentation "
             "indicated: a **negative** PheWAS estimate is a potential **repurposing "
             "signal**; a **positive** estimate is a potential **adverse effect**.\n"
             "- Non-significant associations are **not classified**."
@@ -1784,14 +1807,14 @@ def render_phewas_section(
 
     if primary_beta is not None and primary_beta > 0:
         st.info(
-            f"**{selected_phewas_target}**: higher protein abundance **increases** AD risk "
+            f"**{selected_phewas_target}**: higher protein abundance **increases** outcome risk "
             "→ **inhibition** indicated. A same-direction (positive) PheWAS hit below is "
             "a potential **repurposing signal**; an opposite-direction (negative) hit is a "
             "potential **adverse effect**."
         )
     elif primary_beta is not None and primary_beta < 0:
         st.info(
-            f"**{selected_phewas_target}**: higher protein abundance **decreases** AD risk "
+            f"**{selected_phewas_target}**: higher protein abundance **decreases** outcome risk "
             "→ **augmentation** indicated. A same-direction (negative) PheWAS hit below "
             "is a potential **repurposing signal**; an opposite-direction (positive) hit "
             "is a potential **adverse effect**."
@@ -1968,7 +1991,7 @@ def render_phewas_section(
         "p_bonferroni": "Bonferroni p-value",
         "bonferroni_significant": "Bonferroni significant",
         "or_display": "OR (95% CI)",
-        "primary_mr_beta": "Primary cis-MR beta (protein→AD)",
+        "primary_mr_beta": "Primary cis-MR beta (protein→outcome)",
         "phewas_classification": "Classification",
     }
 
@@ -2010,6 +2033,7 @@ def render_target_profile(
     heidi_p_threshold: float,
     hyprcoloc_pp_threshold: float,
     pwcoco_qtl_shared: pd.DataFrame,
+    runs_root: str = "runs",
 ):
     """1 target's complete evidence trail, stage by stage, in a single vertical
     read instead of checking each stage's tab separately - the dashboard's other
@@ -2057,7 +2081,14 @@ def render_target_profile(
         pwcoco_qtl_shared[pwcoco_qtl_shared["protein"].astype(str) == protein]
         if "protein" in pwcoco_qtl_shared.columns else pd.DataFrame()
     )
-    passed_pwcoco_qtl = has_smr_support and not tri_rows.empty
+    # same rule as pwcoco_qtl_pass_set: triangulated in a tissue/cell type where
+    # SMR/HEIDI also passes
+    passed_pwcoco_qtl = (
+        has_smr_support
+        and "cell_type" in tri_rows.columns
+        and "cell_type" in smr_pass_rows.columns
+        and bool(set(tri_rows["cell_type"].astype(str)) & set(smr_pass_rows["cell_type"].astype(str)))
+    )
 
     # --- verdict banner ---
     if passed_hyprcoloc or passed_pwcoco_qtl:
@@ -2080,7 +2111,7 @@ def render_target_profile(
     if has_phewas_adverse_flag:
         st.warning(
             "PheWAS ADVERSE-EFFECT FLAG · a Bonferroni-significant FinnGen or UKB hit runs opposite "
-            "to the primary protein→AD effect direction. Informational only - this target is NOT "
+            "to the primary protein→outcome effect direction. Informational only: this target is NOT "
             "excluded from Prioritised Targets or Final Targets; PHEWAS_WF runs as an independent "
             "branch in the pipeline and never gates SMR or any later stage."
         )
@@ -2144,6 +2175,7 @@ def render_target_profile(
             hypr_rows=hypr_rows,
             key_prefix="target_profile",
             run_id=run_id,
+            runs_root=runs_root,
         )
 
     # --- Stage 3 / 4: phenome-wide MR (FinnGen primary, UKB fallback) ---
@@ -2153,10 +2185,10 @@ def render_target_profile(
             st.caption("Not reached.")
         elif finngen_status == "adverse_effect":
             st.badge("ADVERSE EFFECT", color="red")
-            st.caption("Bonferroni-significant FinnGen hit running opposite to the primary protein→AD direction.")
+            st.caption("Bonferroni-significant FinnGen hit running opposite to the primary protein→outcome direction.")
         elif finngen_status == "additional_indication":
             st.badge("REPURPOSING SIGNAL", color="green")
-            st.caption("Bonferroni-significant FinnGen hit running the same direction as the primary protein→AD effect: a potential repurposing signal, not a safety concern.")
+            st.caption("Bonferroni-significant FinnGen hit running the same direction as the primary protein→outcome effect: a potential repurposing signal, not a safety concern.")
         else:
             st.badge("NO SIGNIFICANT SIGNAL", color="green")
 
@@ -2169,10 +2201,10 @@ def render_target_profile(
             st.caption("UKB is only run when none of this target's retained cis-MR instruments were available in FinnGen.")
         elif ukb_status == "adverse_effect":
             st.badge("ADVERSE EFFECT", color="red")
-            st.caption("Bonferroni-significant UKB hit running opposite to the primary protein→AD direction.")
+            st.caption("Bonferroni-significant UKB hit running opposite to the primary protein→outcome direction.")
         elif ukb_status == "additional_indication":
             st.badge("REPURPOSING SIGNAL", color="green")
-            st.caption("Bonferroni-significant UKB hit running the same direction as the primary protein→AD effect: a potential repurposing signal, not a safety concern.")
+            st.caption("Bonferroni-significant UKB hit running the same direction as the primary protein→outcome effect: a potential repurposing signal, not a safety concern.")
         else:
             st.badge("NO SIGNIFICANT SIGNAL", color="green")
 
@@ -2230,6 +2262,7 @@ def load_and_sync_run_data(
     pwcoco_file: Path,
     pwcoco_eqtl_pqtl_file: Path,
     pwcoco_eqtl_gwas_file: Path,
+    runs_root: str = "runs",
 ):
     """Sync this run's TSVs into PostgreSQL and read cis-MR/COLOC/PheWAS back,
     loading the rest straight from disk - cached per run_id so this whole
@@ -2248,7 +2281,7 @@ def load_and_sync_run_data(
         ("pwcoco_eqtl_gwas_results", pwcoco_eqtl_gwas_file, False),
     ]
 
-    loader = PostgresLoader(run_id=run_id, db_id=db_name)
+    loader = PostgresLoader(run_id=run_id, db_id=db_name, runs_root=runs_root)
     postgres_table_available = {}
 
     for table, file_path, required in postgres_tables:
@@ -2272,7 +2305,7 @@ def load_and_sync_run_data(
     mr = load_required_tsv(mr_file, "cis-MR")
     coloc = load_required_tsv(coloc_file, "pQTL-GWAS COLOC")
     finngen_phewas = load_optional_tsv(finngen_phewas_file, "FinnGen PheWAS safety")
-    ukb_phewas = load_optional_tsv(ukb_phewas_file, "UKB PheWAS safety")
+    ukb_phewas = load_optional_tsv(ukb_phewas_file, "UKB PheWAS safety", warn_if_missing=False)
     target_info = load_optional_tsv(target_info_file, "Harmonised target information")
     smr = load_optional_tsv(smr_file, "SMR (bulk/sc QTL)")
     hyprcoloc = load_optional_tsv(hyprcoloc_file, "HyPrColoc (bulk/sc QTL)")
@@ -2387,6 +2420,7 @@ def dashboard(
     phenotype: str,
     pqtl_dataset: str,
     initial_run_id: str = "latest",
+    runs_root: str = "runs",
 ):
     requested_pqtl_dataset = pqtl_dataset
     # main aesthetics
@@ -2577,7 +2611,7 @@ def dashboard(
     # (development/test datasets are a common example). Include registry-backed
     # datasets so a successfully fetched run cannot silently fall back to an
     # unrelated older local dataset. Sample size is optional for such entries.
-    local_registry = registry.load_registry(root=str(project_dir / "runs"))
+    local_registry = registry.load_registry(root=str(project_dir / runs_root))
     registry_prefix = f"{phenotype}__"
     for key in local_registry:
         if key.startswith(registry_prefix):
@@ -2586,6 +2620,10 @@ def dashboard(
                 registered_dataset, registered_dataset.replace("_", " ").upper()
             )
             dataset_ns.setdefault(registered_dataset, None)
+            if dataset_ns[registered_dataset] is None:
+                dataset_ns[registered_dataset] = _sample_size_from_run_manifest(
+                    project_dir, runs_root, local_registry[key].get("latest"), registered_dataset
+                )
 
     # check which datasets have the required dashboard files - resolved via
     # runs/registry.json first (see resolve_dataset_files()), falling back to
@@ -2597,7 +2635,7 @@ def dashboard(
     for dataset_id in dataset_names:
         requested_run = initial_run_id if dataset_id == pqtl_dataset else "latest"
         run_id_used, files = resolve_dataset_files(
-            project_dir, phenotype, dataset_id, run_id=requested_run
+            project_dir, phenotype, dataset_id, run_id=requested_run, runs_root=runs_root
         )
 
         required_files = [files["mr"], files["coloc"]]
@@ -2647,7 +2685,7 @@ def dashboard(
 
         # run selector - history comes from runs/registry.json; a dataset resolved
         # via legacy_resolve_dataset_files() (no registry entry) has no history at all
-        run_history = registry.load_registry(root=str(project_dir / "runs")).get(
+        run_history = registry.load_registry(root=str(project_dir / runs_root)).get(
             f"{phenotype}__{pqtl_dataset}", {}
         ).get("history", [])
 
@@ -2668,7 +2706,7 @@ def dashboard(
 
         if selected_run != "latest":
             run_id_used, dataset_result_files[pqtl_dataset] = resolve_dataset_files(
-                project_dir, phenotype, pqtl_dataset, run_id=selected_run
+                project_dir, phenotype, pqtl_dataset, run_id=selected_run, runs_root=runs_root
             )
             dataset_run_ids[pqtl_dataset] = run_id_used
 
@@ -2713,7 +2751,24 @@ def dashboard(
         pwcoco_file=pwcoco_file,
         pwcoco_eqtl_pqtl_file=pwcoco_eqtl_pqtl_file,
         pwcoco_eqtl_gwas_file=pwcoco_eqtl_gwas_file,
+        runs_root=runs_root,
     )
+    # UKB PheWAS only runs as a fallback for targets with no FinnGen instrument, so a
+    # missing UKB file is expected when FinnGen covered every target
+    if not ukb_phewas_file.exists():
+        coverage_file = finngen_phewas_file.parent / "phewas_coverage.tsv"
+        coverage = load_optional_tsv(coverage_file, "FinnGen PheWAS coverage", warn_if_missing=False)
+        if (
+            "finngen_covered" in coverage.columns
+            and not coverage.empty
+            and coverage["finngen_covered"].astype(str).str.lower().eq("true").all()
+        ):
+            st.info(
+                "UKB PheWAS was not run: every target already had at least 1 instrument in "
+                "FinnGen, and UKB is only queried as a fallback for targets FinnGen cannot cover."
+            )
+        else:
+            st.warning(f"UKB PheWAS safety result file not found: {ukb_phewas_file}")
     mr = run_data["mr"]
     coloc = run_data["coloc"]
     finngen_phewas = run_data["finngen_phewas"]
@@ -2741,7 +2796,8 @@ def dashboard(
         "wald_pval",
         "wald_fdr_q",
         "q_pval",
-        "egger_intercept_pval"
+        "egger_intercept_pval",
+        "primary_fdr_q"
     ]
 
     for col in mr_numeric_cols:
@@ -2946,10 +3002,11 @@ def dashboard(
             st.write(f"Loaded {tracking_info['pwcoco_rows']} PWCoCo (conditional coloc) rows")
 
     st.header(f"{dataset_name} → {outcome}")
+    n_label = f"{dataset_n:,}" if dataset_n is not None else "not recorded"
     st.caption(
-        f"N = {dataset_n:,} | MR FDR ≤ {fdr:.2f} | Q p ≥ {q_pval:.2f} | "
-        f"pQTL-GWAS PP.H4 ≥ {pp4:.2f} | SMR FDR ≤ {smr_fdr_threshold:.2f} | "
-        f"HEIDI p ≥ {heidi_p_threshold:.2f} | HyPrColoc PP ≥ {hyprcoloc_pp_threshold:.2f}"
+        f"N = {n_label} | MR FDR < {fdr:.2f} | Q p > {q_pval:.2f} | "
+        f"pQTL-GWAS PP.H4 ≥ {pp4:.2f} | SMR FDR < {smr_fdr_threshold:.2f} | "
+        f"HEIDI p > {heidi_p_threshold:.2f} | HyPrColoc PP ≥ {hyprcoloc_pp_threshold:.2f}"
     )
 
     # subset everything to selected outcome
@@ -2963,16 +3020,25 @@ def dashboard(
     # cis-MR supported proteins
     mr_pass = mr_outcome.copy()
 
+    # same rule as the pipeline's cis-MR gate (drugmr.utils.select_cis_mr_passing_proteins)
     if "mr_fdr_q" in mr_pass.columns:
-        mr_pass = mr_pass[mr_pass["mr_fdr_q"].fillna(np.inf) <= fdr]
+        mr_pass = mr_pass[mr_pass["mr_fdr_q"].fillna(np.inf) < fdr]
 
     # apply Cochran Q only to IVW proteins
     # Wald proteins have no Cochran Q so keep them
     if "q_pval" in mr_pass.columns:
         mr_pass = mr_pass[
-            ((mr_pass["mr_method"] == "IVW") & (mr_pass["q_pval"].fillna(-np.inf) >= q_pval))
+            ((mr_pass["mr_method"] == "IVW") & (mr_pass["q_pval"].fillna(-np.inf) > q_pval))
             |
             (mr_pass["mr_method"] == "Wald ratio")
+        ]
+
+    # the MR-Egger intercept only exists from 3 instruments; the pipeline drops a
+    # 3+ instrument protein without one (egger_intercept_pval_min defaults to 0)
+    if {"n_instruments", "egger_intercept_pval"}.issubset(mr_pass.columns):
+        mr_pass = mr_pass[
+            (mr_pass["n_instruments"] < 3)
+            | (mr_pass["egger_intercept_pval"].fillna(-np.inf) > 0)
         ]
 
 
@@ -3257,7 +3323,18 @@ def dashboard(
     # unconditioned analyses: see triangulated_proteins above, computed live via
     # compute_shared_snp_table()). A target reaches Final
     # Targets if EITHER method supports it.
-    pwcoco_qtl_pass_set = hyprcoloc_testable_set & triangulated_proteins
+    # triangulated in a tissue/cell type where SMR/HEIDI also passes at the current
+    # thresholds, so this set and the Final Targets rows come from the same pairs
+    triangulated_pairs = (
+        set(zip(shared_snp_table["protein"].astype(str), shared_snp_table["cell_type"].astype(str)))
+        if {"protein", "cell_type"}.issubset(shared_snp_table.columns) else set()
+    )
+    smr_pass_pairs = (
+        set(zip(smr_pass_rows["protein"].astype(str), smr_pass_rows["cell_type"].astype(str)))
+        if {"protein", "cell_type"}.issubset(smr_pass_rows.columns) else set()
+    )
+    pwcoco_qtl_pass_pairs = {pair for pair in triangulated_pairs & smr_pass_pairs if pair[0] in hyprcoloc_testable_set}
+    pwcoco_qtl_pass_set = {protein for protein, _ in pwcoco_qtl_pass_pairs}
     three_trait_both_set = hyprcoloc_pass_set & pwcoco_qtl_pass_set
     three_trait_hyprcoloc_only_set = hyprcoloc_pass_set - pwcoco_qtl_pass_set
     three_trait_pwcoco_qtl_only_set = pwcoco_qtl_pass_set - hyprcoloc_pass_set
@@ -3327,7 +3404,7 @@ def dashboard(
         st.caption(
             f"{dataset_name} pQTLs → **{outcome}**. Colocalised = passed standard COLOC or "
             "PWCoCo. PheWAS flagged = has a Bonferroni-significant adverse-effect hit in "
-            "FinnGen or UKB (informational only - matches how PHEWAS_WF actually runs in "
+            "FinnGen or UKB (informational only, matching how PHEWAS_WF actually runs in "
             "the pipeline, as an independent branch that never gates SMR or any later "
             "stage; see each target's flag in **Prioritised targets** / **7. Final "
             "Targets** below). SMR-supported = cleared SMR FDR/HEIDI. Multi-omics = "
@@ -3382,8 +3459,8 @@ def dashboard(
             "The same flow as the bar above the tabs, shown here at scale: every stage "
             "that actually narrows the target set, all the way to the same "
             "**Multi-omics** count on the **7. Final Targets** tab. PheWAS (FinnGen/UKB) "
-            "is not a narrowing stage - it never removes a target from this pipeline (see "
-            "the caption above) - so it isn't plotted here as a funnel step; each "
+            "is not a narrowing stage, since it never removes a target from this pipeline (see "
+            "the caption above), so it isn't plotted here as a funnel step; each "
             "target's PheWAS flag is shown individually in **Prioritised targets** below "
             "and on the **7. Final Targets** tab instead. That tab's Sankey diagram shows "
             "the same funnel with the extra branching detail (COLOC-vs-PWCoCo, bulk-vs-"
@@ -3460,7 +3537,7 @@ def dashboard(
             if phewas_adverse_set:
                 st.caption(
                     f"⚠ {len(phewas_adverse_set)} of these also carry a Bonferroni-significant, "
-                    "opposite-direction (adverse-effect) FinnGen/UKB PheWAS hit - shown as a flag on "
+                    "opposite-direction (adverse-effect) FinnGen/UKB PheWAS hit, shown as a flag on "
                     "their card below, not excluded. See the Sankey diagram on the **7. Final Targets** "
                     "tab for the full breakdown."
                 )
@@ -3659,6 +3736,7 @@ def dashboard(
                 heidi_p_threshold=heidi_p_threshold,
                 hyprcoloc_pp_threshold=hyprcoloc_pp_threshold,
                 pwcoco_qtl_shared=shared_snp_table,
+                runs_root=runs_root,
             )
 
     with tab_evidence:
@@ -4287,16 +4365,16 @@ def dashboard(
                 "method is enough to continue, split into \"Both methods\" / \"COLOC only\" / "
                 "\"PWCoCo only\" lanes below so discordant hits stay visible rather than being "
                 "silently dropped.\n"
-                "- **FinnGen phenome-wide MR**: a branch, not a gate - every target splits "
+                "- **FinnGen phenome-wide MR**: a branch, not a gate. Every target splits "
                 "into \"Adverse effect\" / \"Repurposing signal\" / \"No significant hit\" / "
                 "\"No FinnGen coverage\", and all 4 lanes continue onward, since PHEWAS_WF "
                 "runs as an independent branch in the pipeline (off the same COLOC/PWCoCo "
                 "target set that feeds SMR) and never gates SMR or anything downstream of it. "
                 "**Adverse effect** = a Bonferroni-significant hit running opposite to the "
-                "primary protein→AD effect direction; **Repurposing signal** = a "
+                "primary protein→outcome effect direction; **Repurposing signal** = a "
                 "same-direction Bonferroni-significant hit.\n"
                 "- **UKB phenome-wide MR (fallback)**: same 3-way classification, but only "
-                "for the \"No FinnGen coverage\" subset - UKB is queried strictly as a "
+                "for the \"No FinnGen coverage\" subset: UKB is queried strictly as a "
                 "fallback for targets with 0 retained cis-MR instruments matched in FinnGen. "
                 "Never a gate either; a target with no coverage in either source is labelled "
                 "\"No PheWAS coverage\" and still continues on to SMR.\n"
@@ -4739,24 +4817,15 @@ def dashboard(
                 final_targets = final_targets[final_targets["protein"].astype(str).isin(hyprcoloc_pass_set)]
 
             # PWCoCo-QTL only targets have no HyPrColoc candidate SNP, so each
-            # triangulated cell type keeps SMR's own top SNP and alleles instead.
-            # A conditioned route row has no cell_type, so it matches every SMR
-            # row for that protein.
-            if (
-                three_trait_pwcoco_qtl_only_set
-                and {"protein", "cell_type"}.issubset(shared_snp_table.columns)
-                and {"protein", "cell_type"}.issubset(smr_display.columns)
-            ):
-                pwcoco_only_keys = shared_snp_table[
-                    shared_snp_table["protein"].astype(str).isin(three_trait_pwcoco_qtl_only_set)
-                ][["protein", "cell_type"]].drop_duplicates()
-                smr_eligible_rows = smr_display[smr_display["protein"].astype(str).isin(smr_eligible_set)].copy()
-                smr_eligible_rows["protein"] = smr_eligible_rows["protein"].astype(str)
-                keyed = pwcoco_only_keys.dropna(subset=["cell_type"]).astype({"protein": str, "cell_type": str})
-                by_cell = smr_eligible_rows.merge(keyed, on=["protein", "cell_type"], how="inner")
-                no_cell_proteins = set(pwcoco_only_keys.loc[pwcoco_only_keys["cell_type"].isna(), "protein"].astype(str))
-                no_cell = smr_eligible_rows[smr_eligible_rows["protein"].isin(no_cell_proteins)]
-                pwcoco_only_rows = pd.concat([by_cell, no_cell], ignore_index=True)
+            # (protein, tissue/cell type) pair that triangulated and passed SMR/HEIDI
+            # keeps SMR's own top SNP and alleles instead
+            pwcoco_only_pairs = [pair for pair in pwcoco_qtl_pass_pairs if pair[0] in three_trait_pwcoco_qtl_only_set]
+            if pwcoco_only_pairs and {"protein", "cell_type"}.issubset(smr_pass_rows.columns):
+                pair_keys = pd.DataFrame(pwcoco_only_pairs, columns=["protein", "cell_type"])
+                passing_rows = smr_pass_rows.copy()
+                passing_rows["protein"] = passing_rows["protein"].astype(str)
+                passing_rows["cell_type"] = passing_rows["cell_type"].astype(str)
+                pwcoco_only_rows = passing_rows.merge(pair_keys, on=["protein", "cell_type"], how="inner")
                 dedup_cols = [col for col in ["protein", "cell_type", "data_type", "probe_id"] if col in pwcoco_only_rows.columns]
                 pwcoco_only_rows = pwcoco_only_rows.drop_duplicates(subset=dedup_cols or None)
                 if not pwcoco_only_rows.empty:
@@ -5244,6 +5313,7 @@ def main():
     p.add_argument("--phenotype", required=True, type=str)
     p.add_argument("--pqtl_dataset", required=True, type=str)
     p.add_argument("--run_id", default="latest", type=str)
+    p.add_argument("--runs_root", default="runs", type=str)
     args = p.parse_args()
     dashboard(
         db_name=args.db_name,
@@ -5251,6 +5321,7 @@ def main():
         phenotype=args.phenotype,
         pqtl_dataset=args.pqtl_dataset,
         initial_run_id=args.run_id,
+        runs_root=args.runs_root,
     )
 
 
