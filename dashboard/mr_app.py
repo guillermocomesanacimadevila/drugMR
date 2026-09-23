@@ -85,11 +85,11 @@ def apply_chart_theme(fig, **layout_overrides):
 # two can never drift out of sync with each other or with the st.tabs() labels below
 PIPELINE_STAGES = [
     dict(title="cis-MR", blurb="Mendelian randomisation of cis-instrumented protein abundance on the outcome."),
-    dict(title="pQTL–GWAS COLOC", blurb="Pairwise colocalisation confirming the pQTL and GWAS signals share one causal variant."),
+    dict(title="pQTL-GWAS COLOC", blurb="Pairwise colocalisation confirming the pQTL and GWAS signals share one causal variant."),
     dict(title="FinnGen PheWAS", blurb="Phenome-wide MR classifying Bonferroni-significant hits as potential repurposing signals or adverse effects."),
     dict(title="UKB PheWAS", blurb="Fallback phenome-wide MR in UK Biobank EHR-derived phenotypes, for targets uncovered by FinnGen."),
-    dict(title="SMR (bulk/sc eQTL)", blurb="SMR + HEIDI test that the pQTL signal also acts through transcription."),
-    dict(title="HyPrColoc (bulk/sc eQTL)", blurb="pQTL, GWAS and eQTL signals sharing one causal variant, via HyPrColoc's clustering or PWCoCo-QTL's SNP-level triangulation."),
+    dict(title="SMR (bulk/sc QTL)", blurb="SMR + HEIDI test that the pQTL signal also acts through the molecular QTL trait (e.g. transcription)."),
+    dict(title="HyPrColoc (bulk/sc QTL)", blurb="pQTL, GWAS and molecular QTL signals sharing one causal variant, via HyPrColoc's clustering or PWCoCo-QTL's SNP-level triangulation."),
     dict(title="Final Targets", blurb="Targets surviving every stage above, each reported at its correct SNP."),
 ]
 
@@ -804,14 +804,14 @@ def select_hyprcoloc_candidate_rows(hyprcoloc_df: pd.DataFrame, threshold: float
 REGIONAL_TRACK_COLORS = {
     "GWAS": SANKEY_BULK_COLOR,
     "pQTL": SANKEY_BOTH_COLOR,
-    "eQTL": SANKEY_SC_COLOR,
+    "QTL": SANKEY_SC_COLOR,
 }
 
 # standard LocusZoom-style LD binning - red (tight LD with the candidate) through
 # blue (independent), grey for SNPs absent from the reference panel, purple
 # diamond for the candidate itself
 LD_BIN_EDGES = [-0.01, 0.2, 0.4, 0.6, 0.8, 1.0]
-LD_BIN_LABELS = ["0.0–0.2", "0.2–0.4", "0.4–0.6", "0.6–0.8", "0.8–1.0"]
+LD_BIN_LABELS = ["0.0-0.2", "0.2-0.4", "0.4-0.6", "0.6-0.8", "0.8-1.0"]
 LD_BIN_COLORS = ["#4575b4", "#91bfdb", "#fee090", "#fc8d59", "#d73027"]
 LD_NO_DATA_COLOR = "#bdbdbd"
 CANDIDATE_COLOR = "#762a83"
@@ -1241,14 +1241,14 @@ def render_regional_locus_plot(protein: str, pqtl_dataset: str, smr_rows: pd.Dat
         option_labels = ["None"] + [o["label"] for o in eqtl_options]
         default_index = option_labels.index(default_eqtl_label) if default_eqtl_label in option_labels else 0
         selected_label = st.selectbox(
-            "eQTL track",
+            "QTL track",
             option_labels,
             index=default_index,
             key=f"{key_prefix}_regional_eqtl_select",
             help=(
-                "Adds a 3rd panel showing this gene's eQTL association in the chosen "
+                "Adds a 3rd panel showing this gene's QTL association in the chosen "
                 "tissue/cell type. Defaults to whichever SMR dataset gave this target "
-                "its strongest transcriptional support."
+                "its strongest SMR support."
             ),
         )
 
@@ -1272,7 +1272,7 @@ def render_regional_locus_plot(protein: str, pqtl_dataset: str, smr_rows: pd.Dat
         )
         eqtl_label = selected_label
         if eqtl_df_full.empty:
-            st.caption(f"No eQTL rows found for this gene in {eqtl_label} within the cached parquet. Showing GWAS/pQTL only.")
+            st.caption(f"No QTL rows found for this gene in {eqtl_label} within the cached parquet. Showing GWAS/pQTL only.")
         else:
             qtl_df = eqtl_df_full[
                 (eqtl_df_full["bp"] >= window_start_bp) & (eqtl_df_full["bp"] <= window_end_bp)
@@ -1280,11 +1280,11 @@ def render_regional_locus_plot(protein: str, pqtl_dataset: str, smr_rows: pd.Dat
             n_cropped = len(eqtl_df_full) - len(qtl_df)
             if n_cropped > 0:
                 st.caption(
-                    f"{eqtl_label}'s eQTL cis-window extends beyond the GWAS/pQTL region shown here. "
+                    f"{eqtl_label}'s QTL cis-window extends beyond the GWAS/pQTL region shown here. "
                     f"{n_cropped:,} SNP(s) outside {window_start_bp/1e6:.2f} to {window_end_bp/1e6:.2f} Mb are not plotted."
                 )
             if qtl_df.empty:
-                st.caption(f"No {eqtl_label} eQTL SNPs fall within the GWAS/pQTL window. Showing GWAS/pQTL only.")
+                st.caption(f"No {eqtl_label} QTL SNPs fall within the GWAS/pQTL window. Showing GWAS/pQTL only.")
 
     # every protein-coding gene in the GWAS/pQTL window (GRCh38) - matches the
     # region actually shown, since eQTL is now cropped to the same boundary
@@ -1333,7 +1333,7 @@ def render_regional_locus_plot(protein: str, pqtl_dataset: str, smr_rows: pd.Dat
         st.caption("Gene track unavailable. Couldn't reach Ensembl and no SMR gene annotation exists yet for this target.")
     row_specs = [("GWAS", gwas_df), ("pQTL", pqtl_df)]
     if not qtl_df.empty:
-        row_specs.append((f"eQTL · {eqtl_label}", qtl_df))
+        row_specs.append((f"QTL · {eqtl_label}", qtl_df))
     n_data_rows = len(row_specs)
     if show_gene_track:
         row_specs.append(("Gene", None))
@@ -1833,7 +1833,7 @@ def render_phewas_section(
     if {"or_mr", "or_ci_low", "or_ci_high"}.issubset(target_phewas.columns):
         target_phewas["or_display"] = target_phewas.apply(
             lambda row: (
-                f"{row['or_mr']:.2f} ({row['or_ci_low']:.2f}–{row['or_ci_high']:.2f})"
+                f"{row['or_mr']:.2f} ({row['or_ci_low']:.2f} to {row['or_ci_high']:.2f})"
                 if pd.notna(row["or_mr"]) and pd.notna(row["or_ci_low"]) and pd.notna(row["or_ci_high"])
                 else "NA"
             ),
@@ -2071,7 +2071,7 @@ def render_target_profile(
     elif has_smr_support:
         st.info("Reached SMR support, but neither HyPrColoc nor PWCoCo-QTL supported 3-trait colocalisation.")
     elif passed_coloc_stage:
-        st.success("PRIORITISED · passed cis-MR and colocalisation. No SMR/eQTL support found or tested yet.")
+        st.success("PRIORITISED · passed cis-MR and colocalisation. No SMR/QTL support found or tested yet.")
     elif passed_mr:
         st.error("STOPPED AT COLOCALISATION · passed cis-MR, but neither standard COLOC nor PWCoCo cleared the PP.H4 threshold.")
     else:
@@ -2102,7 +2102,7 @@ def render_target_profile(
             c4.metric("MR FDR q", f"{row['mr_fdr_q']:.2e}" if pd.notna(row.get("mr_fdr_q")) else "NA")
 
     # --- Stage 2: standard COLOC + PWCoCo ---
-    st.markdown("#### Stage 2 · pQTL–GWAS colocalisation")
+    st.markdown("#### Stage 2 · pQTL-GWAS colocalisation")
     with st.container(border=True):
         if not passed_mr:
             st.caption("Not reached. Target did not pass cis-MR.")
@@ -2177,7 +2177,7 @@ def render_target_profile(
             st.badge("NO SIGNIFICANT SIGNAL", color="green")
 
     # --- Stage 5: SMR ---
-    st.markdown("#### Stage 5 · SMR (bulk/sc eQTL)")
+    st.markdown("#### Stage 5 · SMR (bulk/sc QTL)")
     with st.container(border=True):
         if not passed_coloc_stage:
             st.caption("Not reached.")
@@ -2198,7 +2198,7 @@ def render_target_profile(
     st.markdown("#### Stage 6 · HyPrColoc and PWCoCo-QTL")
     with st.container(border=True):
         if not has_smr_support:
-            st.caption("Not reached. No SMR/eQTL support to test.")
+            st.caption("Not reached. No SMR/QTL support to test.")
         else:
             st.markdown("**HyPrColoc**")
             if hypr_rows.empty:
@@ -2270,12 +2270,12 @@ def load_and_sync_run_data(
 
     # load local result files into PostgreSQL for the dashboard
     mr = load_required_tsv(mr_file, "cis-MR")
-    coloc = load_required_tsv(coloc_file, "pQTL–GWAS COLOC")
+    coloc = load_required_tsv(coloc_file, "pQTL-GWAS COLOC")
     finngen_phewas = load_optional_tsv(finngen_phewas_file, "FinnGen PheWAS safety")
     ukb_phewas = load_optional_tsv(ukb_phewas_file, "UKB PheWAS safety")
     target_info = load_optional_tsv(target_info_file, "Harmonised target information")
-    smr = load_optional_tsv(smr_file, "SMR (bulk/sc eQTL)")
-    hyprcoloc = load_optional_tsv(hyprcoloc_file, "HyPrColoc (bulk/sc eQTL)")
+    smr = load_optional_tsv(smr_file, "SMR (bulk/sc QTL)")
+    hyprcoloc = load_optional_tsv(hyprcoloc_file, "HyPrColoc (bulk/sc QTL)")
     pwcoco = load_optional_tsv(pwcoco_file, "PWCoCo (conditional coloc)")
     pwcoco_eqtl_pqtl = load_optional_tsv(pwcoco_eqtl_pqtl_file, "PWCoCo (QTL-pQTL)")
     pwcoco_eqtl_gwas = load_optional_tsv(pwcoco_eqtl_gwas_file, "PWCoCo (QTL-GWAS)")
@@ -2916,7 +2916,7 @@ def dashboard(
             "Blue and orange repeat at 3 different \"which of 2 methods supported "
             "this\" splits in the pipeline. Same 2 colours each time, but a "
             "different pair of methods depending on where you see them: standard "
-            "COLOC vs. PWCoCo (Stage 2), bulk vs. single-cell eQTL (SMR, Stage 5), "
+            "COLOC vs. PWCoCo (Stage 2), bulk vs. single-cell QTL (SMR, Stage 5), "
             "or HyPrColoc vs. PWCoCo-QTL (Stage 6). Hover a Sankey node's tooltip "
             "to see exactly which pair applies."
         )
@@ -2937,10 +2937,10 @@ def dashboard(
             st.write(f"Loaded {tracking_info['target_info_rows']} harmonised top cis-hit rows")
 
         if tracking_info["smr_rows"] is not None:
-            st.write(f"Loaded {tracking_info['smr_rows']} SMR (bulk/sc eQTL) rows")
+            st.write(f"Loaded {tracking_info['smr_rows']} SMR (bulk/sc QTL) rows")
 
         if tracking_info["hyprcoloc_rows"] is not None:
-            st.write(f"Loaded {tracking_info['hyprcoloc_rows']} HyPrColoc (bulk/sc eQTL) rows")
+            st.write(f"Loaded {tracking_info['hyprcoloc_rows']} HyPrColoc (bulk/sc QTL) rows")
 
         if tracking_info["pwcoco_rows"] is not None:
             st.write(f"Loaded {tracking_info['pwcoco_rows']} PWCoCo (conditional coloc) rows")
@@ -2948,7 +2948,7 @@ def dashboard(
     st.header(f"{dataset_name} → {outcome}")
     st.caption(
         f"N = {dataset_n:,} | MR FDR ≤ {fdr:.2f} | Q p ≥ {q_pval:.2f} | "
-        f"pQTL–GWAS PP.H4 ≥ {pp4:.2f} | SMR FDR ≤ {smr_fdr_threshold:.2f} | "
+        f"pQTL-GWAS PP.H4 ≥ {pp4:.2f} | SMR FDR ≤ {smr_fdr_threshold:.2f} | "
         f"HEIDI p ≥ {heidi_p_threshold:.2f} | HyPrColoc PP ≥ {hyprcoloc_pp_threshold:.2f}"
     )
 
@@ -3331,7 +3331,7 @@ def dashboard(
             "the pipeline, as an independent branch that never gates SMR or any later "
             "stage; see each target's flag in **Prioritised targets** / **7. Final "
             "Targets** below). SMR-supported = cleared SMR FDR/HEIDI. Multi-omics = "
-            "pQTL+GWAS+eQTL share 1 causal variant, via **either** HyPrColoc's clustering "
+            "pQTL, GWAS and molecular QTL share 1 causal variant, via **either** HyPrColoc's clustering "
             "**or** PWCoCo-QTL's SNP-level triangulation. This is the exact same count as "
             "the **Multi-omics** view on the **7. Final Targets** tab. Full branching "
             "detail (COLOC-vs-PWCoCo, bulk-vs-single-cell, HyPrColoc-vs-PWCoCo-QTL) is on "
@@ -3669,11 +3669,11 @@ def dashboard(
 
         tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
             "1. cis-MR",
-            "2. pQTL–GWAS COLOC",
+            "2. pQTL-GWAS COLOC",
             "3. FinnGen PheWAS",
             "4. UKB PheWAS",
-            "5. SMR (bulk/sc eQTL)",
-            "6. HyPrColoc (bulk/sc eQTL)"
+            "5. SMR (bulk/sc QTL)",
+            "6. HyPrColoc (bulk/sc QTL)"
         ])
 
         with tab2:
@@ -3809,7 +3809,7 @@ def dashboard(
 
         with tab3:
             stage_caption(2)
-            st.subheader("cis-MR + pQTL–GWAS COLOC targets")
+            st.subheader("cis-MR + pQTL-GWAS COLOC targets")
             st.caption(
                 "Targets shown here pass cis-MR and cleared the PP.H4 threshold via standard COLOC, "
                 "PWCoCo, or both: check the **Coloc support** column. A `pwcoco_only` row's PP.H0-H4 "
@@ -3922,10 +3922,10 @@ def dashboard(
 
         with tab6:
             stage_caption(5)
-            st.subheader("SMR (bulk / single-cell eQTL)")
+            st.subheader("SMR (bulk / single-cell QTL)")
             st.caption(
-                "Targets shown here already passed cis-MR + pQTL–GWAS COLOC, and additionally "
-                "passed SMR (FDR-corrected) + HEIDI in the configured bulk and/or single-cell eQTL "
+                "Targets shown here already passed cis-MR + pQTL-GWAS COLOC, and additionally "
+                "passed SMR (FDR-corrected) + HEIDI in the configured bulk and/or single-cell QTL "
                 "dataset(s). Alleles are aligned to the outcome risk allele, same convention as the "
                 "cis-MR/COLOC top-hit table."
             )
@@ -3961,7 +3961,7 @@ def dashboard(
                     available_data_types = ["All"] + sorted(smr_filtered["data_type"].dropna().unique().tolist())
 
                     data_type_choice = st.segmented_control(
-                        "eQTL data type",
+                        "QTL data type",
                         available_data_types,
                         default="All",
                         selection_mode="single",
@@ -4090,15 +4090,15 @@ def dashboard(
 
         with tab7:
             stage_caption(6)
-            st.subheader("HyPrColoc (bulk/sc eQTL)")
+            st.subheader("HyPrColoc (bulk/sc QTL)")
             st.caption(
-                "For every target x cell-type/tissue hit that already passed cis-MR + pQTL–GWAS "
-                "COLOC + SMR + HEIDI in a bulk or single-cell eQTL dataset, HyPrColoc jointly tests "
-                "the pQTL, GWAS and eQTL association signals in that target's cis-region for a "
+                "For every target x cell-type/tissue hit that already passed cis-MR + pQTL-GWAS "
+                "COLOC + SMR + HEIDI in a bulk or single-cell QTL dataset, HyPrColoc jointly tests "
+                "the pQTL, GWAS and QTL association signals in that target's cis-region for a "
                 "single shared causal variant, restricted to the SNPs shared across all three and "
                 "aligned onto a common effect allele. The table below only shows rows where "
                 "HyPrColoc actually put all 3 traits into 1 credible set. That 3-way test is the "
-                "entire point of running HyPrColoc, so a cluster missing the eQTL trait (it either "
+                "entire point of running HyPrColoc, so a cluster missing the QTL trait (it either "
                 "clustered separately or joined no cluster at all) isn't shown as a result here, "
                 "regardless of how confident the pQTL+GWAS-only cluster it did find is."
             )
@@ -4112,7 +4112,7 @@ def dashboard(
                     available_hyprcoloc_data_types = ["All"] + sorted(hyprcoloc_filtered["data_type"].dropna().unique().tolist())
 
                     hyprcoloc_data_type_choice = st.segmented_control(
-                        "eQTL data type",
+                        "QTL data type",
                         available_hyprcoloc_data_types,
                         default="All",
                         selection_mode="single",
@@ -4157,7 +4157,7 @@ def dashboard(
                 if n_dropped_2trait > 0:
                     st.caption(
                         f"{n_dropped_2trait} target x cell-type/tissue row(s) excluded below. "
-                        "HyPrColoc could not put the eQTL trait into the same credible set as "
+                        "HyPrColoc could not put the QTL trait into the same credible set as "
                         "pQTL + GWAS for those (it clustered separately or didn't join any "
                         "cluster), so they aren't a 3-way colocalisation result."
                     )
@@ -4184,10 +4184,10 @@ def dashboard(
                 st.divider()
                 st.subheader("HyPrColoc results")
                 st.caption(
-                    f"A row **passes** when its cluster contains the pQTL, GWAS and eQTL trait "
+                    f"A row **passes** when its cluster contains the pQTL, GWAS and QTL trait "
                     f"together with posterior probability ≥ {hyprcoloc_pp_threshold:.2f}. Some "
                     "targets have more than 1 row when HyPrColoc could not put every trait into a "
-                    "single cluster (e.g. the eQTL signal clusters separately from pQTL + GWAS)."
+                    "single cluster (e.g. the QTL signal clusters separately from pQTL + GWAS)."
                 )
 
                 hyprcoloc_cols = [
@@ -4256,9 +4256,9 @@ def dashboard(
         stage_caption(7)
         st.subheader("Final Targets")
         st.caption(
-            "The complete set of targets which passed cis-MR + pQTL–GWAS COLOC + SMR + HEIDI, "
+            "The complete set of targets which passed cis-MR + pQTL-GWAS COLOC + SMR + HEIDI, "
             "broken down by the cell type or bulk/tissue dataset each was supported in. For "
-            "single-cell rows, the eQTL beta is sourced from the original per-cell-type eQTL "
+            "single-cell rows, the QTL beta is sourced from the original per-cell-type QTL "
             "file rather than the raw SMR output (SMR's own allele coding doesn't always match "
             "the original file's effect allele)."
         )
@@ -4281,7 +4281,7 @@ def dashboard(
                 "Steiger filtering); a protein with none is dropped before cis-MR ever runs.\n"
                 "- **cis-MR passed**: of those eligible, the ones clearing the MR FDR and "
                 "Cochran Q thresholds set in the sidebar.\n"
-                "- **pQTL–GWAS COLOC**: passes on the posterior-probability threshold set in "
+                "- **pQTL-GWAS COLOC**: passes on the posterior-probability threshold set in "
                 "the sidebar. PWCoCo (a conditional-analysis variant of COLOC, see the "
                 "**PWCoCo** tab) runs alongside it on the same targets: passing *either* "
                 "method is enough to continue, split into \"Both methods\" / \"COLOC only\" / "
@@ -4302,12 +4302,12 @@ def dashboard(
                 "\"No PheWAS coverage\" and still continues on to SMR.\n"
                 f"- **SMR support**: requires SMR FDR (`q_SMR`) < {smr_fdr_threshold:.2f} and "
                 f"HEIDI p-value > {heidi_p_threshold:.2f}, split by whether that support came "
-                "from bulk/tissue eQTL data, single-cell eQTL data, or both.\n"
-                "- **HyPrColoc**: runs against whichever eQTL dataset(s) supported the target's "
+                "from bulk/tissue QTL data, single-cell QTL data, or both.\n"
+                "- **HyPrColoc**: runs against whichever QTL dataset(s) supported the target's "
                 "SMR stage (bulk, single-cell, or both); no-SMR-support targets end at the SMR "
                 "stage. Runs on targets supported by standard COLOC, PWCoCo, or both (same "
                 "**Coloc support** union as the COLOC/PWCoCo stage). Passes when a HyPrColoc "
-                "cluster contains the pQTL, GWAS *and* eQTL trait together (not just 2 of the 3) "
+                "cluster contains the pQTL, GWAS *and* QTL trait together (not just 2 of the 3) "
                 f"with posterior probability ≥ {hyprcoloc_pp_threshold:.2f}."
             )
 
@@ -4656,15 +4656,15 @@ def dashboard(
             "Two views of the target list, at genuinely different depths. "
             "**Proteogenomic only** stops at cis-MR and COLOC/PWCoCo: pQTL and GWAS "
             "evidence only. **Multi-omics** adds SMR/HEIDI and 3-trait confirmation from "
-            "HyPrColoc or PWCoCo-QTL, bringing eQTL evidence in as well. Both views show each "
+            "HyPrColoc or PWCoCo-QTL, bringing QTL evidence in as well. Both views show each "
             "target's FinnGen/UKB PheWAS flag as metadata; PheWAS never removes a "
             "target from either list."
         )
 
         final_targets_view = st.segmented_control(
             "Which target list to show",
-            ["Multi-omics (pQTL + GWAS + eQTL)", "Proteogenomic only (pQTL + GWAS)"],
-            default="Multi-omics (pQTL + GWAS + eQTL)",
+            ["Multi-omics (pQTL + GWAS + molecular QTL)", "Proteogenomic only (pQTL + GWAS)"],
+            default="Multi-omics (pQTL + GWAS + molecular QTL)",
             selection_mode="single",
             key="final_targets_view_selector"
         )
@@ -4677,8 +4677,8 @@ def dashboard(
         if show_hyprcoloc_targets:
             st.success(
                 "**Multi-omics targets**: passed cis-MR, COLOC/PWCoCo, SMR/HEIDI "
-                "and 3-trait colocalisation of pQTL (proteomics), GWAS (genomics) and eQTL "
-                f"(transcriptomics) in HyPrColoc (posterior probability ≥ {hyprcoloc_pp_threshold:.2f}) "
+                "and 3-trait colocalisation of pQTL (proteomics), GWAS (genomics) and molecular QTL "
+                f"(e.g. eQTL, transcriptomics) in HyPrColoc (posterior probability ≥ {hyprcoloc_pp_threshold:.2f}) "
                 f"or PWCoCo-QTL (all 3 pairwise runs pass PP.H4 ≥ {pp4:.2f}). **3-trait support** "
                 "shows which method(s) support each target. **Top SNP** is HyPrColoc's *candidate "
                 "SNP* where HyPrColoc passed, otherwise SMR's own top SNP (PWCoCo-QTL names no "
@@ -4777,10 +4777,10 @@ def dashboard(
             st.info(
                 "**Proteogenomic-only targets**: passed cis-MR and COLOC/PWCoCo "
                 "on the pQTL and GWAS layers alone (proteomics and genomics). This view "
-                "stops deliberately before SMR, since SMR/HEIDI already draws on eQTL data: any "
+                "stops deliberately before SMR, since SMR/HEIDI already draws on QTL data: any "
                 "target that reaches SMR appears in the **Multi-omics** view instead, not here. "
-                "1 row per target (no cell-type/tissue dimension without SMR/eQTL data). **Top "
-                "SNP** is always the target's own top cis-pQTL SNP, aligned to the AD risk "
+                "1 row per target (no cell-type/tissue dimension without SMR/QTL data). **Top "
+                "SNP** is always the target's own top cis-pQTL SNP, aligned to the outcome risk "
                 "allele. P-values are only ever floored to 1e-300 when reported as exactly 0. "
                 "FinnGen/UKB PheWAS flag is shown as its own column and never excludes a target."
             )
@@ -4931,12 +4931,12 @@ def dashboard(
             )
 
     with tab9:
-        st.caption("PARALLEL METHOD · COMPLEMENTARY TO STAGE 2 (pQTL–GWAS COLOC)")
+        st.caption("PARALLEL METHOD · COMPLEMENTARY TO STAGE 2 (pQTL-GWAS COLOC)")
         st.subheader("PWCoCo (conditional coloc)")
         st.caption(
-            "PWCoCo re-tests pQTL–GWAS colocalisation using a GCTA-COJO-style stepwise "
+            "PWCoCo re-tests pQTL-GWAS colocalisation using a GCTA-COJO-style stepwise "
             "conditional analysis, which can separate multiple independent causal signals "
-            "at a locus that standard pairwise COLOC (**Evidence by Stage → 2. pQTL–GWAS "
+            "at a locus that standard pairwise COLOC (**Evidence by Stage → 2. pQTL-GWAS "
             "COLOC**) assumes is a single signal. It runs alongside standard COLOC on the "
             "same cis-MR-passing targets, not instead of it. A target that colocalises "
             "under either method is carried forward as a prioritised target (see the "
