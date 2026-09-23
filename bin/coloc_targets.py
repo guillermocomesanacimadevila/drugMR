@@ -61,6 +61,7 @@ def pairwise_coloc(
         infer_schema_length=None,
         schema_overrides={
             "n_instruments": pl.Int64,
+            "primary_FDR_q": pl.Float64,
             "IVW_FDR_q": pl.Float64,
             "egger_intercept_pval": pl.Float64,
             "Q_pval": pl.Float64,

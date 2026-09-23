@@ -163,19 +163,25 @@ def select_cis_mr_passing_proteins(
     egger_intercept_pval_min: float = 0,
     min_instruments_for_ivw: int = 3,
 ) -> list[str]:
+    # gate on the primary method cis_mr.R actually ran (Wald ratio for 1
+    # instrument, IVW for 2 or more), using primary_FDR_q so the correction
+    # spans every protein in the panel rather than each method's own subset.
+    # Cochran's Q exists from 2 instruments, the Egger intercept only from 3,
+    # so each check applies only where cis_mr.R could compute it.
+    n = pl.col("n_instruments")
     return (
         df
         .filter(
             (
-                (pl.col("n_instruments") >= min_instruments_for_ivw) &
-                (pl.col("IVW_FDR_q") < ivw_fdr_q) &
-                (pl.col("egger_intercept_pval") > egger_intercept_pval_min) &
-                (pl.col("Q_pval") > cochran_q_pval)
+                (n == 1) &
+                (pl.col("primary_FDR_q") < wald_fdr_q)
             )
             |
             (
-                (pl.col("n_instruments") == 1) &
-                (pl.col("Wald_FDR_q") < wald_fdr_q)
+                (n >= 2) &
+                (pl.col("primary_FDR_q") < ivw_fdr_q) &
+                (pl.col("Q_pval") > cochran_q_pval) &
+                ((n < 3) | (pl.col("egger_intercept_pval") > egger_intercept_pval_min))
             )
         )
         .select("protein")
@@ -199,6 +205,7 @@ def grab_cis_mr_hits(
         infer_schema_length=None,
         schema_overrides={
             "n_instruments": pl.Int64,
+            "primary_FDR_q": pl.Float64,
             "IVW_FDR_q": pl.Float64,
             "egger_intercept_pval": pl.Float64,
             "Q_pval": pl.Float64,

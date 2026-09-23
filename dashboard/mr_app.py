@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import argparse
+import copy
 import glob
 import json
 import math
@@ -31,6 +32,10 @@ from drugmr.smr import SMRUtils
 STATUS_GOOD = "#0ca30c"
 STATUS_CRITICAL = "#d03b3b"
 STATUS_MUTED = "#898781"
+# amber, not STATUS_CRITICAL red - a PheWAS adverse-effect flag does NOT drop
+# a target out of the Sankey (dropout=False, it still flows on to SMR), so it
+# gets its own color distinct from an actual dropout/fail branch
+PHEWAS_ADVERSE_COLOR = "#d99a1b"
 
 # red = significant, grey = not - reuses the same validated status colors as the
 # Sankey above rather than a separate near-duplicate red/grey pair
@@ -81,7 +86,7 @@ def apply_chart_theme(fig, **layout_overrides):
 PIPELINE_STAGES = [
     dict(title="cis-MR", blurb="Mendelian randomisation of cis-instrumented protein abundance on the outcome."),
     dict(title="pQTL–GWAS COLOC", blurb="Pairwise colocalisation confirming the pQTL and GWAS signals share one causal variant."),
-    dict(title="FinnGen PheWAS", blurb="Phenome-wide MR classifying Bonferroni-significant hits as potential additional indications or adverse effects."),
+    dict(title="FinnGen PheWAS", blurb="Phenome-wide MR classifying Bonferroni-significant hits as potential repurposing signals or adverse effects."),
     dict(title="UKB PheWAS", blurb="Fallback phenome-wide MR in UK Biobank EHR-derived phenotypes, for targets uncovered by FinnGen."),
     dict(title="SMR (bulk/sc eQTL)", blurb="SMR + HEIDI test that the pQTL signal also acts through transcription."),
     dict(title="HyPrColoc (bulk/sc eQTL)", blurb="pQTL, GWAS and eQTL signals sharing one causal variant, via HyPrColoc's clustering or PWCoCo-QTL's SNP-level triangulation."),
@@ -175,6 +180,58 @@ def layout_sankey_columns(column_indices: list, node_values: list, n_nodes: int,
             node_y[index] = min(max(center, 0.02), 0.98)
 
     return node_y
+
+
+def reorder_sankey_columns(column_indices: list, edges: list, edge_values: list, dropout_flags: list, iterations: int = 4):
+    """Barycenter (median-heuristic) crossing reduction for a multi-column Sankey.
+
+    Declaration order alone (the original approach) only avoids crossings when
+    each column has at most 1 non-dropout node feeding forward - it breaks down
+    once a column has several non-dropout branches feeding several more
+    non-dropout branches downstream (e.g. COLOC-support x PheWAS x SMR-support:
+    a dense many-to-many mapping where every combination is real). This
+    iteratively reorders each column's nodes by the flow-weighted average
+    position of whichever adjacent column it currently faces, alternating
+    forward and backward sweeps (standard Sugiyama-style layout heuristic) -
+    it does not guarantee 0 crossings, but visibly untangles a dense middle
+    section. Dropout nodes stay pinned last within their column throughout,
+    matching layout_sankey_columns' "pass lane on top, drop-out beneath" rule.
+    """
+    order = [list(indices) for indices in column_indices]
+    n_columns = len(order)
+
+    forward_neighbors = {}
+    backward_neighbors = {}
+    for (source, target), value in zip(edges, edge_values):
+        forward_neighbors.setdefault(source, []).append((target, value))
+        backward_neighbors.setdefault(target, []).append((source, value))
+
+    def sort_column(column_index, neighbor_map, position_of):
+        indices = order[column_index]
+        non_dropout = [index for index in indices if not dropout_flags[index]]
+        dropout = [index for index in indices if dropout_flags[index]]
+
+        def barycenter(node):
+            weighted = [(position_of[n], v) for n, v in neighbor_map.get(node, []) if n in position_of]
+            if not weighted:
+                return 0.0
+            total_value = sum(v for _, v in weighted)
+            if total_value == 0:
+                return sum(p for p, _ in weighted) / len(weighted)
+            return sum(p * v for p, v in weighted) / total_value
+
+        non_dropout.sort(key=barycenter)
+        order[column_index] = non_dropout + dropout
+
+    for _ in range(iterations):
+        for column_index in range(1, n_columns):
+            position_of = {index: position for position, index in enumerate(order[column_index - 1])}
+            sort_column(column_index, backward_neighbors, position_of)
+        for column_index in range(n_columns - 2, -1, -1):
+            position_of = {index: position for position, index in enumerate(order[column_index + 1])}
+            sort_column(column_index, forward_neighbors, position_of)
+
+    return order
 
 
 # KEY CHANGES DOWN THE LINE WITH MORE PQTL DATASETS
@@ -423,10 +480,36 @@ def compute_snp_h4_map(df: pd.DataFrame, pp4_thresh: float):
     return m
 
 
-# 1 row per (target, SNP) pair where the SAME SNP clears pp4_thresh in ALL 3
-# combos (pQTL-GWAS, eQTL-pQTL, eQTL-GWAS) at once - the live equivalent of
-# bin/pwcoco_qtl_wrapper.py's shared_rows. Every row here is a triangulated
-# target; the "protein" column's unique values are triangulated_proteins.
+# PP.H4 of PWCoCo's unconditioned row (SNP1 == SNP2 == "unconditioned", i.e. a
+# plain coloc.abf over the whole region) where it clears pp4_thresh, keyed by
+# protein, or by (protein, cell_type) for the 2 QTL combos so eQTL-pQTL and
+# eQTL-GWAS are only paired within the same tissue/cell type.
+def compute_unconditioned_h4_map(df: pd.DataFrame, pp4_thresh: float, by_cell_type: bool = False):
+    m = {}
+    needed = {"protein", "h4", "snp1", "snp2"} | ({"cell_type"} if by_cell_type else set())
+    if df.empty or not needed.issubset(df.columns):
+        return m
+
+    h4 = pd.to_numeric(df["h4"], errors="coerce")
+    unconditioned = (df["snp1"].astype(str) == "unconditioned") & (df["snp2"].astype(str) == "unconditioned")
+    passing = df[unconditioned & (h4.fillna(0) >= pp4_thresh)]
+
+    for _, row in passing.iterrows():
+        key = (str(row["protein"]), str(row["cell_type"])) if by_cell_type else str(row["protein"])
+        m[key] = max(m.get(key, 0), float(row["h4"]))
+
+    return m
+
+
+# 1 row per triangulated (target, SNP) pair, the live equivalent of
+# bin/pwcoco_qtl_wrapper.py's shared_rows. A target triangulates in 1 of 2 ways:
+# (1) the SAME conditioned SNP clears pp4_thresh in ALL 3 combos (pQTL-GWAS,
+# eQTL-pQTL, eQTL-GWAS), or (2) the unconditioned row clears pp4_thresh in all
+# 3 combos, with both QTL combos from the same cell type. (2) is needed because
+# a single-signal locus only ever gets an unconditioned row, so (1) alone can
+# never pass it. (2) rows carry snp = "unconditioned": all 3 pairs colocalise,
+# but PWCoCo names no lead SNP for them. The "protein" column's unique values
+# are triangulated_proteins.
 def compute_shared_snp_table(pqtl_gwas_df: pd.DataFrame, qtl_pqtl_df: pd.DataFrame, qtl_gwas_df: pd.DataFrame, pp4_thresh: float):
     pg_map = compute_snp_h4_map(pqtl_gwas_df, pp4_thresh)
     ep_map = compute_snp_h4_map(qtl_pqtl_df, pp4_thresh)
@@ -439,9 +522,25 @@ def compute_shared_snp_table(pqtl_gwas_df: pd.DataFrame, qtl_pqtl_df: pd.DataFra
             rows.append({
                 "protein": protein,
                 "snp": snp,
+                "cell_type": None,
                 "pqtl_gwas_h4": pg_map[protein][snp],
                 "qtl_pqtl_h4": ep_map[protein][snp],
                 "qtl_gwas_h4": eg_map[protein][snp],
+            })
+
+    pg_unc = compute_unconditioned_h4_map(pqtl_gwas_df, pp4_thresh)
+    ep_unc = compute_unconditioned_h4_map(qtl_pqtl_df, pp4_thresh, by_cell_type=True)
+    eg_unc = compute_unconditioned_h4_map(qtl_gwas_df, pp4_thresh, by_cell_type=True)
+
+    for protein, cell_type in sorted(set(ep_unc) & set(eg_unc)):
+        if protein in pg_unc:
+            rows.append({
+                "protein": protein,
+                "snp": "unconditioned",
+                "cell_type": cell_type,
+                "pqtl_gwas_h4": pg_unc[protein],
+                "qtl_pqtl_h4": ep_unc[(protein, cell_type)],
+                "qtl_gwas_h4": eg_unc[(protein, cell_type)],
             })
 
     return pd.DataFrame(rows)
@@ -575,12 +674,17 @@ def classify_phewas_associations(phewas_df: pd.DataFrame, mr_outcome_df: pd.Data
 
 
 def compute_phewas_classification_status(phewas_df: pd.DataFrame, mr_outcome_df: pd.DataFrame, proteins):
-    """Per-protein worst-case PheWAS classification for prioritisation gates.
+    """Per-protein worst-case PheWAS classification, for display only.
 
     'adverse_effect' if the protein has >=1 opposite-direction Bonferroni-
     significant hit; else 'additional_indication' if it has >=1 same-direction
-    one (informational - NOT a gate failure); else 'none'. Only 'adverse_effect'
-    should exclude a target from Prioritised Targets / the Final Targets Sankey.
+    one; else 'none'. This is informational only - it must never be used to
+    exclude a target from Prioritised Targets, the Final Targets Sankey or
+    any other view. workflows/drugmr.nf runs PHEWAS_WF as an independent
+    branch off the same COLOC/PWCoCo target set that feeds SMR; it has no
+    channel dependency back into SMR/HYPRCOLOC_WF/PWCOCO_QTL_WF, so no
+    target is ever excluded from the pipeline's own output because of its
+    PheWAS result, and this dashboard must match that.
     """
     proteins = list(proteins)
     status = {protein: "none" for protein in proteins}
@@ -1581,11 +1685,11 @@ def render_phewas_section(
             "(Pₐₑᵢ < 0.05 defines significance).\n"
             "- Only Bonferroni-significant binary-disease associations are classified:\n"
             "  - Higher protein abundance **increases** AD risk → inhibition indicated: "
-            "a **positive** PheWAS estimate is a potential **additional indication**; a "
+            "a **positive** PheWAS estimate is a potential **repurposing signal**; a "
             "**negative** estimate is a potential **adverse effect**.\n"
             "  - Higher protein abundance **decreases** AD risk → augmentation "
-            "indicated: a **negative** PheWAS estimate is a potential **additional "
-            "indication**; a **positive** estimate is a potential **adverse effect**.\n"
+            "indicated: a **negative** PheWAS estimate is a potential **repurposing "
+            "signal**; a **positive** estimate is a potential **adverse effect**.\n"
             "- Non-significant associations are **not classified**."
         )
 
@@ -1682,20 +1786,20 @@ def render_phewas_section(
         st.info(
             f"**{selected_phewas_target}**: higher protein abundance **increases** AD risk "
             "→ **inhibition** indicated. A same-direction (positive) PheWAS hit below is "
-            "a potential **additional indication**; an opposite-direction (negative) hit is a "
+            "a potential **repurposing signal**; an opposite-direction (negative) hit is a "
             "potential **adverse effect**."
         )
     elif primary_beta is not None and primary_beta < 0:
         st.info(
             f"**{selected_phewas_target}**: higher protein abundance **decreases** AD risk "
             "→ **augmentation** indicated. A same-direction (negative) PheWAS hit below "
-            "is a potential **additional indication**; an opposite-direction (positive) hit "
+            "is a potential **repurposing signal**; an opposite-direction (positive) hit "
             "is a potential **adverse effect**."
         )
     else:
         st.warning(
             f"No primary cis-MR beta was found for {selected_phewas_target} in this outcome, "
-            "so associations below cannot be classified as indication vs. adverse effect."
+            "so associations below cannot be classified as repurposing signal vs. adverse effect."
         )
 
     with st.container(border=True):
@@ -1703,7 +1807,7 @@ def render_phewas_section(
         metric1.metric(f"{source_name} endpoints tested", n_endpoints_target)
         metric2.metric("Nominal, p<0.05 (incl. Bonferroni-sig.)", n_nominal)
         metric3.metric("↳ Bonferroni-significant", n_bonferroni)
-        metric4.metric("Additional indications", n_indications)
+        metric4.metric("Repurposing signals", n_indications)
         metric5.metric("Adverse effects", n_adverse)
 
     st.caption(
@@ -1715,12 +1819,12 @@ def render_phewas_section(
     )
 
     classification_labels = {
-        "additional_indication": "Additional indication",
+        "additional_indication": "Repurposing signal",
         "adverse_effect": "Adverse effect",
         "not_classified": "Not classified",
     }
     classification_colors = {
-        "Additional indication": "#2e7d32",
+        "Repurposing signal": "#2e7d32",
         "Adverse effect": "#c62828",
         "Not classified": "#9e9e9e",
     }
@@ -1797,7 +1901,7 @@ def render_phewas_section(
 
     with ind_col:
         with st.container(border=True):
-            st.badge(f"{n_indications} potential additional indication(s)", color="green")
+            st.badge(f"{n_indications} potential repurposing signal(s)", color="green")
             _render_classification_table(
                 target_phewas[target_phewas["phewas_classification"] == "additional_indication"],
                 f"No same-direction Bonferroni-significant {source_name} hits for this target.",
@@ -1905,6 +2009,7 @@ def render_target_profile(
     smr_fdr_threshold: float,
     heidi_p_threshold: float,
     hyprcoloc_pp_threshold: float,
+    pwcoco_qtl_shared: pd.DataFrame,
 ):
     """1 target's complete evidence trail, stage by stage, in a single vertical
     read instead of checking each stage's tab separately - the dashboard's other
@@ -1928,9 +2033,12 @@ def render_target_profile(
     support = coloc_support_status.get(protein)
     passed_coloc_stage = support in support_labels
 
+    # PheWAS is a flag, not a gate (see the "single source of truth" block
+    # above render_dashboard_body for the full rationale) - it must NOT gate
+    # has_smr_support/passed_hyprcoloc below, only decorate the banner.
     finngen_status = compute_phewas_classification_status(finngen_phewas_outcome, mr_outcome, [protein]).get(protein, "none")
     ukb_status = compute_phewas_classification_status(ukb_phewas_outcome, mr_outcome, [protein]).get(protein, "none")
-    passed_safety = passed_coloc_stage and finngen_status != "adverse_effect" and ukb_status != "adverse_effect"
+    has_phewas_adverse_flag = finngen_status == "adverse_effect" or ukb_status == "adverse_effect"
 
     smr_rows = smr_display[smr_display["protein"].astype(str) == protein] if "protein" in smr_display.columns else smr_display.iloc[0:0]
     smr_pass_rows = (
@@ -1940,24 +2048,42 @@ def render_target_profile(
         ]
         if {"q_smr", "p_heidi"}.issubset(smr_rows.columns) else smr_rows.iloc[0:0]
     )
-    has_smr_support = passed_safety and not smr_pass_rows.empty
+    has_smr_support = passed_coloc_stage and not smr_pass_rows.empty
 
     hypr_rows = hyprcoloc_display[hyprcoloc_display["protein"].astype(str) == protein] if "protein" in hyprcoloc_display.columns else hyprcoloc_display.iloc[0:0]
     passed_hyprcoloc = has_smr_support and compute_hyprcoloc_pass_status(hypr_rows, [protein], hyprcoloc_pp_threshold).get(protein, False)
 
+    tri_rows = (
+        pwcoco_qtl_shared[pwcoco_qtl_shared["protein"].astype(str) == protein]
+        if "protein" in pwcoco_qtl_shared.columns else pd.DataFrame()
+    )
+    passed_pwcoco_qtl = has_smr_support and not tri_rows.empty
+
     # --- verdict banner ---
-    if passed_hyprcoloc:
-        st.success("FINAL TARGET · passed every stage, including HyPrColoc's 3-trait colocalisation check.")
+    if passed_hyprcoloc or passed_pwcoco_qtl:
+        if passed_hyprcoloc and passed_pwcoco_qtl:
+            method = "both HyPrColoc and PWCoCo-QTL"
+        elif passed_hyprcoloc:
+            method = "HyPrColoc only"
+        else:
+            method = "PWCoCo-QTL only"
+        st.success(f"FINAL TARGET · passed every stage, with 3-trait colocalisation supported by {method}.")
     elif has_smr_support:
-        st.info("Reached SMR support, but did not clear HyPrColoc's 3-trait colocalisation threshold.")
-    elif passed_safety:
-        st.success("PRIORITISED · passed cis-MR, colocalisation and PheWAS safety. No SMR/eQTL support found or tested yet.")
+        st.info("Reached SMR support, but neither HyPrColoc nor PWCoCo-QTL supported 3-trait colocalisation.")
     elif passed_coloc_stage:
-        st.warning("ADVERSE EFFECT FLAG · a Bonferroni-significant FinnGen or UKB PheWAS hit runs opposite to the primary protein→AD effect direction. Excluded from Prioritised Targets.")
+        st.success("PRIORITISED · passed cis-MR and colocalisation. No SMR/eQTL support found or tested yet.")
     elif passed_mr:
         st.error("STOPPED AT COLOCALISATION · passed cis-MR, but neither standard COLOC nor PWCoCo cleared the PP.H4 threshold.")
     else:
         st.error("STOPPED AT cis-MR · did not clear the MR FDR / Cochran Q thresholds.")
+
+    if has_phewas_adverse_flag:
+        st.warning(
+            "PheWAS ADVERSE-EFFECT FLAG · a Bonferroni-significant FinnGen or UKB hit runs opposite "
+            "to the primary protein→AD effect direction. Informational only - this target is NOT "
+            "excluded from Prioritised Targets or Final Targets; PHEWAS_WF runs as an independent "
+            "branch in the pipeline and never gates SMR or any later stage."
+        )
 
     st.divider()
 
@@ -2029,7 +2155,7 @@ def render_target_profile(
             st.badge("ADVERSE EFFECT", color="red")
             st.caption("Bonferroni-significant FinnGen hit running opposite to the primary protein→AD direction.")
         elif finngen_status == "additional_indication":
-            st.badge("ADDITIONAL INDICATION", color="green")
+            st.badge("REPURPOSING SIGNAL", color="green")
             st.caption("Bonferroni-significant FinnGen hit running the same direction as the primary protein→AD effect: a potential repurposing signal, not a safety concern.")
         else:
             st.badge("NO SIGNIFICANT SIGNAL", color="green")
@@ -2045,7 +2171,7 @@ def render_target_profile(
             st.badge("ADVERSE EFFECT", color="red")
             st.caption("Bonferroni-significant UKB hit running opposite to the primary protein→AD direction.")
         elif ukb_status == "additional_indication":
-            st.badge("ADDITIONAL INDICATION", color="green")
+            st.badge("REPURPOSING SIGNAL", color="green")
             st.caption("Bonferroni-significant UKB hit running the same direction as the primary protein→AD effect: a potential repurposing signal, not a safety concern.")
         else:
             st.badge("NO SIGNIFICANT SIGNAL", color="green")
@@ -2053,7 +2179,7 @@ def render_target_profile(
     # --- Stage 5: SMR ---
     st.markdown("#### Stage 5 · SMR (bulk/sc eQTL)")
     with st.container(border=True):
-        if not passed_safety:
+        if not passed_coloc_stage:
             st.caption("Not reached.")
         elif smr_rows.empty:
             st.badge("No SMR support", color="gray")
@@ -2069,16 +2195,24 @@ def render_target_profile(
                 st.badge(f"SMR support in {n_datasets} dataset(s)", color="green")
 
     # --- Stage 6: HyPrColoc ---
-    st.markdown("#### Stage 6 · HyPrColoc")
+    st.markdown("#### Stage 6 · HyPrColoc and PWCoCo-QTL")
     with st.container(border=True):
         if not has_smr_support:
             st.caption("Not reached. No SMR/eQTL support to test.")
-        elif hypr_rows.empty:
-            st.badge("No HyPrColoc result", color="gray")
         else:
-            st.badge("PASSED" if passed_hyprcoloc else "FAILED", color="green" if passed_hyprcoloc else "red")
-            display_cols = available_cols(hypr_rows, ["cell_type", "traits", "posterior_prob", "candidate_snp"])
-            st.dataframe(for_display(hypr_rows[display_cols]), hide_index=True, width="stretch")
+            st.markdown("**HyPrColoc**")
+            if hypr_rows.empty:
+                st.badge("No HyPrColoc result", color="gray")
+            else:
+                st.badge("PASSED" if passed_hyprcoloc else "FAILED", color="green" if passed_hyprcoloc else "red")
+                display_cols = available_cols(hypr_rows, ["cell_type", "traits", "posterior_prob", "candidate_snp"])
+                st.dataframe(for_display(hypr_rows[display_cols]), hide_index=True, width="stretch")
+
+            st.markdown("**PWCoCo-QTL**")
+            st.badge("PASSED" if passed_pwcoco_qtl else "FAILED", color="green" if passed_pwcoco_qtl else "red")
+            if not tri_rows.empty:
+                tri_cols = available_cols(tri_rows, ["cell_type", "snp", "pqtl_gwas_h4", "qtl_pqtl_h4", "qtl_gwas_h4"])
+                st.dataframe(for_display(tri_rows[tri_cols]), hide_index=True, width="stretch")
 
 
 @st.cache_data(show_spinner=False)
@@ -2143,8 +2277,8 @@ def load_and_sync_run_data(
     smr = load_optional_tsv(smr_file, "SMR (bulk/sc eQTL)")
     hyprcoloc = load_optional_tsv(hyprcoloc_file, "HyPrColoc (bulk/sc eQTL)")
     pwcoco = load_optional_tsv(pwcoco_file, "PWCoCo (conditional coloc)")
-    pwcoco_eqtl_pqtl = load_optional_tsv(pwcoco_eqtl_pqtl_file, "PWCoCo (eQTL-pQTL)")
-    pwcoco_eqtl_gwas = load_optional_tsv(pwcoco_eqtl_gwas_file, "PWCoCo (eQTL-GWAS)")
+    pwcoco_eqtl_pqtl = load_optional_tsv(pwcoco_eqtl_pqtl_file, "PWCoCo (QTL-pQTL)")
+    pwcoco_eqtl_gwas = load_optional_tsv(pwcoco_eqtl_gwas_file, "PWCoCo (QTL-GWAS)")
 
     # standardise MR + pQTL COLOC columns before loading into PostgreSQL
     # avoids dataset-specific differences such as Wald_beta vs wald_beta
@@ -2682,7 +2816,7 @@ def dashboard(
     mr["mr_beta"] = np.where(mr["n_instruments"] == 1, mr["wald_beta"], mr["ivw_beta"])
     mr["mr_se"] = np.where(mr["n_instruments"] == 1, mr["wald_se"], mr["ivw_se"])
     mr["mr_pval"] = np.where(mr["n_instruments"] == 1, mr["wald_pval"], mr["ivw_pval"])
-    mr["mr_fdr_q"] = np.where(mr["n_instruments"] == 1, mr["wald_fdr_q"], mr["ivw_fdr_q"])
+    mr["mr_fdr_q"] = mr["primary_fdr_q"]
 
     # standardise selected pQTL dataset
     selected_pqtl_dataset = (
@@ -3037,11 +3171,48 @@ def dashboard(
     # everything downstream flows from the combined (COLOC OR PWCoCo) pass set
     coloc_pass_set = coloc_support_pass_set
 
+    # PheWAS is a FLAG, not a GATE - workflows/drugmr.nf runs PHEWAS_WF as an
+    # independent branch off the same COLOC/PWCoCo set that feeds SMR; it has
+    # no channel dependency back into SMR, HYPRCOLOC_WF, PWCOCO_QTL_WF or
+    # final_multi_omics_targets.tsv, so no target is ever excluded from the
+    # pipeline's own output because of its PheWAS result (see
+    # subworkflows/phewas/main.nf and workflows/drugmr.nf). finngen_status/
+    # ukb_status below are kept for display (badges, table columns, Sankey
+    # hover) but must never shrink coloc_pass_set - finngen_pass_set/
+    # ukb_pass_set are therefore just aliases for it, kept under their old
+    # names so every downstream set below (smr_eligible_set, final targets,
+    # etc.) doesn't need touching to stop being PheWAS-gated.
     finngen_status = compute_phewas_classification_status(finngen_phewas_outcome, mr_outcome, coloc_pass_set)
-    finngen_pass_set = {protein for protein in coloc_pass_set if finngen_status.get(protein) != "adverse_effect"}
+    ukb_status = compute_phewas_classification_status(ukb_phewas_outcome, mr_outcome, coloc_pass_set)
+    finngen_adverse_set = {protein for protein in coloc_pass_set if finngen_status.get(protein) == "adverse_effect"}
+    ukb_adverse_set = {protein for protein in coloc_pass_set if ukb_status.get(protein) == "adverse_effect"}
+    phewas_adverse_set = finngen_adverse_set | ukb_adverse_set
+    finngen_pass_set = coloc_pass_set
+    ukb_pass_set = coloc_pass_set
 
-    ukb_status = compute_phewas_classification_status(ukb_phewas_outcome, mr_outcome, finngen_pass_set)
-    ukb_pass_set = {protein for protein in finngen_pass_set if ukb_status.get(protein) != "adverse_effect"}
+    # Sankey's own 2-column PheWAS section, drawn sequentially exactly as the
+    # pipeline actually runs it: FinnGen first (on the full coloc_pass_set),
+    # UKB only as a fallback for the subset FinnGen had zero coverage for (see
+    # subworkflows/phewas/main.nf's "UKB fallback runs strictly after
+    # FinnGen" comment). No group here is dropout - every protein still
+    # flows on to SMR below, this only splits *which lane* it arrives by.
+    finngen_covered_set = (
+        coloc_pass_set & set(finngen_phewas_outcome["protein"].dropna().astype(str))
+        if "protein" in finngen_phewas_outcome.columns else set()
+    )
+    finngen_fallback_set = coloc_pass_set - finngen_covered_set
+    finngen_adverse_col_set = {p for p in finngen_covered_set if finngen_status.get(p) == "adverse_effect"}
+    finngen_indication_col_set = {p for p in finngen_covered_set if finngen_status.get(p) == "additional_indication"}
+    finngen_none_col_set = finngen_covered_set - finngen_adverse_col_set - finngen_indication_col_set
+
+    ukb_covered_set = (
+        finngen_fallback_set & set(ukb_phewas_outcome["protein"].dropna().astype(str))
+        if "protein" in ukb_phewas_outcome.columns else set()
+    )
+    ukb_no_coverage_set = finngen_fallback_set - ukb_covered_set
+    ukb_adverse_col_set = {p for p in ukb_covered_set if ukb_status.get(p) == "adverse_effect"}
+    ukb_indication_col_set = {p for p in ukb_covered_set if ukb_status.get(p) == "additional_indication"}
+    ukb_none_col_set = ukb_covered_set - ukb_adverse_col_set - ukb_indication_col_set
 
     smr_pass_rows = smr_display.copy()
 
@@ -3061,8 +3232,6 @@ def dashboard(
         sc_pass_set = set()
 
     coloc_fail_set = mr_pass_proteins - coloc_pass_set
-    finngen_fail_set = coloc_pass_set - finngen_pass_set
-    ukb_fail_set = finngen_pass_set - ukb_pass_set
     both_set = ukb_pass_set & bulk_pass_set & sc_pass_set
     bulk_only_set = (ukb_pass_set & bulk_pass_set) - sc_pass_set
     sc_only_set = (ukb_pass_set & sc_pass_set) - bulk_pass_set
@@ -3084,8 +3253,9 @@ def dashboard(
     # standard pairwise COLOC(pQTL-GWAS) - see coloc_support above). Both ask
     # whether pQTL, eQTL and GWAS share 1 causal variant: HyPrColoc via a single
     # shared-cluster assumption, PWCoCo-QTL via conditioning (pQTL-GWAS, eQTL-pQTL
-    # and eQTL-GWAS PWCoCo all converging on the SAME SNP - see triangulated_proteins
-    # above, computed live via compute_shared_snp_table()). A target reaches Final
+    # and eQTL-GWAS PWCoCo all colocalising, on the same conditioned SNP or in all 3
+    # unconditioned analyses: see triangulated_proteins above, computed live via
+    # compute_shared_snp_table()). A target reaches Final
     # Targets if EITHER method supports it.
     pwcoco_qtl_pass_set = hyprcoloc_testable_set & triangulated_proteins
     three_trait_both_set = hyprcoloc_pass_set & pwcoco_qtl_pass_set
@@ -3093,10 +3263,11 @@ def dashboard(
     three_trait_pwcoco_qtl_only_set = pwcoco_qtl_pass_set - hyprcoloc_pass_set
     three_trait_fail_set = hyprcoloc_testable_set - (hyprcoloc_pass_set | pwcoco_qtl_pass_set)
 
-    # "Prioritised" (Overview headline metric) = passed cis-MR + COLOC-or-PWCoCo +
-    # safety-cleared on FinnGen/UKB PheWAS - i.e. ukb_pass_set above, same set the
-    # Sankey's "UKB passed" node uses. Kept as its own dataframe (not just a count)
-    # since the Overview tab's prioritised-target cards below need the full rows.
+    # "Prioritised" (Overview headline metric) = passed cis-MR + COLOC-or-PWCoCo.
+    # ukb_pass_set == coloc_pass_set now (PheWAS is a flag, not a gate - see
+    # above), so this is no longer a "safety-cleared" subset; kept as its own
+    # dataframe (not just a count) since the Overview tab's prioritised-target
+    # cards below need the full rows.
     mr_coloc_safe_pass = (
         mr_coloc_pass[mr_coloc_pass["protein"].astype(str).isin(ukb_pass_set)].copy()
         if "protein" in mr_coloc_pass.columns else mr_coloc_pass.copy()
@@ -3114,6 +3285,7 @@ def dashboard(
     n_mr_coloc_safe = safe_nunique(mr_coloc_safe_pass, "protein")
     n_finngen_phewas = safe_nunique(finngen_phewas_outcome, "protein")
     n_ukb_phewas = safe_nunique(ukb_phewas_outcome, "protein")
+    n_phewas_flagged = len(phewas_adverse_set)
     n_smr_eligible = len(smr_eligible_set)
     # "Multi-omics" headline = EITHER HyPrColoc OR PWCoCo-QTL triangulation, not
     # HyPrColoc alone - see three_trait_* above (same union philosophy as
@@ -3141,12 +3313,12 @@ def dashboard(
             f"{retention(n_mr_coloc, n_mr):.0f}% retained"
         )
         funnel_col4.metric(
-            "Safety-cleared", n_mr_coloc_safe,
-            f"{retention(n_mr_coloc_safe, n_mr_coloc):.0f}% retained"
+            "PheWAS flagged", n_phewas_flagged,
+            f"{retention(n_phewas_flagged, n_mr_coloc):.0f}% of colocalised"
         )
         funnel_col5.metric(
             "SMR-supported", n_smr_eligible,
-            f"{retention(n_smr_eligible, n_mr_coloc_safe):.0f}% retained"
+            f"{retention(n_smr_eligible, n_mr_coloc):.0f}% retained"
         )
         funnel_col6.metric(
             "Multi-omics", n_multi_omics_pass,
@@ -3154,13 +3326,16 @@ def dashboard(
         )
         st.caption(
             f"{dataset_name} pQTLs → **{outcome}**. Colocalised = passed standard COLOC or "
-            "PWCoCo. Safety-cleared = also no adverse FinnGen/UKB PheWAS hit ('Prioritised' "
-            "on the Overview tab's target cards below). SMR-supported = also cleared SMR "
-            "FDR/HEIDI. Multi-omics = pQTL+GWAS+eQTL share 1 causal variant, via **either** "
-            "HyPrColoc's clustering **or** PWCoCo-QTL's SNP-level triangulation. This is the "
-            "exact same count as the **Multi-omics** view on the **7. Final Targets** tab. "
-            "Full branching detail (COLOC-vs-PWCoCo, bulk-vs-single-cell, HyPrColoc-vs-"
-            "PWCoCo-QTL) is on that tab's Sankey; colour legend is in the sidebar."
+            "PWCoCo. PheWAS flagged = has a Bonferroni-significant adverse-effect hit in "
+            "FinnGen or UKB (informational only - matches how PHEWAS_WF actually runs in "
+            "the pipeline, as an independent branch that never gates SMR or any later "
+            "stage; see each target's flag in **Prioritised targets** / **7. Final "
+            "Targets** below). SMR-supported = cleared SMR FDR/HEIDI. Multi-omics = "
+            "pQTL+GWAS+eQTL share 1 causal variant, via **either** HyPrColoc's clustering "
+            "**or** PWCoCo-QTL's SNP-level triangulation. This is the exact same count as "
+            "the **Multi-omics** view on the **7. Final Targets** tab. Full branching "
+            "detail (COLOC-vs-PWCoCo, bulk-vs-single-cell, HyPrColoc-vs-PWCoCo-QTL) is on "
+            "that tab's Sankey; colour legend is in the sidebar."
         )
 
     tab1, tab_profile, tab_evidence, tab8, tab9, tab10 = st.tabs([
@@ -3169,7 +3344,7 @@ def dashboard(
         "Evidence by Stage",
         "7. Final Targets",
         "PWCoCo (conditional coloc)",
-        "PWCoCo-QTL (eQTL triangulation)"
+        "PWCoCo-QTL (QTL triangulation)"
     ])
 
     with tab1:
@@ -3204,10 +3379,14 @@ def dashboard(
         st.divider()
         st.subheader("Target prioritisation")
         st.caption(
-            "The same 6 numbers as the bar above the tabs, shown here at scale: the "
-            "complete flow through every stage, all the way to the same **Multi-omics** "
-            "count on the **7. Final Targets** tab. That tab's Sankey diagram shows the "
-            "same funnel with the extra branching detail (COLOC-vs-PWCoCo, bulk-vs-"
+            "The same flow as the bar above the tabs, shown here at scale: every stage "
+            "that actually narrows the target set, all the way to the same "
+            "**Multi-omics** count on the **7. Final Targets** tab. PheWAS (FinnGen/UKB) "
+            "is not a narrowing stage - it never removes a target from this pipeline (see "
+            "the caption above) - so it isn't plotted here as a funnel step; each "
+            "target's PheWAS flag is shown individually in **Prioritised targets** below "
+            "and on the **7. Final Targets** tab instead. That tab's Sankey diagram shows "
+            "the same funnel with the extra branching detail (COLOC-vs-PWCoCo, bulk-vs-"
             "single-cell) this chart collapses for readability."
         )
 
@@ -3216,7 +3395,6 @@ def dashboard(
                 "Proteins tested by cis-MR",
                 "cis-MR supported",
                 "+ COLOC or PWCoCo",
-                "+ no adverse PheWAS hit (FinnGen/UKB)",
                 "+ SMR FDR/HEIDI support",
                 "+ multi-omics confirmed (HyPrColoc or PWCoCo-QTL)"
             ],
@@ -3224,7 +3402,6 @@ def dashboard(
                 n_tested,
                 n_mr,
                 n_mr_coloc,
-                n_mr_coloc_safe,
                 n_smr_eligible,
                 n_multi_omics_pass
             ]
@@ -3266,24 +3443,26 @@ def dashboard(
         st.subheader("Prioritised targets")
         st.caption(
             "Every protein that has passed cis-MR and colocalisation (standard COLOC or PWCoCo) at the "
-            "thresholds set in the sidebar, and has no Bonferroni-significant FinnGen or "
-            "UKB phenome-wide MR hit classified as a potential adverse effect (i.e. running "
-            "opposite to the primary protein→AD effect direction), gets 1 card below. A same-"
-            "direction hit is a potential additional indication and does not exclude a "
-            "target. Betas and alleles are harmonised to the outcome GWAS risk allele."
+            "thresholds set in the sidebar gets 1 card below. FinnGen/UKB phenome-wide MR results are "
+            "shown as a flag on each card, not a filter: a Bonferroni-significant, opposite-direction "
+            "(adverse-effect) hit does NOT remove a target here, matching how the pipeline itself runs "
+            "PheWAS as an independent branch that never gates SMR or any later stage. A same-direction "
+            "hit is a potential repurposing signal. Betas and alleles are harmonised to the outcome "
+            "GWAS risk allele."
         )
 
         if not mr_coloc_safe_pass.empty:
             st.success(
                 f"{n_mr_coloc_safe} unique target(s) passed the selected cis-MR and pairwise COLOC "
-                "thresholds with no Bonferroni-significant adverse-effect signal in FinnGen/UKB phenome-wide MR."
+                "thresholds."
             )
 
-            if n_mr_coloc_safe < n_mr_coloc:
+            if phewas_adverse_set:
                 st.caption(
-                    f"{n_mr_coloc - n_mr_coloc_safe} additional target(s) passed cis-MR + COLOC but were "
-                    "excluded here for a Bonferroni-significant, opposite-direction (adverse-effect) FinnGen/UKB PheWAS hit. "
-                    "See the Sankey diagram on the **7. Final Targets** tab for the full breakdown."
+                    f"⚠ {len(phewas_adverse_set)} of these also carry a Bonferroni-significant, "
+                    "opposite-direction (adverse-effect) FinnGen/UKB PheWAS hit - shown as a flag on "
+                    "their card below, not excluded. See the Sankey diagram on the **7. Final Targets** "
+                    "tab for the full breakdown."
                 )
 
             gene_list = sorted(mr_coloc_safe_pass["protein"].dropna().astype(str).str.split("_").str[0].unique())
@@ -3400,9 +3579,9 @@ def dashboard(
 
         elif n_mr_coloc > 0:
             st.info(
-                f"{n_mr_coloc} target(s) passed the selected cis-MR and pQTL COLOC thresholds, but all were "
-                "excluded here for a Bonferroni-significant, opposite-direction (adverse-effect) FinnGen/UKB PheWAS hit. See the "
-                "Sankey diagram on the **7. Final Targets** tab for the full breakdown."
+                f"{n_mr_coloc} target(s) passed the selected cis-MR and pQTL COLOC thresholds, "
+                "but none carry a protein identifier this view can display. See the Sankey "
+                "diagram on the **7. Final Targets** tab for the full breakdown."
             )
         else:
             st.info("No proteins currently pass both the selected cis-MR and pQTL COLOC thresholds.")
@@ -3479,6 +3658,7 @@ def dashboard(
                 smr_fdr_threshold=smr_fdr_threshold,
                 heidi_p_threshold=heidi_p_threshold,
                 hyprcoloc_pp_threshold=hyprcoloc_pp_threshold,
+                pwcoco_qtl_shared=shared_snp_table,
             )
 
     with tab_evidence:
@@ -4107,12 +4287,19 @@ def dashboard(
                 "method is enough to continue, split into \"Both methods\" / \"COLOC only\" / "
                 "\"PWCoCo only\" lanes below so discordant hits stay visible rather than being "
                 "silently dropped.\n"
-                "- **FinnGen / UKB phenome-wide MR**: UKB only runs as a fallback for targets "
-                "with zero retained instruments in FinnGen. A target fails *only* when it has a "
-                "Bonferroni-significant hit classified as an **adverse effect** (running opposite "
-                "to the primary protein→AD effect direction). A same-direction hit is an "
-                "**additional indication** and does not gate; no significant hit, or no PheWAS "
-                "coverage at all, also count as passing.\n"
+                "- **FinnGen phenome-wide MR**: a branch, not a gate - every target splits "
+                "into \"Adverse effect\" / \"Repurposing signal\" / \"No significant hit\" / "
+                "\"No FinnGen coverage\", and all 4 lanes continue onward, since PHEWAS_WF "
+                "runs as an independent branch in the pipeline (off the same COLOC/PWCoCo "
+                "target set that feeds SMR) and never gates SMR or anything downstream of it. "
+                "**Adverse effect** = a Bonferroni-significant hit running opposite to the "
+                "primary protein→AD effect direction; **Repurposing signal** = a "
+                "same-direction Bonferroni-significant hit.\n"
+                "- **UKB phenome-wide MR (fallback)**: same 3-way classification, but only "
+                "for the \"No FinnGen coverage\" subset - UKB is queried strictly as a "
+                "fallback for targets with 0 retained cis-MR instruments matched in FinnGen. "
+                "Never a gate either; a target with no coverage in either source is labelled "
+                "\"No PheWAS coverage\" and still continues on to SMR.\n"
                 f"- **SMR support**: requires SMR FDR (`q_SMR`) < {smr_fdr_threshold:.2f} and "
                 f"HEIDI p-value > {heidi_p_threshold:.2f}, split by whether that support came "
                 "from bulk/tissue eQTL data, single-cell eQTL data, or both.\n"
@@ -4156,14 +4343,30 @@ def dashboard(
                      proteins=coloc_support_pwcoco_only_set, color=COLOC_SUPPORT_PWCOCO_ONLY_COLOR, dropout=False),
                 dict(key="coloc_fail", column=3, name="Neither COLOC nor PWCoCo passed", label="Neither",
                      proteins=coloc_fail_set, color=STATUS_CRITICAL, dropout=True),
-                dict(key="finngen_pass", column=4, name="FinnGen safety passed", label="FinnGen passed",
-                     proteins=finngen_pass_set, color=STATUS_GOOD, dropout=False),
-                dict(key="finngen_fail", column=4, name="FinnGen safety failed", label="FinnGen failed",
-                     proteins=finngen_fail_set, color=STATUS_CRITICAL, dropout=True),
-                dict(key="ukb_pass", column=5, name="UKB safety passed", label="UKB passed",
-                     proteins=ukb_pass_set, color=STATUS_GOOD, dropout=False),
-                dict(key="ukb_fail", column=5, name="UKB safety failed", label="UKB failed",
-                     proteins=ukb_fail_set, color=STATUS_CRITICAL, dropout=True),
+                # PheWAS (FinnGen then UKB fallback) is a real, sequential branch
+                # here, same spirit as COLOC-vs-PWCoCo above, but NOT a gate: every
+                # group has dropout=False and every protein still flows on to SMR -
+                # it runs as an independent branch in the pipeline (workflows/
+                # drugmr.nf) that never removes a target, so nothing here should
+                # ever terminate a ribbon. FinnGen runs on the full coloc-pass set;
+                # UKB only runs as a fallback for whichever subset FinnGen had zero
+                # instrument coverage for (see subworkflows/phewas/main.nf).
+                dict(key="finngen_adverse", column=4, name="FinnGen: Bonferroni-significant adverse-effect hit", label="Adverse effect",
+                     proteins=finngen_adverse_col_set, color=PHEWAS_ADVERSE_COLOR, dropout=False),
+                dict(key="finngen_indication", column=4, name="FinnGen: Bonferroni-significant same-direction hit (repurposing signal)", label="Repurposing signal",
+                     proteins=finngen_indication_col_set, color=STATUS_GOOD, dropout=False),
+                dict(key="finngen_none", column=4, name="FinnGen: no Bonferroni-significant hit", label="No significant hit",
+                     proteins=finngen_none_col_set, color=STATUS_MUTED, dropout=False),
+                dict(key="finngen_fallback", column=4, name="FinnGen: no instrument coverage (falls to UKB)", label="No FinnGen coverage",
+                     proteins=finngen_fallback_set, color=STATUS_MUTED, dropout=False),
+                dict(key="ukb_adverse", column=5, name="UKB fallback: Bonferroni-significant adverse-effect hit", label="Adverse effect",
+                     proteins=ukb_adverse_col_set, color=PHEWAS_ADVERSE_COLOR, dropout=False),
+                dict(key="ukb_indication", column=5, name="UKB fallback: Bonferroni-significant same-direction hit (repurposing signal)", label="Repurposing signal",
+                     proteins=ukb_indication_col_set, color=STATUS_GOOD, dropout=False),
+                dict(key="ukb_none", column=5, name="UKB fallback: no Bonferroni-significant hit", label="No significant hit",
+                     proteins=ukb_none_col_set, color=STATUS_MUTED, dropout=False),
+                dict(key="ukb_no_coverage", column=5, name="UKB fallback: no PheWAS coverage in either source", label="No PheWAS coverage",
+                     proteins=ukb_no_coverage_set, color=STATUS_MUTED, dropout=False),
                 dict(key="smr_both", column=6, name="SMR bulk + single-cell", label="Bulk + single-cell",
                      proteins=both_set, color=SANKEY_BOTH_COLOR, dropout=False),
                 dict(key="smr_bulk", column=6, name="SMR bulk only", label="Bulk only",
@@ -4187,12 +4390,28 @@ def dashboard(
                 ("cis_mr_eligible", "mr"), ("cis_mr_eligible", "cis_mr_fail"),
                 ("mr", "coloc_support_both"), ("mr", "coloc_support_coloc_only"),
                 ("mr", "coloc_support_pwcoco_only"), ("mr", "coloc_fail"),
-                ("coloc_support_both", "finngen_pass"), ("coloc_support_both", "finngen_fail"),
-                ("coloc_support_coloc_only", "finngen_pass"), ("coloc_support_coloc_only", "finngen_fail"),
-                ("coloc_support_pwcoco_only", "finngen_pass"), ("coloc_support_pwcoco_only", "finngen_fail"),
-                ("finngen_pass", "ukb_pass"), ("finngen_pass", "ukb_fail"),
-                ("ukb_pass", "smr_both"), ("ukb_pass", "smr_bulk"),
-                ("ukb_pass", "smr_sc"), ("ukb_pass", "smr_none"),
+                ("coloc_support_both", "finngen_adverse"), ("coloc_support_both", "finngen_indication"),
+                ("coloc_support_both", "finngen_none"), ("coloc_support_both", "finngen_fallback"),
+                ("coloc_support_coloc_only", "finngen_adverse"), ("coloc_support_coloc_only", "finngen_indication"),
+                ("coloc_support_coloc_only", "finngen_none"), ("coloc_support_coloc_only", "finngen_fallback"),
+                ("coloc_support_pwcoco_only", "finngen_adverse"), ("coloc_support_pwcoco_only", "finngen_indication"),
+                ("coloc_support_pwcoco_only", "finngen_none"), ("coloc_support_pwcoco_only", "finngen_fallback"),
+                ("finngen_fallback", "ukb_adverse"), ("finngen_fallback", "ukb_indication"),
+                ("finngen_fallback", "ukb_none"), ("finngen_fallback", "ukb_no_coverage"),
+                ("finngen_adverse", "smr_both"), ("finngen_adverse", "smr_bulk"),
+                ("finngen_adverse", "smr_sc"), ("finngen_adverse", "smr_none"),
+                ("finngen_indication", "smr_both"), ("finngen_indication", "smr_bulk"),
+                ("finngen_indication", "smr_sc"), ("finngen_indication", "smr_none"),
+                ("finngen_none", "smr_both"), ("finngen_none", "smr_bulk"),
+                ("finngen_none", "smr_sc"), ("finngen_none", "smr_none"),
+                ("ukb_adverse", "smr_both"), ("ukb_adverse", "smr_bulk"),
+                ("ukb_adverse", "smr_sc"), ("ukb_adverse", "smr_none"),
+                ("ukb_indication", "smr_both"), ("ukb_indication", "smr_bulk"),
+                ("ukb_indication", "smr_sc"), ("ukb_indication", "smr_none"),
+                ("ukb_none", "smr_both"), ("ukb_none", "smr_bulk"),
+                ("ukb_none", "smr_sc"), ("ukb_none", "smr_none"),
+                ("ukb_no_coverage", "smr_both"), ("ukb_no_coverage", "smr_bulk"),
+                ("ukb_no_coverage", "smr_sc"), ("ukb_no_coverage", "smr_none"),
                 ("smr_both", "three_trait_both"), ("smr_both", "three_trait_hyprcoloc_only"),
                 ("smr_both", "three_trait_pwcoco_qtl_only"), ("smr_both", "three_trait_fail"),
                 ("smr_sc", "three_trait_both"), ("smr_sc", "three_trait_hyprcoloc_only"),
@@ -4217,13 +4436,13 @@ def dashboard(
             # routinely 10-100x, dwarfing every later stage's own drop-off - which
             # used to visually cover the trailing "(n)" on each label - widened
             # those gaps specifically rather than spacing every column evenly.
-            column_x = [0.02, 0.15, 0.27, 0.40, 0.53, 0.65, 0.78, 0.99]
+            column_x = [0.02, 0.14, 0.26, 0.38, 0.51, 0.63, 0.78, 0.99]
 
             # true, un-transformed counts - shown on the node itself (as a
             # 2nd, smaller line under the name) and in hover. Stacking the
             # count under the name rather than beside it ("Name (1,234)")
             # keeps a node's on-screen footprint as wide as its name alone,
-            # so 8 columns of labelled nodes still fit a normal dashboard
+            # so every column of labelled nodes still fits a normal dashboard
             # viewport without 1 column's count running into the next
             # column's node
             node_counts = [len(group["proteins"]) for group in drawn]
@@ -4277,12 +4496,20 @@ def dashboard(
                 for index in range(len(drawn))
             ]
 
-            # `drawn` is already pass-lane-first within each column, so taking
-            # each column in that order keeps the ribbons from crossing
+            # Declaration order alone only avoids crossings where each column has
+            # at most 1 non-dropout node - the dense COLOC-support x PheWAS x
+            # SMR-support middle section has 3-to-3 and 3-to-4 mappings where
+            # every combination is real, so a barycenter reordering pass (see
+            # reorder_sankey_columns) untangles it instead of leaving nodes in
+            # raw declaration order.
             column_indices = [
                 [node_index[group["key"]] for group in drawn if group["column"] == column]
                 for column in range(len(column_x))
             ]
+            dropout_flags = [group["dropout"] for group in drawn]
+            column_indices = reorder_sankey_columns(
+                column_indices, edges, raw_edge_values, dropout_flags
+            )
 
             # layout_sankey_columns sizes every column against 1 shared scale
             # (the biggest column's own total), which is exactly right when
@@ -4353,20 +4580,85 @@ def dashboard(
                 hoverlabel=dict(align="left", bgcolor="white", bordercolor="rgba(0,0,0,0.15)", font=dict(size=12))
             )
 
-            # 8 columns of labelled nodes need real horizontal room that a
+            # 6 columns of labelled nodes need real horizontal room that a
             # narrow browser window/split screen can't always give without
             # text overlapping the next column - a fixed pixel width (with
             # the container scrolling horizontally if it's narrower) keeps
             # every label legible instead of squeezing it to fit
             st.plotly_chart(sankey_fig, width=1250)
 
+            # static exports for slides/papers - kaleido (already a project
+            # dependency) renders the figure server-side. Unlike the on-screen
+            # st.plotly_chart(..., width=1250) above (a Streamlit display
+            # setting that to_image() never sees), the export needs its own
+            # explicit width/height passed here - without them, kaleido falls
+            # back to its own small default (~700x450) regardless of how wide
+            # the live chart renders, squashing an 8-column diagram's labels.
+            #
+            # The live chart's own node/label textfont (set on the go.Sankey
+            # trace above) is sized to look right in a browser at 1250px wide
+            # with the browser's own text rendering - shrunk proportionally
+            # into a fixed-pixel raster/PDF page, that same absolute font size
+            # reads as tiny. export_fig is a deep copy, mutated AFTER
+            # st.plotly_chart() already rendered the live version above, so
+            # this only touches what gets exported - node/link text, hover-
+            # unrelated, jumps from 10pt to 22pt and node thickness/padding
+            # scale up to match, while width/height/scale still do the actual
+            # print-quality (>300 DPI) lift.
+            export_fig = copy.deepcopy(sankey_fig)
+            export_fig.update_traces(
+                textfont=dict(size=22, color="#1f1f26", family="Arial, sans-serif"),
+                selector=dict(type="sankey")
+            )
+            for trace in export_fig.data:
+                if trace.type == "sankey":
+                    trace.node.pad = 30
+                    trace.node.thickness = 22
+                    # each node label is "<name><br><span style='font-size:9px;...'>
+                    # <count></span>" (see node_labels above) - that inline style
+                    # hardcodes the count's size independently of textfont above,
+                    # so it stays tiny even after the 22pt bump unless replaced here
+                    trace.node.label = tuple(
+                        label.replace("font-size:9px", "font-size:18px")
+                        for label in trace.node.label
+                    )
+            export_fig.update_layout(margin=dict(l=24, r=60, t=32, b=32))
+
+            export_width, export_height = 2000, 780
+            sankey_download_col1, sankey_download_col2 = st.columns(2)
+            try:
+                sankey_png_bytes = export_fig.to_image(
+                    format="png", width=export_width, height=export_height, scale=4
+                )
+                sankey_download_col1.download_button(
+                    label="Download Sankey (PNG, print quality)",
+                    data=sankey_png_bytes,
+                    file_name=f"{pqtl_dataset}_{outcome}_final_targets_sankey.png",
+                    mime="image/png",
+                    key=f"download_sankey_png_{pqtl_dataset}_{outcome}"
+                )
+                sankey_pdf_bytes = export_fig.to_image(
+                    format="pdf", width=export_width, height=export_height
+                )
+                sankey_download_col2.download_button(
+                    label="Download Sankey (PDF)",
+                    data=sankey_pdf_bytes,
+                    file_name=f"{pqtl_dataset}_{outcome}_final_targets_sankey.pdf",
+                    mime="application/pdf",
+                    key=f"download_sankey_pdf_{pqtl_dataset}_{outcome}"
+                )
+            except Exception as exc:
+                st.caption(f"Static export unavailable (kaleido error: {exc}).")
+
         st.divider()
         st.subheader("Final target list")
         st.caption(
             "Two views of the target list, at genuinely different depths. "
-            "**Proteogenomic only** stops at cis-MR, COLOC/PWCoCo and FinnGen/UKB "
-            "safety: pQTL and GWAS evidence only. **Multi-omics** adds SMR/HEIDI and "
-            "HyPrColoc's 3-trait confirmation, bringing eQTL evidence in as well."
+            "**Proteogenomic only** stops at cis-MR and COLOC/PWCoCo: pQTL and GWAS "
+            "evidence only. **Multi-omics** adds SMR/HEIDI and 3-trait confirmation from "
+            "HyPrColoc or PWCoCo-QTL, bringing eQTL evidence in as well. Both views show each "
+            "target's FinnGen/UKB PheWAS flag as metadata; PheWAS never removes a "
+            "target from either list."
         )
 
         final_targets_view = st.segmented_control(
@@ -4384,18 +4676,22 @@ def dashboard(
 
         if show_hyprcoloc_targets:
             st.success(
-                "**Multi-omics targets**: passed cis-MR, COLOC, FinnGen/UKB safety, SMR/HEIDI "
-                f"and HyPrColoc (posterior probability ≥ {hyprcoloc_pp_threshold:.2f}). All 3 omics "
-                "layers, pQTL (proteomics), GWAS (genomics) and eQTL (transcriptomics), share a "
-                "single causal variant. **Top SNP** is HyPrColoc's own *candidate SNP*: the "
-                "variant shared across the pQTL, GWAS and eQTL signals, with alleles and betas "
-                "aligned to the AD risk allele."
+                "**Multi-omics targets**: passed cis-MR, COLOC/PWCoCo, SMR/HEIDI "
+                "and 3-trait colocalisation of pQTL (proteomics), GWAS (genomics) and eQTL "
+                f"(transcriptomics) in HyPrColoc (posterior probability ≥ {hyprcoloc_pp_threshold:.2f}) "
+                f"or PWCoCo-QTL (all 3 pairwise runs pass PP.H4 ≥ {pp4:.2f}). **3-trait support** "
+                "shows which method(s) support each target. **Top SNP** is HyPrColoc's *candidate "
+                "SNP* where HyPrColoc passed, otherwise SMR's own top SNP (PWCoCo-QTL names no "
+                "lead SNP), with alleles and betas aligned to the outcome risk allele. "
+                "FinnGen/UKB PheWAS flag is shown as its own column below and never excludes a "
+                "target from this list."
             )
 
             # smr_display carries every protein ever run through SMR, including ones that
-            # never reached (or failed) cis-MR/COLOC/FinnGen/UKB safety/SMR-HEIDI - restrict
-            # to smr_eligible_set (same set the Sankey gates on) so this view matches its
-            # own "passed cis-MR + COLOC + safety + SMR/HEIDI" claim above
+            # never reached (or failed) cis-MR/COLOC/SMR-HEIDI - restrict to smr_eligible_set
+            # (same set the Sankey draws) so this view matches its own "passed cis-MR + COLOC
+            # + SMR/HEIDI" claim above. smr_eligible_set is no longer PheWAS-filtered (see
+            # the "single source of truth" block earlier in this function).
             base_targets = smr_display.copy()
             identity_cols = [
                 col for col in ["topsnp", "topsnp_chr", "topsnp_bp", "a1", "a2", "b_gwas", "b_qtl"]
@@ -4436,20 +4732,63 @@ def dashboard(
                 if merge_cols and not snp_info.empty
                 else base_targets.iloc[0:0]
             )
+            # the merge only yields HyPrColoc passing rows, and only for proteins in
+            # smr_eligible_set; keep exactly the hyprcoloc_pass_set proteins so the
+            # table and the Sankey/headline sets can never disagree
+            if "protein" in final_targets.columns:
+                final_targets = final_targets[final_targets["protein"].astype(str).isin(hyprcoloc_pass_set)]
+
+            # PWCoCo-QTL only targets have no HyPrColoc candidate SNP, so each
+            # triangulated cell type keeps SMR's own top SNP and alleles instead.
+            # A conditioned route row has no cell_type, so it matches every SMR
+            # row for that protein.
+            if (
+                three_trait_pwcoco_qtl_only_set
+                and {"protein", "cell_type"}.issubset(shared_snp_table.columns)
+                and {"protein", "cell_type"}.issubset(smr_display.columns)
+            ):
+                pwcoco_only_keys = shared_snp_table[
+                    shared_snp_table["protein"].astype(str).isin(three_trait_pwcoco_qtl_only_set)
+                ][["protein", "cell_type"]].drop_duplicates()
+                smr_eligible_rows = smr_display[smr_display["protein"].astype(str).isin(smr_eligible_set)].copy()
+                smr_eligible_rows["protein"] = smr_eligible_rows["protein"].astype(str)
+                keyed = pwcoco_only_keys.dropna(subset=["cell_type"]).astype({"protein": str, "cell_type": str})
+                by_cell = smr_eligible_rows.merge(keyed, on=["protein", "cell_type"], how="inner")
+                no_cell_proteins = set(pwcoco_only_keys.loc[pwcoco_only_keys["cell_type"].isna(), "protein"].astype(str))
+                no_cell = smr_eligible_rows[smr_eligible_rows["protein"].isin(no_cell_proteins)]
+                pwcoco_only_rows = pd.concat([by_cell, no_cell], ignore_index=True)
+                dedup_cols = [col for col in ["protein", "cell_type", "data_type", "probe_id"] if col in pwcoco_only_rows.columns]
+                pwcoco_only_rows = pwcoco_only_rows.drop_duplicates(subset=dedup_cols or None)
+                if not pwcoco_only_rows.empty:
+                    pwcoco_only_rows = pwcoco_only_rows.rename(columns={"top_snp": "topsnp", "p_gwas": "gwas_p", "p_qtl": "qtl_p"})
+                    pwcoco_only_rows["snp_source"] = "SMR top SNP (PWCoCo-QTL names no lead SNP)"
+                    final_targets = pd.concat([final_targets, pwcoco_only_rows], ignore_index=True)
+
+            def _three_trait_support(protein_id: str) -> str:
+                if protein_id in three_trait_both_set:
+                    return "Both"
+                if protein_id in three_trait_hyprcoloc_only_set:
+                    return "HyPrColoc only"
+                return "PWCoCo-QTL only"
+
+            if "protein" in final_targets.columns and not final_targets.empty:
+                final_targets["three_trait_support"] = final_targets["protein"].astype(str).map(_three_trait_support)
         else:
             st.info(
-                "**Proteogenomic-only targets**: passed cis-MR, COLOC/PWCoCo and FinnGen/UKB "
-                "safety on the pQTL and GWAS layers alone (proteomics and genomics). This view "
+                "**Proteogenomic-only targets**: passed cis-MR and COLOC/PWCoCo "
+                "on the pQTL and GWAS layers alone (proteomics and genomics). This view "
                 "stops deliberately before SMR, since SMR/HEIDI already draws on eQTL data: any "
                 "target that reaches SMR appears in the **Multi-omics** view instead, not here. "
                 "1 row per target (no cell-type/tissue dimension without SMR/eQTL data). **Top "
                 "SNP** is always the target's own top cis-pQTL SNP, aligned to the AD risk "
-                "allele. P-values are only ever floored to 1e-300 when reported as exactly 0."
+                "allele. P-values are only ever floored to 1e-300 when reported as exactly 0. "
+                "FinnGen/UKB PheWAS flag is shown as its own column and never excludes a target."
             )
 
             # target-level only (no cell_type/eQTL dimension at all - this view never
             # touches smr_display/hyprcoloc_display) - straight from target_info, scoped to
-            # the safety-cleared set (ukb_pass_set), independent of whether SMR was ever run
+            # coloc_pass_set (ukb_pass_set is an alias for it - PheWAS is a flag, not a gate),
+            # independent of whether SMR was ever run
             proteogenomic_cols = available_cols(
                 target_info, ["protein", "snp", "a1", "a2", "gwas_beta", "gwas_p", "pqtl_beta", "pqtl_p"]
             )
@@ -4466,17 +4805,30 @@ def dashboard(
         if final_targets.empty:
             if show_hyprcoloc_targets:
                 st.info(
-                    "No targets currently pass every gate including HyPrColoc (posterior "
-                    f"probability ≥ {hyprcoloc_pp_threshold:.2f}) at the selected thresholds."
+                    "No targets currently pass every gate including 3-trait colocalisation "
+                    f"(HyPrColoc posterior probability ≥ {hyprcoloc_pp_threshold:.2f} or PWCoCo-QTL "
+                    f"PP.H4 ≥ {pp4:.2f}) at the selected thresholds."
                 )
             else:
                 st.info(
-                    "No targets currently pass cis-MR, COLOC/PWCoCo and FinnGen/UKB safety "
+                    "No targets currently pass cis-MR and COLOC/PWCoCo "
                     "at the selected thresholds."
                 )
         else:
             sort_cols = [col for col in ["protein", "cell_type"] if col in final_targets.columns]
             final_targets = final_targets.sort_values(sort_cols, na_position="last") if sort_cols else final_targets
+
+            # informational PheWAS flag column - never used to filter final_targets
+            # above, just surfaced per row so the exclusion is visible instead of silent
+            if "protein" in final_targets.columns:
+                def _phewas_flag(protein_id: str) -> str:
+                    if finngen_status.get(protein_id) == "adverse_effect" or ukb_status.get(protein_id) == "adverse_effect":
+                        return "Adverse effect"
+                    if finngen_status.get(protein_id) == "additional_indication" or ukb_status.get(protein_id) == "additional_indication":
+                        return "Repurposing signal"
+                    return "None"
+
+                final_targets["phewas_flag"] = final_targets["protein"].astype(str).map(_phewas_flag)
 
             with st.container(border=True):
                 if "cell_type" in final_targets.columns:
@@ -4494,6 +4846,7 @@ def dashboard(
                 "data_type",
                 "cell_type",
                 "snp_source",
+                "three_trait_support",
                 "topsnp",
                 "a1",
                 "a2",
@@ -4507,7 +4860,8 @@ def dashboard(
                 "b_smr",
                 "p_smr",
                 "q_smr",
-                "p_heidi"
+                "p_heidi",
+                "phewas_flag"
             ]
 
             final_cols = available_cols(final_targets, final_cols)
@@ -4519,6 +4873,7 @@ def dashboard(
                 "data_type": "Data type",
                 "cell_type": "Cell type",
                 "snp_source": "SNP source",
+                "three_trait_support": "3-trait support",
                 "topsnp": "Top SNP",
                 "a1": "Risk allele",
                 "a2": "Other allele",
@@ -4532,15 +4887,19 @@ def dashboard(
                 "b_smr": "SMR beta",
                 "p_smr": "SMR p-value",
                 "q_smr": "SMR FDR",
-                "p_heidi": "HEIDI p-value"
+                "p_heidi": "HEIDI p-value",
+                "phewas_flag": "PheWAS flag"
             }
 
             final_table = final_table.rename(columns=final_column_names)
 
             st.caption(
-                "Betas are all aligned to the outcome (AD) risk allele shown in **Risk allele**. "
+                "Betas are all aligned to the outcome risk allele shown in **Risk allele**. "
                 "**SNP source** spells out, per row, which SNP that alignment (and the Top SNP / "
-                "allele / beta columns) was computed at."
+                "allele / beta columns) was computed at. **3-trait support** says whether HyPrColoc, "
+                "PWCoCo-QTL or both support the target; PWCoCo-QTL only rows have no pQTL beta or "
+                "HyPrColoc posterior, since neither exists at SMR's top SNP. **PheWAS flag** is informational only "
+                "(FinnGen/UKB phenome-wide MR); it never removes a target from this table."
             )
 
             st.dataframe(
@@ -4707,17 +5066,19 @@ def dashboard(
 
     with tab10:
         st.caption("SAME QUESTION AS STAGE 6 (HYPRCOLOC) · ANSWERED A DIFFERENT WAY")
-        st.subheader("PWCoCo-QTL: eQTL-level causal-variant triangulation")
+        st.subheader("PWCoCo-QTL: QTL-level causal-variant triangulation")
         st.caption(
             "HyPrColoc and PWCoCo-QTL ask the identical question: across all 3 biological "
-            "layers, pQTL (protein), eQTL (transcript) and GWAS (disease), is there a shared "
+            "layers, pQTL (protein), molecular QTL (e.g. eQTL for transcript) and GWAS "
+            "(disease), is there a shared "
             "causal variant? They just answer it differently. **HyPrColoc** clusters all 3 "
             "traits at once, under the assumption that each trait has at most 1 causal variant "
             "in the region. **PWCoCo-QTL** instead runs PWCoCo pairwise, 3 times "
-            "(pQTL-GWAS, eQTL-pQTL, eQTL-GWAS), each allowing more than 1 causal variant per "
-            "trait via conditioning. A target is **triangulated** only when the exact same "
-            "conditionally independent SNP clears the PP.H4 threshold in **all 3** of those "
-            "pairwise analyses at once. Anything less is not counted."
+            "(pQTL-GWAS, QTL-pQTL, QTL-GWAS), each allowing more than 1 causal variant per "
+            "trait via conditioning. A target is **triangulated** only when **all 3** of those "
+            "pairwise analyses clear the PP.H4 threshold together: either on the exact same "
+            "conditionally independent SNP, or in PWCoCo's unconditioned analysis for all 3 "
+            "(QTL combos from the same cell type). A mix of the two is not counted."
         )
         st.caption(
             "The 2 methods run side by side, not one after the other: a target reaches "
@@ -4753,22 +5114,24 @@ def dashboard(
             st.divider()
             with st.container(border=True):
                 metric1, metric2, metric3 = st.columns(3)
-                metric1.metric("Targets tested (eQTL-pQTL)", safe_nunique(pwcoco_eqtl_pqtl_display, "protein"))
-                metric2.metric("Targets tested (eQTL-GWAS)", safe_nunique(pwcoco_eqtl_gwas_display, "protein"))
+                metric1.metric("Targets tested (QTL-pQTL)", safe_nunique(pwcoco_eqtl_pqtl_display, "protein"))
+                metric2.metric("Targets tested (QTL-GWAS)", safe_nunique(pwcoco_eqtl_gwas_display, "protein"))
                 metric3.metric("Targets triangulated (all 3 combos)", len(triangulated_proteins))
             st.caption(
                 "\"Targets tested\" is every protein PWCoCo was run on for that combo. No "
-                "PP.H4 threshold applied yet. \"Triangulated\" requires all 3 combos to agree "
-                "on 1 SNP, per the definition above."
+                "PP.H4 threshold applied yet. \"Triangulated\" requires all 3 combos to "
+                "colocalise: either on 1 shared conditioned SNP, or in PWCoCo's unconditioned "
+                "analysis for all 3 (QTL combos from the same cell type)."
             )
 
             st.divider()
             st.subheader("Shared-SNP triangulation")
             st.caption(
-                "1 row per (target, SNP) pair where the same SNP clears the PP.H4 threshold "
-                "(sidebar slider, currently "
-                f"{pp4:.2f}) in pQTL-GWAS, eQTL-pQTL AND eQTL-GWAS simultaneously. Every row "
-                "here is a triangulated target, recomputed live as you move that slider."
+                "1 row per triangulated target and SNP, where pQTL-GWAS, QTL-pQTL AND QTL-GWAS "
+                "all clear the PP.H4 threshold (sidebar slider, currently "
+                f"{pp4:.2f}). Rows with Shared SNP \"unconditioned\" colocalise in all 3 "
+                "unconditioned analyses within the listed cell type, but PWCoCo names no lead "
+                "SNP for them. Recomputed live as you move that slider."
             )
 
             if shared_snp_table.empty:
@@ -4776,13 +5139,14 @@ def dashboard(
             else:
                 shared_cols = available_cols(
                     shared_snp_table,
-                    ["protein", "snp", "pqtl_gwas_h4", "qtl_pqtl_h4", "qtl_gwas_h4"]
+                    ["protein", "snp", "cell_type", "pqtl_gwas_h4", "qtl_pqtl_h4", "qtl_gwas_h4"]
                 )
                 shared_table = shared_snp_table[shared_cols].copy()
 
                 shared_column_names = {
                     "protein": "Target",
                     "snp": "Shared SNP",
+                    "cell_type": "Cell type",
                     "pqtl_gwas_h4": "PP.H4 (pQTL-GWAS)",
                     "qtl_pqtl_h4": "PP.H4 (QTL-pQTL)",
                     "qtl_gwas_h4": "PP.H4 (QTL-GWAS)",
@@ -4801,12 +5165,12 @@ def dashboard(
                 )
 
             st.divider()
-            st.subheader("Raw PWCoCo(eQTL-pQTL) and PWCoCo(eQTL-GWAS) results")
+            st.subheader("Raw PWCoCo (QTL-pQTL) and PWCoCo (QTL-GWAS) results")
             st.caption(
                 f"A row **passes** when its conditional PP.H4 is at least {pp4:.2f} (same "
                 "threshold as the standard COLOC/PWCoCo tab). A target can have more than 1 row "
                 "per combo when PWCoCo's stepwise selection found more than 1 conditionally "
-                "independent signal, or when it has more than 1 SMR-passing eQTL source (e.g. "
+                "independent signal, or when it has more than 1 SMR-passing QTL source (e.g. "
                 "multiple GTEx tissues)."
             )
 
@@ -4834,9 +5198,9 @@ def dashboard(
             eqtl_pqtl_col1, eqtl_gwas_col2 = st.columns(2)
 
             with eqtl_pqtl_col1:
-                st.markdown("**eQTL-pQTL**")
+                st.markdown("**QTL-pQTL**")
                 if pwcoco_eqtl_pqtl_display.empty:
-                    st.info("No eQTL-pQTL PWCoCo results yet.")
+                    st.info("No QTL-pQTL PWCoCo results yet.")
                 else:
                     cols = available_cols(pwcoco_eqtl_pqtl_display, pwcoco_qtl_cols)
                     table = pwcoco_eqtl_pqtl_display[cols].copy()
@@ -4845,18 +5209,18 @@ def dashboard(
                     table = table.rename(columns=pwcoco_qtl_column_names)
                     st.dataframe(for_display(table), width="stretch", hide_index=True)
                     st.download_button(
-                        label="Download eQTL-pQTL PWCoCo results",
+                        label="Download QTL-pQTL PWCoCo results",
                         data=table.to_csv(index=False, sep="\t"),
-                        file_name=f"{pqtl_dataset}_{phenotype}_PWCoCo_eQTL_pQTL.tsv",
+                        file_name=f"{pqtl_dataset}_{phenotype}_PWCoCo_QTL_pQTL.tsv",
                         mime="text/tab-separated-values",
                         key="download_pwcoco_eqtl_pqtl",
                         width="stretch"
                     )
 
             with eqtl_gwas_col2:
-                st.markdown("**eQTL-GWAS**")
+                st.markdown("**QTL-GWAS**")
                 if pwcoco_eqtl_gwas_display.empty:
-                    st.info("No eQTL-GWAS PWCoCo results yet.")
+                    st.info("No QTL-GWAS PWCoCo results yet.")
                 else:
                     cols = available_cols(pwcoco_eqtl_gwas_display, pwcoco_qtl_cols)
                     table = pwcoco_eqtl_gwas_display[cols].copy()
@@ -4865,9 +5229,9 @@ def dashboard(
                     table = table.rename(columns=pwcoco_qtl_column_names)
                     st.dataframe(for_display(table), width="stretch", hide_index=True)
                     st.download_button(
-                        label="Download eQTL-GWAS PWCoCo results",
+                        label="Download QTL-GWAS PWCoCo results",
                         data=table.to_csv(index=False, sep="\t"),
-                        file_name=f"{pqtl_dataset}_{phenotype}_PWCoCo_eQTL_GWAS.tsv",
+                        file_name=f"{pqtl_dataset}_{phenotype}_PWCoCo_QTL_GWAS.tsv",
                         mime="text/tab-separated-values",
                         key="download_pwcoco_eqtl_gwas",
                         width="stretch"
