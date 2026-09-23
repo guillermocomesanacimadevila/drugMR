@@ -152,6 +152,12 @@ def perform_qc(
     print(f"Removed empty rows: {n_before - n_after}")
     print(f"Rows after empty-row removal: {n_after}")
 
+    # uppercase alleles so they match pQTL / 1000G coding downstream
+    df = df.with_columns(
+        pl.col(a1_col).str.to_uppercase(),
+        pl.col(a2_col).str.to_uppercase(),
+    )
+
     # remove INDELs
     a1 = pl.col(a1_col).str.to_uppercase()
     a2 = pl.col(a2_col).str.to_uppercase()
