@@ -15,6 +15,7 @@ dashboard/drugmr.hyper
 dashboard/drugmr_dashboard_template.twb
 dat/
 ref/
+tests/demo
 analysis/*
 !analysis/pipeline_dag.py
 !analysis/pipeline_dag.svg
@@ -34,3 +35,5 @@ scripts/
 results/
 runs/
 synthesis/
+demo_data/
+runs_demo/
