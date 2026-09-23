@@ -50,9 +50,14 @@ nextflow -version
 
 ## Try the demo
 
-The [demo dataset](https://doi.org/10.5281/zenodo.22917384) is a small, fully synthetic set of inputs (20 proteins, one outcome GWAS, bulk and single-cell eQTL) with its own reference files, so it needs neither the reference bundle above nor any access-controlled data. It runs every stage in a few minutes. From the repository root:
+The [demo dataset](https://doi.org/10.5281/zenodo.22917384) is a small, fully synthetic set of inputs (20 proteins, one outcome GWAS, bulk and single-cell eQTL) with its own reference files, so it needs neither the reference bundle above nor any access-controlled data. It runs every stage in a few minutes:
 
 ```bash
+git clone --recurse-submodules https://github.com/guillermocomesanacimadevila/drugMR.git
+cd drugMR
+./env/bootstrap.sh
+source env/activate.sh
+
 wget -O drugmr_demo_v1.tar.gz "https://zenodo.org/records/22917384/files/drugmr_demo_v1.tar.gz?download=1"
 tar -xzf drugmr_demo_v1.tar.gz && rm drugmr_demo_v1.tar.gz
 

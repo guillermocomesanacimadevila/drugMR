@@ -41,9 +41,14 @@ nextflow run /path/to/cloned/drugMR/main.nf -profile docker -params-file params/
 
 ### Try the demo
 
-No data yet? The [demo dataset](https://doi.org/10.5281/zenodo.22917384) (4.8 MB, fully synthetic, reference files included) runs every stage in a few minutes. From the repository root, after the bootstrap step above:
+No data yet? The [demo dataset](https://doi.org/10.5281/zenodo.22917384) (4.8 MB, fully synthetic, reference files included) runs every stage in a few minutes, with no reference download needed:
 
 ```bash
+git clone --recurse-submodules https://github.com/guillermocomesanacimadevila/drugMR.git
+cd drugMR
+./env/bootstrap.sh
+source env/activate.sh
+
 wget -O drugmr_demo_v1.tar.gz "https://zenodo.org/records/22917384/files/drugmr_demo_v1.tar.gz?download=1"
 tar -xzf drugmr_demo_v1.tar.gz && rm drugmr_demo_v1.tar.gz
 
