@@ -1,0 +1,67 @@
+pheno_id: DEMO                                              # Synthetic outcome trait
+sumstats: demo_data/gwas/demo_gwas.tsv                      # Synthetic case-control GWAS
+n_cases: 40000                                              # Number of cases for outcome GWAS
+n_controls: 60000                                           # Number of controls for outcome GWAS
+genome_build: GRCh37                                        # Supplied in GRCh37 so the liftover step runs
+target_build: GRCh38                                        # Target genome build for liftover package
+snp_col: SNP                                                # SNP column name in outcome GWAS
+a1_col: A1                                                  # Effect allele column name in outcome GWAS
+a2_col: A2                                                  # Other allele column name in outcome GWAS
+beta_col: BETA                                              # Beta column name in outcome GWAS
+se_col: SE                                                  # Standard error column name in outcome GWAS
+p_col: P                                                    # P-value (not -log10 converted) column name in outcome GWAS
+pos_col: BP                                                 # Position column name in outcome GWAS
+chr_col: CHR                                                # Chromosome column name in outcome GWAS
+af_col: FRQ                                                 # Allele frequency column name in outcome GWAS
+
+pqtl_dataset: demo_pqtl                                     # pQTL dataset ID, registered in the demo QTL manifest
+manifest_path: demo_data/qtl_manifest.csv                   # QTL manifest shipped with the demo data
+runs_root: runs_demo                                        # Keeps demo runs apart from real runs under runs/
+reference_data:
+  ref_bfile: demo_data/reference/demo_1000G_EUR
+  liftover_dir: demo_data/reference/liftover
+  gene_annotation: demo_data/reference/genes.tsv
+
+run_smr: true                                               # Master on/off switch for the SMR step (after coloc)
+bulk_qtl_datasets: [demo_bulk]                              # Bulk QTL dataset(s) registered in the demo QTL manifest
+sc_qtl_dataset: demo_sc                                     # Single-cell QTL dataset registered in the demo QTL manifest
+
+maf: 0.01                                                   # Minor allele frequency cut-off in outcome GWAS
+overwrite: false                                            # Overwrite all current output files
+remove_mhc: true                                            # Remove MHC region and targets from GWAS/pQTLs
+remove_apoe: false                                          # Remove APOE region and targets from GWAS/pQTLs
+
+gates:
+  cis_mr:
+    wald_fdr_q: 0.05
+    ivw_fdr_q: 0.05
+    cochran_q_pval: 0.05
+    egger_intercept_pval_min: 0
+    min_instruments_for_ivw: 3
+    apply_steiger_filter: false
+    clump_kb: 10000
+    clump_r2: 0.001
+    instrument_pval_threshold: 5.0e-8
+    min_f_stat: 10
+  coloc:
+    pp4_threshold: 0.7
+    p1: 1.0e-4
+    p2: 1.0e-4
+    p12: 1.0e-5
+  smr:
+    p_qtl_smr: 5.0e-8
+    p_qtl_heidi: 1.57e-3
+    diff_freq_prop: 0.30
+    p_smr_threshold: 0.05
+    p_heidi_threshold: 0.01
+  hyprcoloc:
+    prior_1: 1.0e-4
+    prior_c: [0.05, 0.02, 0.01, 0.005]
+    reg_thresh: [0.5, 0.6, 0.7]
+    align_thresh: [0.5, 0.6, 0.7]
+    equal_thresholds: true
+  pwcoco:
+    pp4_threshold: 0.7
+  phewas:
+    bonferroni_alpha: 0.05
+    coloc_threshold: 0
