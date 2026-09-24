@@ -3,6 +3,7 @@ import argparse
 import os
 import re
 import shutil
+import sys
 from pathlib import Path
 
 import polars as pl
@@ -1034,6 +1035,16 @@ def main():
             p_smr_threshold=args.p_smr_threshold,
             p_heidi_threshold=args.p_heidi_threshold
         )
+
+    # every bulk/single_cell run must leave its promising_targets.tsv behind,
+    # even a header-only one for a null result. Fail loudly here so a skipped
+    # branch can never exit 0 with no output again.
+    if args.qtl_mode == "bulk":
+        expected = paths.smr_bulk_out(args.pqtl_dataset, args.pheno_id, args.qtl_dataset, args.local_results_dir)
+    else:
+        expected = paths.smr_sc_out(args.pqtl_dataset, args.pheno_id, args.qtl_dataset, args.local_results_dir)
+    if not expected.exists():
+        sys.exit(f"[ERROR] SMR ({args.qtl_mode}) for {args.qtl_dataset} finished without writing {expected}")
 
 if __name__ == "__main__":
     main()
