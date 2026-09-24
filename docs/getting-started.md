@@ -63,7 +63,8 @@ tar -xzf drugmr_demo_v1.tar.gz && rm drugmr_demo_v1.tar.gz
 
 nextflow run main.nf \
     -profile demo,docker \
-    -params-file params/demo_params.yaml
+    -params-file params/demo_params.yaml \
+    --manifest_path demo_data/qtl_manifest.csv
 ```
 
 The archive unpacks to `demo_data/`, and results are written to `runs_demo/`, apart from any real runs. Open them in the dashboard with:

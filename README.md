@@ -22,12 +22,11 @@ drugMR takes an outcome GWAS and a panel of protein QTLs and returns a ranked, s
 
 ## Quick start
 
-1. Install Java (required by Nextflow; on HPC, whatever `module load java` or equivalent provides is fine)
+1. Install Java 17 or later (required by Nextflow; on HPC, for example `module load Java/17`)
 2. Install either [`Docker`](https://docs.docker.com/engine/install/) or [`Apptainer`](https://apptainer.org/) (or its predecessor [`Singularity`](https://sylabs.io/singularity/))
 3. Install [`PostgreSQL`](https://www.postgresql.org/download/) (`>=16.0`)
-4. Download reference data from [`Zenodo`](https://doi.org/10.5281/zenodo.22706705)
-5. Prepare the environment with the bootstrap script below, it installs both the pinned Python packages and a matching [`Nextflow`](https://www.nextflow.io/) (`>=26.04.0`), so there's no separate Nextflow install step.
-6. For remote result retrieval with `dm.fetch_run()`, install `rsync` on both the local machine and the remote cluster.
+4. Run the block below. It downloads the [reference data](https://doi.org/10.5281/zenodo.22706705) and runs the bootstrap script, which installs the pinned Python packages and a matching [`Nextflow`](https://www.nextflow.io/) (`>=26.04.0`), so there's no separate Nextflow install step.
+5. For remote result retrieval with `dm.fetch_run()`, install `rsync` on both the local machine and the remote cluster.
 
 ```bash
 git clone --recurse-submodules https://github.com/guillermocomesanacimadevila/drugMR.git
@@ -35,13 +34,11 @@ cd drugMR
 mkdir -p dat/ref && wget -c -O ref.zip "https://zenodo.org/records/22706705/files/ref.zip?download=1" && unzip ref.zip -d dat/ref && rm ref.zip
 ./env/bootstrap.sh       # first clone only, or after dependency changes
 source env/activate.sh   # every new login or shell
-
-nextflow run /path/to/cloned/drugMR/main.nf -profile docker -params-file params/AD.ukb_ppp.yaml --manifest_path assets/qtl_manifest.csv
 ```
 
 ### Try the demo
 
-No data yet? The [demo dataset](https://doi.org/10.5281/zenodo.22917384) (4.8 MB, fully synthetic, reference files included) runs every stage in a few minutes, with no reference download needed:
+No data yet? The [demo dataset](https://doi.org/10.5281/zenodo.22917384) (4.8 MB, fully synthetic, reference files included) runs every stage in a few minutes, with no reference download needed. The demo runs every step on the machine you launch it from and needs 2 CPUs and 8 GB of memory. On an HPC cluster, start an interactive job first (for example `salloc --cpus-per-task=2 --mem=8G --time=01:00:00`, then `srun --pty bash`) rather than running on a login node. Then run:
 
 ```bash
 git clone --recurse-submodules https://github.com/guillermocomesanacimadevila/drugMR.git
@@ -54,8 +51,11 @@ tar -xzf drugmr_demo_v1.tar.gz && rm drugmr_demo_v1.tar.gz
 
 nextflow run main.nf \
     -profile demo,docker \
-    -params-file params/demo_params.yaml
+    -params-file params/demo_params.yaml \
+    --manifest_path demo_data/qtl_manifest.csv
 ```
+
+On HPC, replace `docker` with `apptainer`.
 
 Then open the results in the dashboard:
 
