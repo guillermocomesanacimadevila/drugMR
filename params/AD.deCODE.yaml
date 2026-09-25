@@ -62,4 +62,4 @@ gates:
     pp4_threshold: 0.7
   phewas:
     bonferroni_alpha: 0.05
-    coloc_threshold: 0
+    coloc_threshold: 0.7

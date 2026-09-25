@@ -63,4 +63,4 @@ gates:
     pp4_threshold: 0.7              # Kept independent from gates.coloc.pp4_threshold by design
   phewas:
     bonferroni_alpha: 0.05
-    coloc_threshold: 0              # 0 = every PWCoCo result unioned in, unfiltered by PP4
+    coloc_threshold: 0.7              # minimum coloc PP.H4 or PWCoCo H4 to enter PheWAS

@@ -128,7 +128,7 @@
     },
     "image_name": {
       "type": "string",
-      "default": "ghcr.io/guillermocomesanacimadevila/drugmr:latest"
+      "default": "ghcr.io/guillermocomesanacimadevila/drugmr:v1.0.0"
     },
     "gates": {
       "type": "object",
@@ -195,7 +195,7 @@
           "additionalProperties": false,
           "properties": {
             "bonferroni_alpha": { "type": "number", "minimum": 0, "maximum": 1, "default": 0.05, "description": "Family-wise error rate for the per-protein Bonferroni correction across endpoints tested." },
-            "coloc_threshold": { "type": "number", "minimum": 0, "maximum": 1, "default": 0, "description": "Minimum PWCoCo H4 for a target to be unioned into the PheWAS target set. 0 = every PWCoCo result is included, unfiltered by PP4." }
+            "coloc_threshold": { "type": "number", "minimum": 0, "maximum": 1, "default": 0.7, "description": "Minimum coloc PP.H4 or PWCoCo H4 for a target to enter the PheWAS target set. Match gates.coloc.pp4_threshold so PheWAS screens the colocalisation-supported targets." }
           }
         }
       }
