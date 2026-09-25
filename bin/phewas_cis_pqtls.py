@@ -12,10 +12,10 @@ from drugmr.phewas import PheWAS
 # from statsmodels.stats.multitest import fdrcorrection
 from drugmr.twosamplemr import PyTwoSampleMR
 
-# Bonferroni correction is applied per-protein, across however many endpoints
-# were actually tested for that protein (see df_protein_results.height below) -
-# NOT a fixed constant. 2,511 ICD coded endpoints vs total 2,755 in FinnGen R13
-# is kept here only as a documentation reference for the source's overall scale.
+# Bonferroni correction is applied per protein across all 2,511 ICD coded
+# endpoints in FinnGen R13 (2,755 endpoints in total). The FinnGen API only
+# returns endpoints with P < 0.05, so the number of rows returned for a protein
+# would under-correct.
 FINNGEN_R13_TOTAL_ENDPOINTS = 2755
 FINNGEN_R13_ICD_ENDPOINTS = 2511
 # The COLOC output is used strictly to define which protein targets go into PheWAS
@@ -97,7 +97,7 @@ def clean_phewas_hit(snp: str, rsid: str):
 
 
 # this script runs AFTER cis-MR + pairwise pQTL-GWAS COLOC
-def phewas_for_compelling_targets(pheno_id: str, pqtl_dataset: str, local_results_dir: str = "results", cis_regions_dir: str | None = None, coloc_file: str | None = None, coloc_threshold: float = 0, bonferroni_alpha: float = 0.05):
+def phewas_for_compelling_targets(pheno_id: str, pqtl_dataset: str, local_results_dir: str = "results", cis_regions_dir: str | None = None, coloc_file: str | None = None, coloc_threshold: float = 0.7, bonferroni_alpha: float = 0.05):
     # COLOC defines the targets only
     # each protein_id == its own protein assay / aptamer
     coloc_file = coloc_file or paths.coloc_out(pqtl_dataset, pheno_id, local_results_dir)
@@ -110,6 +110,12 @@ def phewas_for_compelling_targets(pheno_id: str, pqtl_dataset: str, local_result
         raise ValueError(
             f"Could not find protein_id or protein in COLOC file: {coloc_file}"
         )
+    # only colocalisation-supported targets reach PheWAS (same filter as bin/ukb_phewas.py)
+    pp_h4_col = next((col for col in ["PP.H4.abf", "PP.H4", "pp_h4", "PPH4"] if col in df_coloc.columns), None)
+    if pp_h4_col is not None:
+        df_coloc = df_coloc.filter(pl.col(pp_h4_col).cast(pl.Float64, strict=False) >= coloc_threshold)
+    else:
+        print(f"[TRACKING] No PP.H4 column found in {coloc_file}; using every protein in the COLOC file...")
     compelling_targets = (df_coloc.select(pl.col("protein").cast(pl.Utf8)).drop_nulls().unique(maintain_order=True))
 
     # PWCoCo (conditional coloc) - complementary to standard COLOC above, not a
@@ -639,11 +645,9 @@ def phewas_for_compelling_targets(pheno_id: str, pqtl_dataset: str, local_result
             continue
 
         df_protein_results = pl.DataFrame(protein_results)
-        # Bonferroni correct across the endpoints actually tested for THIS protein
-        # (i.e. this protein's own row count here), not a fixed global constant -
-        # the number of endpoints with a resolvable variant + valid stats varies
-        # protein-to-protein.
-        n_endpoints_tested = df_protein_results.height
+        # the FinnGen API only returns endpoints with P < 0.05, so the returned row
+        # count under-corrects; correct across every ICD endpoint tested
+        n_endpoints_tested = FINNGEN_R13_ICD_ENDPOINTS
         df_protein_results = df_protein_results.with_columns([
             pl.lit(n_endpoints_tested).alias("n_endpoints_tested"),
             pl.min_horizontal(
@@ -695,7 +699,7 @@ def main():
     p.add_argument("--local_results_dir", default="results")
     p.add_argument("--cis_regions_dir", default=None)
     p.add_argument("--coloc_file", default=None)
-    p.add_argument("--coloc_threshold", type=float, default=0)
+    p.add_argument("--coloc_threshold", type=float, default=0.7)
     p.add_argument("--bonferroni_alpha", type=float, default=0.05)
     args = p.parse_args()
     phewas_for_compelling_targets(

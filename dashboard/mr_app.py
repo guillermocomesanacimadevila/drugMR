@@ -2669,7 +2669,7 @@ def dashboard(
     # covers the app identity - a 2nd raw st.title(db_name) here just repeated it
     # in a less polished form (the literal lowercase db_id), so only the
     # descriptive tagline stays
-    st.caption("Genetically supported drug target discovery and clinical safety dashboard")
+    st.caption("Genetically anchored drug-target discovery dashboard")
 
     with st.container(border=True):
         dataset_col, run_col, dataset_info_col = st.columns([2, 1, 1])
@@ -4825,10 +4825,16 @@ def dashboard(
             if "protein" in final_targets.columns:
                 final_targets = final_targets[final_targets["protein"].astype(str).isin(hyprcoloc_pass_set)]
 
-            # PWCoCo-QTL only targets have no HyPrColoc candidate SNP, so each
-            # (protein, tissue/cell type) pair that triangulated and passed SMR/HEIDI
-            # keeps SMR's own top SNP and alleles instead
-            pwcoco_only_pairs = [pair for pair in pwcoco_qtl_pass_pairs if pair[0] in three_trait_pwcoco_qtl_only_set]
+            # every (protein, tissue/cell type) pair that PWCoCo-QTL supports and that
+            # has no HyPrColoc row above gets its own row, keeping SMR's own top SNP and
+            # alleles (PWCoCo-QTL names no lead SNP). This covers PWCoCo-QTL only
+            # targets and also the extra cell types of targets HyPrColoc supports
+            # elsewhere, so the table lists every supported pair
+            hyprcoloc_row_pairs = (
+                set(zip(final_targets["protein"].astype(str), final_targets["cell_type"].astype(str)))
+                if {"protein", "cell_type"}.issubset(final_targets.columns) else set()
+            )
+            pwcoco_only_pairs = [pair for pair in pwcoco_qtl_pass_pairs if pair not in hyprcoloc_row_pairs]
             if pwcoco_only_pairs and {"protein", "cell_type"}.issubset(smr_pass_rows.columns):
                 pair_keys = pd.DataFrame(pwcoco_only_pairs, columns=["protein", "cell_type"])
                 passing_rows = smr_pass_rows.copy()

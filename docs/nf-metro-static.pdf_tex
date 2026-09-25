@@ -110,7 +110,7 @@
     \put(0,0){\includegraphics[width=\unitlength,page=23]{nf-metro-static.pdf}}%
     \put(0.74285714,0.24190476){\color[rgb]{0.06666667,0.09411765,0.15294118}\makebox(0,0)[t]{\lineheight{0}\smash{\begin{tabular}[t]{c}\textbf{Secondary PheWAS}\end{tabular}}}}%
     \put(0,0){\includegraphics[width=\unitlength,page=24]{nf-metro-static.pdf}}%
-    \put(0.82857143,0.27714286){\color[rgb]{0.06666667,0.09411765,0.15294118}\makebox(0,0)[t]{\lineheight{0}\smash{\begin{tabular}[t]{c}\textbf{Safety classification}\end{tabular}}}}%
+    \put(0.82857143,0.27714286){\color[rgb]{0.06666667,0.09411765,0.15294118}\makebox(0,0)[t]{\lineheight{0}\smash{\begin{tabular}[t]{c}\textbf{PheWAS flags}\end{tabular}}}}%
     \put(0,0){\includegraphics[width=\unitlength,page=25]{nf-metro-static.pdf}}%
     \put(0.60952381,0.1252381){\color[rgb]{0.06666667,0.09411765,0.15294118}\makebox(0,0)[t]{\lineheight{0}\smash{\begin{tabular}[t]{c}\textbf{Single-cell QTL preparation}\end{tabular}}}}%
     \put(0,0){\includegraphics[width=\unitlength,page=26]{nf-metro-static.pdf}}%

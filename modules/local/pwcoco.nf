@@ -13,7 +13,7 @@ process PWCOCO {
         if (params.image_name) {
             return params.image_name
         } else {
-            return 'ghcr.io/guillermocomesanacimadevila/drugmr:latest'
+            return 'ghcr.io/guillermocomesanacimadevila/drugmr:v1.0.0'
         }
     }
 

@@ -333,7 +333,7 @@ def local(config: str, run_id: str = None):
     remove_mhc = getattr(cfg, "remove_mhc", True)
     remove_apoe = getattr(cfg, "remove_apoe", False)
     overwrite = getattr(cfg, "overwrite", False)
-    image_name = getattr(cfg, "image_name", "ghcr.io/guillermocomesanacimadevila/drugmr:latest")
+    image_name = getattr(cfg, "image_name", "ghcr.io/guillermocomesanacimadevila/drugmr:v1.0.0")
     run_smr = getattr(cfg, "run_smr", True)
     bulk_qtl_datasets = getattr(cfg, "bulk_qtl_datasets", [])
     sc_qtl_dataset = getattr(cfg, "sc_qtl_dataset", "")
@@ -366,7 +366,7 @@ def local(config: str, run_id: str = None):
     hc_equal_thresholds = cfg.gate("hyprcoloc", "equal_thresholds", True)
     pwcoco_pp4_threshold = cfg.gate("pwcoco", "pp4_threshold", 0.7)
     bonferroni_alpha = cfg.gate("phewas", "bonferroni_alpha", 0.05)
-    phewas_coloc_threshold = cfg.gate("phewas", "coloc_threshold", 0)
+    phewas_coloc_threshold = cfg.gate("phewas", "coloc_threshold", 0.7)
 
 
     # set projectDir()

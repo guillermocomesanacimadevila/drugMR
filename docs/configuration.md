@@ -61,7 +61,7 @@ The `gates` block records the statistical thresholds used by the run. Keep it in
 - `smr`: SNP selection for SMR and HEIDI, an allele frequency concordance check between the QTL and outcome GWAS (`diff_freq_prop`), then the final SMR FDR and HEIDI thresholds.
 - `hyprcoloc`: priors and sensitivity grid.
 - `pwcoco`: conditional colocalisation PP4 threshold.
-- `phewas`: Bonferroni alpha for the safety screen.
+- `phewas`: Bonferroni alpha for the phenome-wide screen, and the minimum colocalisation PP.H4 for a target to be screened (`coloc_threshold`).
 
 ```yaml
 gates:

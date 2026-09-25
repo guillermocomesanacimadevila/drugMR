@@ -14,7 +14,7 @@
 
 ## Introduction
 
-drugMR takes an outcome GWAS and a panel of protein QTLs and returns a ranked, safety screened shortlist of druggable targets, end to end with no manual steps between stages: Mendelian randomisation, colocalisation, SMR, HyPrColoc, then a phenome wide PheWAS safety screen. It runs via a Nextflow pipeline or a Python orchestrator, against any outcome GWAS and any pQTL cohort registered in its dataset manifest. The downstream SMR, PWCoCo and HyPrColoc stages run against bulk or single cell QTL panels of any type, eQTL, sQTL, mQTL or otherwise, for genuine multi-omics triangulation.
+drugMR takes an outcome GWAS and one protein QTL panel per run and returns the evidence needed to prioritise candidate drug targets: cis-Mendelian randomisation, colocalisation (coloc and PWCoCo), SMR and HEIDI, three-trait colocalisation (HyPrColoc and PWCoCo QTL), and a phenome-wide screen that flags potential adverse effects and repurposing opportunities. It runs through a Nextflow pipeline or a Python orchestrator, with any outcome GWAS and any pQTL panel registered in its dataset manifest; several panels are analysed in separate runs. The SMR, PWCoCo and HyPrColoc stages accept bulk or single cell QTL data of any type (eQTL, sQTL, mQTL and others).
 
 ## Workflow
 
@@ -155,7 +155,7 @@ Gate thresholds live in the optional `gates` block of your params file. See [`do
 
 drugMR was written by:
 
-**Guillermo Comesaña Cimadevila**<sup>1,2,3</sup>, **Marie-Joe Dib**<sup>4</sup>, **Matthew Bracher-Smith**<sup>1</sup>, **Fiona Ducotterd**<sup>5</sup>, **Dervis Salih**<sup>6</sup>, **Nicholas Bray**<sup>2</sup>, **Emily Simmonds**<sup>1</sup>, **Valentina Escott-Price**<sup>1,2</sup>
+**Guillermo Comesaña Cimadevila**<sup>1,2,3</sup>, **Marie-Joe Dib**<sup>4</sup>, **Matthew Bracher-Smith**<sup>1</sup>, **Fiona Ducotterd**<sup>5</sup>, **Dervis A. Salih**<sup>6</sup>, **Nicholas J. Bray**<sup>2</sup>, **Emily Simmonds**<sup>1</sup>, **Valentina Escott-Price**<sup>1,2</sup>
 
 <sup>1</sup> UK Dementia Research Institute at Cardiff University, Cardiff, UK
 <sup>2</sup> MRC Centre for Neuropsychiatric Genetics and Genomics, Cardiff University, Cardiff, UK

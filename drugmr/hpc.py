@@ -582,7 +582,7 @@ def phewas_safety_finngen(
     pqtl_dataset: str,
     local_results_dir: str = "results",
     overwrite: bool = False,
-    coloc_threshold: float = 0,
+    coloc_threshold: float = 0.7,
     bonferroni_alpha: float = 0.05,
 ):
     project_root = Path(__file__).resolve().parents[1]
@@ -636,7 +636,7 @@ def phewas_safety_ukbb(
     pqtl_dataset: str,
     local_results_dir: str = "results",
     overwrite: bool = False,
-    coloc_threshold: float = 0,
+    coloc_threshold: float = 0.7,
     bonferroni_alpha: float = 0.05,
 ):
     project_root = Path(__file__).resolve().parents[1]
@@ -983,7 +983,7 @@ def hpc(
     hc_equal_thresholds = cfg.gate("hyprcoloc", "equal_thresholds", True)
     pwcoco_pp4_threshold = cfg.gate("pwcoco", "pp4_threshold", 0.7)
     bonferroni_alpha = cfg.gate("phewas", "bonferroni_alpha", 0.05)
-    phewas_coloc_threshold = cfg.gate("phewas", "coloc_threshold", 0)
+    phewas_coloc_threshold = cfg.gate("phewas", "coloc_threshold", 0.7)
 
     print("[TRACKING] Preparing remote repo...")
     clone_repo(user, host, remote_repo_root)

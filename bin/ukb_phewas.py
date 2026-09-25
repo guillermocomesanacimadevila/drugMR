@@ -78,7 +78,7 @@ def resolve_ukbb_variant(chromosome: str, position: int, A1: str, A2: str, rsid:
     return None, None, None
 
 
-def phewas_mr_on_ukbb(pqtl_dataset: str, pheno_id: str, local_results_dir: str = "results", cis_regions_dir: str | None = None, coloc_file: str | None = None, coloc_threshold: float = 0, bonferroni_alpha: float = 0.05):
+def phewas_mr_on_ukbb(pqtl_dataset: str, pheno_id: str, local_results_dir: str = "results", cis_regions_dir: str | None = None, coloc_file: str | None = None, coloc_threshold: float = 0.7, bonferroni_alpha: float = 0.05):
     coloc_file = coloc_file or paths.coloc_out(pqtl_dataset, pheno_id, local_results_dir)
     df_coloc = pl.read_csv(coloc_file, separator="\t")
     if "protein_id" in df_coloc.columns:
@@ -530,7 +530,7 @@ def main():
     p.add_argument("--local_results_dir", default="results")
     p.add_argument("--cis_regions_dir", default=None)
     p.add_argument("--coloc_file", default=None)
-    p.add_argument("--coloc_threshold", type=float, default=0)
+    p.add_argument("--coloc_threshold", type=float, default=0.7)
     p.add_argument("--bonferroni_alpha", type=float, default=0.05)
     args = p.parse_args()
     phewas_mr_on_ukbb(pheno_id=args.pheno_id, pqtl_dataset=args.pqtl_dataset, local_results_dir=args.local_results_dir, cis_regions_dir=args.cis_regions_dir, coloc_file=args.coloc_file, coloc_threshold=args.coloc_threshold, bonferroni_alpha=args.bonferroni_alpha)

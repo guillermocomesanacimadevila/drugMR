@@ -1,6 +1,6 @@
 project = "drugMR"
 copyright = "2026 drugMR contributors"
-author = "Guillermo Comesana Cimadevila"
+author = "Guillermo Comesaña Cimadevila"
 html_title = "drugMR"
 
 extensions = [

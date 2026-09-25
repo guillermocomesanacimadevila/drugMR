@@ -14,7 +14,7 @@ process PHEWAS_FINNGEN {
         if (params.image_name) {
             return params.image_name
         } else {
-            return 'ghcr.io/guillermocomesanacimadevila/drugmr:latest'
+            return 'ghcr.io/guillermocomesanacimadevila/drugmr:v1.0.0'
         }
     }
 
@@ -52,7 +52,7 @@ process PHEWAS_UKB {
         if (params.image_name) {
             return params.image_name
         } else {
-            return 'ghcr.io/guillermocomesanacimadevila/drugmr:latest'
+            return 'ghcr.io/guillermocomesanacimadevila/drugmr:v1.0.0'
         }
     }
 

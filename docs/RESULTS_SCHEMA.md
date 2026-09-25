@@ -33,7 +33,7 @@ Every successful analysis is stored under `runs/<run_id>/`. The run ID identifie
 | `results/hyprcoloc/by_eqtl_source/*.pdf` | Per target HyPrColoc sensitivity figures when generated. |
 | `results/hyprcoloc/hyprcoloc.tsv` | Combined HyPrColoc result across the enabled QTL sources. |
 | `results/phewas/finngen/phewas_coverage.tsv` | FinnGen instrument coverage for every screened target. Coverage is reported even when no significant PheWAS hit is found. |
-| `results/phewas/finngen/phewas.tsv` | FinnGen safety and repurposing associations when hits are present. |
+| `results/phewas/finngen/phewas.tsv` | FinnGen associations classified as potential adverse effects or repurposing opportunities, when present. |
 | `results/phewas/ukbb/phewas.tsv` | UK Biobank PheWAS associations when the stage is enabled and results are present. |
 
 Files from optional stages may be absent when the stage is disabled, no target passes the preceding gate, no phenotype has sufficient instrument coverage, or the LD reference lacks the locus variants. Absence of an optional association table is therefore different from a failed Nextflow process. Use the execution report and trace to distinguish the two cases.

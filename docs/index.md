@@ -2,7 +2,7 @@
 
 ## Overview
 
-**drugMR** is a multi-omics pipeline for drug target discovery. It takes an outcome GWAS and a panel of protein QTLs, and produces a ranked, safety-screened shortlist of druggable targets. The pipeline is built in [Nextflow](https://www.nextflow.io) DSL2 and runs inside Docker, Apptainer, or Singularity containers for reproducible execution. One run combines cis-Mendelian randomisation, colocalisation, xQTL triangulation with SMR and HEIDI, PWCoCo, HyPrColoc, and phenome-wide safety screening.
+**drugMR** is a multi-omics pipeline for genetically anchored drug-target discovery. It takes an outcome GWAS and one protein QTL panel per run, and produces evidence tables and an interactive dashboard for each candidate target, including associations that suggest potential adverse effects or repurposing opportunities. The pipeline is built in [Nextflow](https://www.nextflow.io) DSL2 and runs inside Docker, Apptainer or Singularity containers for reproducible execution. One run combines cis-Mendelian randomisation, colocalisation, SMR and HEIDI, PWCoCo, HyPrColoc and a phenome-wide screen; several panels are analysed in separate runs.
 
 ## Documentation
 
@@ -22,7 +22,7 @@
 1. Quality-control the outcome GWAS and extract the cis region for each protein.
 2. Run cis-MR using the selected pQTL panel (this can take several hours).
 3. Run pairwise COLOC and conditional PWCoCo between the pQTL and outcome GWAS.
-4. Screen supported targets across FinnGen and UK Biobank for safety and repurposing signals.
+4. Screen colocalisation-supported targets in FinnGen, with UK Biobank as a fallback, for potential adverse effects and repurposing opportunities.
 5. Triangulate targets with bulk and single-cell QTL data using SMR and HEIDI.
 6. Run QTL PWCoCo and HyPrColoc across the pQTL, QTL and outcome GWAS signals.
 7. Save the completed run under `runs/<run_id>/`, then load it into PostgreSQL and explore it in the Streamlit dashboard.

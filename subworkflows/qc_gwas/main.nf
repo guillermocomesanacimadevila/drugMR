@@ -306,7 +306,7 @@ workflow QC_GWAS {
             if (gates_phewas.containsKey("coloc_threshold")) {
                 coloc_threshold_gate = gates_phewas.coloc_threshold
             } else {
-                coloc_threshold_gate = 0
+                coloc_threshold_gate = 0.7
             }
 
             def gates = [

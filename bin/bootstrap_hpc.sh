@@ -12,14 +12,14 @@ set -euo pipefail
 # THIS IS THE COIMMAND WHICH WORKS IN SLURM TERMINAL
 # command -v apptainer >/dev/null 2>&1 || { echo "ERROR: apptainer not found"; exit 1; }
 # apptainer pull drugmr.sif \
-#   docker://ghcr.io/guillermocomesanacimadevila/drugmr:latest
+#   docker://ghcr.io/guillermocomesanacimadevila/drugmr:v1.0.0
 
 
 REPO_URL="https://github.com/guillermocomesanacimadevila/drugMR.git"
 REPO_DIR="${1:-$HOME/drugMR}"
 SIF_DIR="$REPO_DIR/env"
 SIF_FILE="$SIF_DIR/drugmr.sif"
-IMAGE_URI="docker://ghcr.io/guillermocomesanacimadevila/drugmr:latest"
+IMAGE_URI="docker://ghcr.io/guillermocomesanacimadevila/drugmr:v1.0.0"
 
 if command -v module >/dev/null 2>&1; then
     module load apptainer || true

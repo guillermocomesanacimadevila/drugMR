@@ -13,7 +13,10 @@ def main():
     p.add_argument("--run_id", required=True)
     p.add_argument("--root", default="runs")
     p.add_argument("--git_sha7", default="unknown")
+    p.add_argument("--git_dirty", default="unknown", choices=["true", "false", "unknown"],
+                   help="whether the checkout had uncommitted changes to tracked files at launch")
     p.add_argument("--image_name", default="unknown")
+    p.add_argument("--container", default="unknown", help="container image the processes actually ran in")
     p.add_argument("--host", default="unknown")
     p.add_argument("--params_json", required=True)
     p.add_argument("--status", default="success", choices=["success", "failed"])
@@ -31,11 +34,13 @@ def main():
             "pheno_id": args.pheno_id,
             "pqtl_dataset": args.pqtl_dataset,
             "git_sha7": args.git_sha7,
+            "git_dirty": {"true": True, "false": False}.get(args.git_dirty, "unknown"),
             "date": datetime.now().strftime("%Y%m%d"),
             "created_at": datetime.now().isoformat(),
             "mode": "nextflow",
             "status": args.status,
             "image_name": args.image_name,
+            "container": args.container,
             "host": args.host,
             "overwrite": False,
             "params_lock": params_lock.name,
