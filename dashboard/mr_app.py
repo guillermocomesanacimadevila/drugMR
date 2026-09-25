@@ -38,6 +38,10 @@ STATUS_MUTED = "#898781"
 # gets its own color distinct from an actual dropout/fail branch
 PHEWAS_ADVERSE_COLOR = "#d99a1b"
 
+# FinnGen R13 ICD endpoints tested per protein. The FinnGen API only returns
+# endpoints with P < 0.05, so counting the returned rows under-corrects.
+FINNGEN_ICD_ENDPOINTS = 2511
+
 # red = significant, grey = not - reuses the same validated status colors as the
 # Sankey above rather than a separate near-duplicate red/grey pair
 SIGNIFICANCE_COLOR_MAP = {True: STATUS_CRITICAL, False: STATUS_MUTED}
@@ -624,15 +628,15 @@ def prepare_phewas(df: pd.DataFrame):
     return df
 
 
-def classify_phewas_associations(phewas_df: pd.DataFrame, mr_outcome_df: pd.DataFrame) -> pd.DataFrame:
+def classify_phewas_associations(phewas_df: pd.DataFrame, mr_outcome_df: pd.DataFrame, n_endpoints: int | None = None) -> pd.DataFrame:
     """Row-level PheWAS MR classification against the primary protein->AD effect.
 
-    Recomputes Bonferroni correction itself, per protein, across the number of
-    endpoints actually loaded for that protein in this source (rather than
-    trusting whatever fixed-constant correction may be baked into an older
-    output file) - this is what makes the correction self-correcting even
-    against results/ files written before the per-protein Bonferroni fix in
-    bin/phewas_cis_pqtls.py / bin/ukb_phewas.py.
+    Recomputes Bonferroni correction itself rather than trusting whatever
+    correction is baked into the output file. With n_endpoints set (FinnGen:
+    FINNGEN_ICD_ENDPOINTS), every protein is corrected across that fixed number
+    of endpoints. Without it, the correction falls back to the number of
+    endpoints loaded for that protein, which under-corrects whenever the
+    source API only returns nominally significant endpoints.
 
     Classification rule (Bonferroni-significant associations only):
       - same sign as the primary cis-MR beta -> "additional_indication"
@@ -659,7 +663,10 @@ def classify_phewas_associations(phewas_df: pd.DataFrame, mr_outcome_df: pd.Data
         df["se_mr"] = pd.to_numeric(df["se_mr"], errors="coerce")
 
     valid = df["p_mr"].notna() & (df["p_mr"] > 0) & df["beta_mr"].notna()
-    df["n_endpoints_tested"] = df.loc[valid].groupby("protein")["p_mr"].transform("count")
+    if n_endpoints:
+        df["n_endpoints_tested"] = n_endpoints
+    else:
+        df["n_endpoints_tested"] = df.loc[valid].groupby("protein")["p_mr"].transform("count")
     n_endpoints_tested = df["n_endpoints_tested"]
     df["p_bonferroni"] = np.minimum(df["p_mr"] * n_endpoints_tested, 1.0)
     df["bonferroni_significant"] = valid & (df["p_mr"] < (0.05 / n_endpoints_tested))
@@ -696,7 +703,7 @@ def classify_phewas_associations(phewas_df: pd.DataFrame, mr_outcome_df: pd.Data
     return df
 
 
-def compute_phewas_classification_status(phewas_df: pd.DataFrame, mr_outcome_df: pd.DataFrame, proteins):
+def compute_phewas_classification_status(phewas_df: pd.DataFrame, mr_outcome_df: pd.DataFrame, proteins, n_endpoints: int | None = None):
     """Per-protein worst-case PheWAS classification, for display only.
 
     'adverse_effect' if the protein has >=1 opposite-direction Bonferroni-
@@ -712,7 +719,7 @@ def compute_phewas_classification_status(phewas_df: pd.DataFrame, mr_outcome_df:
     proteins = list(proteins)
     status = {protein: "none" for protein in proteins}
 
-    classified = classify_phewas_associations(phewas_df, mr_outcome_df)
+    classified = classify_phewas_associations(phewas_df, mr_outcome_df, n_endpoints=n_endpoints)
     if classified.empty or "protein" not in classified.columns:
         return status
 
@@ -1688,6 +1695,7 @@ def render_phewas_section(
     key_prefix: str,
     stage_number: int,
     is_fallback: bool = False,
+    n_endpoints: int | None = None,
 ):
     stage_caption(stage_number)
     st.subheader(f"{source_name} phenome-wide MR · indications & adverse effects")
@@ -1725,7 +1733,7 @@ def render_phewas_section(
         st.error(f"The {source_name} PheWAS result file does not contain a protein column.")
         return
 
-    classified_outcome = classify_phewas_associations(phewas_outcome, mr_outcome)
+    classified_outcome = classify_phewas_associations(phewas_outcome, mr_outcome, n_endpoints=n_endpoints)
 
     phewas_targets = sorted(classified_outcome["protein"].dropna().astype(str).unique())
 
@@ -2060,7 +2068,7 @@ def render_target_profile(
     # PheWAS is a flag, not a gate (see the "single source of truth" block
     # above render_dashboard_body for the full rationale) - it must NOT gate
     # has_smr_support/passed_hyprcoloc below, only decorate the banner.
-    finngen_status = compute_phewas_classification_status(finngen_phewas_outcome, mr_outcome, [protein]).get(protein, "none")
+    finngen_status = compute_phewas_classification_status(finngen_phewas_outcome, mr_outcome, [protein], n_endpoints=FINNGEN_ICD_ENDPOINTS).get(protein, "none")
     ukb_status = compute_phewas_classification_status(ukb_phewas_outcome, mr_outcome, [protein]).get(protein, "none")
     has_phewas_adverse_flag = finngen_status == "adverse_effect" or ukb_status == "adverse_effect"
 
@@ -2945,7 +2953,7 @@ def dashboard(
             help="Shared by BOTH standard COLOC and PWCoCo. A target clears this stage if EITHER method's PP.H4 is at or above this bar."
         )
 
-    st.sidebar.caption("Stage 3-4 · PheWAS (FinnGen/UKB) has no threshold here. It uses a fixed per-protein Bonferroni cutoff, not a configurable slider.")
+    st.sidebar.caption("Stage 3-4 · PheWAS (FinnGen/UKB) has no threshold here. FinnGen uses a Bonferroni cutoff across all 2,511 endpoints, UKB across the endpoints returned per protein; neither is a configurable slider.")
 
     with st.sidebar.expander("Stage 5 · SMR / HEIDI", expanded=False):
         smr_fdr_threshold = st.slider("SMR FDR (q_SMR) threshold", 0.0, 1.0, 0.05, 0.01)
@@ -3248,7 +3256,7 @@ def dashboard(
     # ukb_pass_set are therefore just aliases for it, kept under their old
     # names so every downstream set below (smr_eligible_set, final targets,
     # etc.) doesn't need touching to stop being PheWAS-gated.
-    finngen_status = compute_phewas_classification_status(finngen_phewas_outcome, mr_outcome, coloc_pass_set)
+    finngen_status = compute_phewas_classification_status(finngen_phewas_outcome, mr_outcome, coloc_pass_set, n_endpoints=FINNGEN_ICD_ENDPOINTS)
     ukb_status = compute_phewas_classification_status(ukb_phewas_outcome, mr_outcome, coloc_pass_set)
     finngen_adverse_set = {protein for protein in coloc_pass_set if finngen_status.get(protein) == "adverse_effect"}
     ukb_adverse_set = {protein for protein in coloc_pass_set if ukb_status.get(protein) == "adverse_effect"}
@@ -3981,7 +3989,8 @@ def dashboard(
                 pqtl_dataset=pqtl_dataset,
                 outcome=outcome,
                 key_prefix="finngen",
-                stage_number=3
+                stage_number=3,
+                n_endpoints=FINNGEN_ICD_ENDPOINTS,
             )
 
         with tab5:
