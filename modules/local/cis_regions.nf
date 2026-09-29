@@ -17,18 +17,21 @@ process EXTRACT_CIS_REGIONS {
     }
 
     input:
-    tuple val(meta), path(qc_tsv), path(qtl_manifest)
+    tuple val(meta), path(qc_tsv), val(manifest_subset)
 
     output:
     tuple val(meta), path("*", type: 'dir'), emit: protein_dirs
 
     script:
     """
+    cat > qtl_manifest.csv <<'EOF'
+${manifest_subset}EOF
+
     export PYTHONPATH=${projectDir}
     python ${projectDir}/bin/prep_cis_regions.py \\
         --pqtl_dataset ${meta.pqtl_dataset} \\
         --pheno_id ${meta.pheno_id} \\
-        --manifest_path ${qtl_manifest} \\
+        --manifest_path qtl_manifest.csv \\
         --qc_tsv ${qc_tsv} \\
         --out_dir .
     """
