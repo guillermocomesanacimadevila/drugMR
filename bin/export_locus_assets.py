@@ -72,10 +72,16 @@ def export_locus_assets(
         shutil.copy2(gwas_file, target_dir / "gwas.parquet")
         pqtl = pl.read_parquet(pqtl_file)
         gwas = pl.read_parquet(gwas_file)
+        # pQTL and GWAS sources disagree on CHR/BP dtypes (decode), so align them before stacking
+        coords = [
+            pl.col("SNP").cast(pl.Utf8),
+            pl.col("CHR").cast(pl.Utf8).str.strip_prefix("chr"),
+            pl.col("BP").cast(pl.Int64),
+        ]
         candidate_rows = pl.concat(
-            [pqtl.select(["SNP", "CHR", "BP"]), gwas.select(["SNP", "CHR", "BP"])],
+            [pqtl.select(coords), gwas.select(coords)],
             how="vertical",
-        ).filter(pl.col("SNP").cast(pl.Utf8) == candidate_snp)
+        ).filter(pl.col("SNP") == candidate_snp)
 
         ld_available = False
         ld_error = None
