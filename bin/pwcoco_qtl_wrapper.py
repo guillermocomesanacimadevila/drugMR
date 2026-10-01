@@ -22,6 +22,18 @@ def resolve_maf_col(df):
     return "FRQ" if "FRQ" in df.columns else "MAF"
 
 
+_COLOC_PROB_COLS = ("H0", "H1", "H2", "H3", "H4", "log_abf_all")
+
+
+# PWCoCo can write "-nan" into an H column for a degenerate pair (seen for
+# IDUA x singlebrain Ext, eQTL-GWAS); polars then reads that column as str and
+# the diagonal_relaxed concat turns the whole column into str. Force these
+# numeric so 1 odd pair can't break the triangulation
+def read_coloc(path):
+    df = pl.read_csv(path, separator="\t")
+    return df.with_columns([pl.col(c).cast(pl.Float64, strict=False) for c in _COLOC_PROB_COLS if c in df.columns])
+
+
 # 1 PWCoCo output df -> {protein: {snp: h4}}, keeping only rows that clear pp4_thresh -
 # SNP1/SNP2 is literally "unconditioned" for PWCoCo's own unconditioned row, and a
 # conditioned row's SNP carries a trailing "*" (PWCoCo's conditioning-SNP marker) -
@@ -30,7 +42,9 @@ def resolve_maf_col(df):
 def snp_h4_map(df, pp4_thresh):
     m = {}
     for row in df.iter_rows(named=True):
-        if row["H4"] < pp4_thresh:
+        h4 = row["H4"]
+        # NaN/null H4 (see read_coloc) never clears the threshold
+        if h4 is None or not h4 >= pp4_thresh:
             continue
         for snp in (row["SNP1"], row["SNP2"]):
             if snp and snp != "unconditioned":
@@ -112,7 +126,7 @@ def pwcoco_qtl_wrapper(
             )
             if Path(f"{out_ep}.coloc").exists():
                 qtl_pqtl_rows.append(
-                    pl.read_csv(f"{out_ep}.coloc", separator="\t").with_columns(pl.lit(p).alias("protein"), pl.lit(dataset).alias("qtl_dataset"), pl.lit(cell_type).alias("cell_type"), pl.lit(qtl_type).alias("qtl_type"))
+                    read_coloc(f"{out_ep}.coloc").with_columns(pl.lit(p).alias("protein"), pl.lit(dataset).alias("qtl_dataset"), pl.lit(cell_type).alias("cell_type"), pl.lit(qtl_type).alias("qtl_type"))
                 )
 
             # eQTL - GWAS: GWAS is case-control
@@ -124,7 +138,7 @@ def pwcoco_qtl_wrapper(
             )
             if Path(f"{out_eg}.coloc").exists():
                 qtl_gwas_rows.append(
-                    pl.read_csv(f"{out_eg}.coloc", separator="\t").with_columns(pl.lit(p).alias("protein"), pl.lit(dataset).alias("qtl_dataset"), pl.lit(cell_type).alias("cell_type"), pl.lit(pheno_id).alias("outcome_trait"), pl.lit(qtl_type).alias("qtl_type"))
+                    read_coloc(f"{out_eg}.coloc").with_columns(pl.lit(p).alias("protein"), pl.lit(dataset).alias("qtl_dataset"), pl.lit(cell_type).alias("cell_type"), pl.lit(pheno_id).alias("outcome_trait"), pl.lit(qtl_type).alias("qtl_type"))
                 )
         except Exception as error:
             print(f"[CONCERN] PWCoCo-QTL (bulk) failed for {p} x {cell_type} - continuing without it: {error}")
@@ -169,7 +183,7 @@ def pwcoco_qtl_wrapper(
             )
             if Path(f"{out_ep}.coloc").exists():
                 qtl_pqtl_rows.append(
-                    pl.read_csv(f"{out_ep}.coloc", separator="\t").with_columns(pl.lit(p).alias("protein"), pl.lit(dataset).alias("qtl_dataset"), pl.lit(cell_type).alias("cell_type"), pl.lit(qtl_type).alias("qtl_type"))
+                    read_coloc(f"{out_ep}.coloc").with_columns(pl.lit(p).alias("protein"), pl.lit(dataset).alias("qtl_dataset"), pl.lit(cell_type).alias("cell_type"), pl.lit(qtl_type).alias("qtl_type"))
                 )
 
             out_eg = pwcoco_qtl_raw_prefix("eqtl_gwas", pqtl_dataset, p, qtl_source, out_dir)
@@ -180,7 +194,7 @@ def pwcoco_qtl_wrapper(
             )
             if Path(f"{out_eg}.coloc").exists():
                 qtl_gwas_rows.append(
-                    pl.read_csv(f"{out_eg}.coloc", separator="\t").with_columns(pl.lit(p).alias("protein"), pl.lit(dataset).alias("qtl_dataset"), pl.lit(cell_type).alias("cell_type"), pl.lit(pheno_id).alias("outcome_trait"), pl.lit(qtl_type).alias("qtl_type"))
+                    read_coloc(f"{out_eg}.coloc").with_columns(pl.lit(p).alias("protein"), pl.lit(dataset).alias("qtl_dataset"), pl.lit(cell_type).alias("cell_type"), pl.lit(pheno_id).alias("outcome_trait"), pl.lit(qtl_type).alias("qtl_type"))
                 )
         except Exception as error:
             print(f"[CONCERN] PWCoCo-QTL (single-cell) failed for {p} x {cell_type} - continuing without it: {error}")
@@ -207,7 +221,7 @@ def pwcoco_qtl_wrapper(
     # conditioning rather than HyPrColoc's single-causal-variant cluster assumption -
     # co-equal to HyPrColoc, not a downstream refinement of it.
     pg_file = pwcoco_out(pqtl_dataset, pheno_id, out_dir)
-    pqtl_gwas_df = pl.read_csv(pg_file, separator="\t") if Path(pg_file).exists() else pl.DataFrame()
+    pqtl_gwas_df = read_coloc(pg_file) if Path(pg_file).exists() else pl.DataFrame()
 
     pg_map = snp_h4_map(pqtl_gwas_df, pp4_thresh) if pqtl_gwas_df.height > 0 else {}
     ep_map = snp_h4_map(qtl_pqtl_df, pp4_thresh) if qtl_pqtl_df.height > 0 else {}
