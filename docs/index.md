@@ -10,8 +10,9 @@
 - [Try the demo](getting-started.md#try-the-demo): run every stage in a few minutes on a small synthetic [dataset](https://doi.org/10.5281/zenodo.22917384).
 - [Configure a run](configuration.md): define an outcome GWAS, register QTL datasets, and set analysis thresholds.
 - [Run the pipeline](running.md): launch and monitor an analysis.
+- [Methods](methods.md): what each stage tests, the gates, effect direction, and limitations.
 - [Results and dashboard](results-dashboard.md): fetch completed runs, load PostgreSQL, and explore the Streamlit dashboard. `notebooks/00_drugmr.ipynb` provides a worked notebook version of this same step.
-- [Output schema](RESULTS_SCHEMA.md): column reference for every results TSV.
+- [Output schema](RESULTS_SCHEMA.md): every output file, with columns for the four key tables.
 - [Troubleshooting](troubleshooting.md): diagnose SLURM, memory, paths, containers, and interrupted runs.
 - [Reach out](reach-out.md): points of contact in case any issue arises.
 
@@ -58,6 +59,7 @@ running
 :caption: Reference
 :hidden:
 
+methods
 results-dashboard
 RESULTS_SCHEMA
 troubleshooting

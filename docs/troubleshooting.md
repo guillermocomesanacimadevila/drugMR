@@ -35,3 +35,24 @@ Graphviz is only needed to render the execution DAG. A missing Graphviz installa
 ## A reference file exists but is reported missing
 
 Relative paths are resolved from the repository, while a Nextflow task executes inside its work directory. Keep current code and pass reference paths through the configuration. If the data is outside the repository, bind the parent directory into the container with `--container_bind`.
+
+## GWAS and pQTL positions do not match
+
+**Symptom.** Regional plots show the GWAS peak shifted from the pQTL peak, or cis regions keep far fewer GWAS variants than expected. For one SNP, the GWAS and pQTL positions differ by the same amount across a region.
+
+**Cause.** `genome_build` in the params file does not match the GWAS file. The most common case is a GWAS already in GRCh38 declared as GRCh37, so it is lifted a second time.
+
+**Fix.** Check a few known rsIDs against dbSNP, set `genome_build` to the real build, and rerun from GWAS QC.
+
+## A rerun reuses results you expected to change
+
+Nextflow `-resume` reruns a task when its inputs, script or parameters change. Two caches sit outside Nextflow and are reused across runs:
+
+| Cache | Reused when | To force a rebuild |
+| --- | --- | --- |
+| BESD files built from QTL parquet files (`synthesis/qtl_esd/` and next to the manifest path) | The BESD files for that dataset already exist. | Delete that dataset's `.besd`, `.esi` and `.epi` files. |
+| SMR results (`synthesis/SMR/`) | A non empty `.smr` file exists for the same phenotype and QTL dataset. | Delete the matching `.smr` files. |
+
+If you change the QTL data, `gates.smr.p_qtl_smr`, `gates.smr.p_qtl_heidi` or `gates.smr.diff_freq_prop`, delete the files above first, or the old results are reused. The SMR pass thresholds (`p_smr_threshold`, `p_heidi_threshold`) are applied after SMR and take effect without deleting anything.
+
+Editing an unrelated row of `assets/qtl_manifest.csv` does not invalidate cached cis regions. Each run stages only the manifest row for its own pQTL dataset.
