@@ -288,6 +288,27 @@ class SMRUtils:
                 gene_col = "_gene"
                 df = df.with_columns(pl.lit(label.split("_")[0]).alias(gene_col))
 
+            # SMR --make-besd stops when one rsID carries two different allele
+            # pairs across the probes of a flist (multi-allelic sites sharing an
+            # rsID, e.g. isoMiGA rs145249178 T/G and A/G), so drop those SNPs
+            # for the whole partition; A1/A2 order alone is not a clash
+            allele_pair = (
+                pl.when(pl.col("A1") < pl.col("A2"))
+                .then(pl.concat_str(["A1", "A2"], separator=":"))
+                .otherwise(pl.concat_str(["A2", "A1"], separator=":"))
+            )
+            pairs_per_snp = (
+                df.select(["SNP", "A1", "A2"])
+                .drop_nulls()
+                .with_columns(allele_pair.alias("allele_pair"))
+                .group_by("SNP")
+                .agg(pl.col("allele_pair").n_unique().alias("n_pairs"))
+            )
+            multi_allelic = pairs_per_snp.filter(pl.col("n_pairs") > 1).get_column("SNP")
+            if multi_allelic.len() > 0:
+                print(f"[TRACKING] {label}: dropping {multi_allelic.len()} SNP(s) with more than one allele pair", flush=True)
+                df = df.filter(~pl.col("SNP").is_in(multi_allelic.implode()))
+
             label_dir = esd_dir / label
             label_dir.mkdir(parents=True, exist_ok=True)
             flist_rows = []
