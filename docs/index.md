@@ -2,7 +2,7 @@
 
 ## Overview
 
-**drugMR** is a multi-omics pipeline for genetically anchored drug-target discovery. It takes an outcome GWAS and one protein QTL panel per run, and produces evidence tables and an interactive dashboard for each candidate target, including associations that suggest potential adverse effects or repurposing opportunities. The pipeline is built in [Nextflow](https://www.nextflow.io) DSL2 and runs inside Docker, Apptainer or Singularity containers for reproducible execution. One run combines cis-Mendelian randomisation, colocalisation, SMR and HEIDI, PWCoCo, HyPrColoc and a phenome-wide screen; several panels are analysed in separate runs.
+**drugMR** is a multi-omics pipeline for genetically anchored drug target discovery. Each run takes an outcome GWAS, one pQTL panel and, optionally, bulk and single cell xQTL datasets (eQTL, sQTL, mQTL and others) for triangulation. It produces evidence tables and an interactive dashboard for each candidate target, including associations that suggest potential adverse effects or repurposing opportunities. One run combines cis-Mendelian randomisation, colocalisation (coloc and PWCoCo), SMR and HEIDI against the xQTL datasets, three trait colocalisation (HyPrColoc and PWCoCo QTL) and a phenome-wide screen. Several pQTL panels are analysed in separate runs. The pipeline is built in [Nextflow](https://www.nextflow.io) DSL2 and runs in containers (Docker, Apptainer, Singularity and others) for reproducible execution.
 
 ## Documentation
 
