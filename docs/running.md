@@ -73,7 +73,7 @@ source env/activate.sh
 
 nextflow run main.nf \
   -profile slurm \
-  -params-file params/SCZ.wingo.yaml \
+  -params-file params/AD.wingo_brain.yaml \
   --manifest_path assets/qtl_manifest.csv \
   --slurm_account YOUR_ACCOUNT \
   --slurm_partition htc_genoa \
@@ -108,7 +108,7 @@ source env/activate.sh
 
 nextflow run main.nf \
   -profile slurm,local \
-  -params-file params/SCZ.wingo.yaml \
+  -params-file params/AD.wingo_brain.yaml \
   --manifest_path assets/qtl_manifest.csv \
   --slurm_account YOUR_ACCOUNT \
   --slurm_partition htc_genoa \
@@ -131,7 +131,7 @@ Monitor the controller job:
 
 ```bash
 squeue -j JOB_ID
-tail -f drugMR/drugmr_SCZ_wingo_JOB_ID.out
+tail -f drugMR/drugmr_AD_wingo_brain_JOB_ID.out
 ```
 
 Inspect resource use after completion:
@@ -177,7 +177,7 @@ Reference and QTL inputs must resolve to a location Nextflow can stage from. On 
 A successful run ID contains the outcome, pQTL dataset, a full date and time (so same-day repeat runs don't collide), and Git revision:
 
 ```text
-SCZ_wingo_brain_2026-09-12_14-30-22_fe5675a
+AD_wingo_brain_2026-09-12_14-30-22_fe5675a
 ```
 
 The complete portable run is written under `runs/<run_id>/`:
@@ -228,7 +228,7 @@ Run this on the local computer, from its own drugMR clone:
 import drugmr as dm
 
 config = dm.fetch_run(
-    run_id="SCZ_wingo_brain_2026-09-12_14-30-22_fe5675a",
+    run_id="AD_wingo_brain_2026-09-12_14-30-22_fe5675a",
     user="your_username",
     host="login.your-cluster.ac.uk", # without the @ (Do not include the @!)
     remote_root="/shared/scratch/YOUR_PROJECT/pipelines/drugMR/runs",

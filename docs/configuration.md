@@ -6,7 +6,7 @@ For example:
 
 ```text
 params/AD.ukb_ppp.yaml    = AD outcome GWAS  + ukb_ppp pQTL panel
-params/SCZ.wingo.yaml     = SCZ outcome GWAS + wingo_brain pQTL panel
+params/AD.wingo_brain.yaml = AD outcome GWAS + wingo_brain pQTL panel
 ```
 
 Run each pair with its own `nextflow run` command. drugMR rejects a params file containing more than one input pair because the run ID, results, provenance, and dashboard record must all refer to one unambiguous analysis.
@@ -16,11 +16,11 @@ Run each pair with its own `nextflow run` command. drugMR rejects a params file 
 Start from an existing file under `params/` and change the outcome, pQTL dataset, paths, column names, and optional downstream datasets.
 
 ```yaml
-pheno_id: SCZ
-sumstats: ../../data/GWAS/SCZ_Trubetskoy_2022_EUR_postQC.tsv
-n_cases: 67390
-n_controls: 94015
-genome_build: GRCh37
+pheno_id: AD
+sumstats: dat/gwas/AD.tsv
+n_cases: 128681
+n_controls: 849833
+genome_build: GRCh38
 target_build: GRCh38
 
 snp_col: SNP
@@ -29,7 +29,7 @@ a2_col: A2
 beta_col: BETA
 se_col: SE
 p_col: P
-pos_col: POS
+pos_col: BP
 chr_col: CHR
 af_col: FRQ
 
@@ -191,26 +191,26 @@ If no complete SMR triples are found, drugMR reads the registered Parquet, CSV, 
 - `synthesis/SMR/`: reusable SMR calculations, stored by QTL dataset and outcome.
 - Other subdirectories hold derived target summaries and manifests shared across stages.
 
-For example, an SCZ run using the `wingo_brain` pQTL panel and MetaBrain as a bulk QTL dataset produces an SCZ and MetaBrain SMR calculation that does not depend on `wingo_brain`. A later SCZ run using `ukb_ppp` and MetaBrain again reuses that same calculation from `synthesis/SMR/`, instead of repeating the chromosome level SMR analysis. A different outcome GWAS or QTL dataset needs its own calculation.
+For example, an AD run using the `wingo_brain` pQTL panel and MetaBrain as a bulk QTL dataset produces an AD and MetaBrain SMR calculation that does not depend on `wingo_brain`. A later AD run using `ukb_ppp` and MetaBrain again reuses that same calculation from `synthesis/SMR/`, instead of repeating the chromosome level SMR analysis. A different outcome GWAS or QTL dataset needs its own calculation.
 
 ```text
 Run 1
-params/SCZ.wingo_brain.yaml
-outcome: SCZ
+params/AD.wingo_brain.yaml
+outcome: AD
 pQTL panel: wingo_brain
 bulk QTL dataset: metabrain
 
 Run 2
-params/SCZ.ukb_ppp.yaml
-outcome: SCZ
+params/AD.ukb_ppp.yaml
+outcome: AD
 pQTL panel: ukb_ppp
 bulk QTL dataset: metabrain
 
 Shared reusable calculation
-SCZ outcome GWAS + MetaBrain QTL
-synthesis/SMR/bulk/MetaBrain/<SCZ MetaBrain SMR output>
+AD outcome GWAS + MetaBrain QTL
+synthesis/SMR/bulk/MetaBrain/<AD MetaBrain SMR output>
 
-Run 2 finds the completed SCZ + MetaBrain calculation and reuses it.
+Run 2 finds the completed AD + MetaBrain calculation and reuses it.
 ```
 
 Do not treat `synthesis/` as the final results directory. Final run outputs are copied to `runs/<run_id>/results/`. Do not routinely delete `synthesis/` between runs because doing so can force expensive conversion or SMR work to run again. It can be rebuilt from the registered inputs, but only if those inputs remain available and their destination directories are writable.
@@ -221,7 +221,7 @@ Run path checks from the repository root because relative paths are resolved fro
 
 ```bash
 cd /path/to/drugMR
-ls -lh ../../data/GWAS/SCZ_Trubetskoy_2022_EUR_postQC.tsv
+ls -lh dat/gwas/AD.tsv
 ls ../../data/pQTL/mass-spec/wingo_brain/*.parquet | head
 ls -lh ref/liftover/hg19ToHg38.over.chain
 ```
