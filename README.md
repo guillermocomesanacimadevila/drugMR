@@ -11,6 +11,7 @@
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-results%20store-blue?logo=postgresql&logoColor=white)](sql/schema.sql)
 [![Streamlit](https://img.shields.io/badge/Streamlit-dashboard-blue?logo=streamlit&logoColor=white)](dashboard/mr_app.py)
 [![Zenodo](http://img.shields.io/badge/DOI-10.5281/zenodo.18986935-1073c8?labelColor=000000)](https://doi.org/10.5281/zenodo.22706705)
+[![bioRxiv](http://img.shields.io/badge/bioRxiv-10.64898/2026.10.01.756031-b31b1b?labelColor=000000)](https://doi.org/10.64898/2026.10.01.756031)
 
 ## Introduction
 
@@ -141,7 +142,7 @@ Full installation, configuration, HPC, AWS/GCP, fetch, and dashboard instruction
 ## Pipeline summary
 
 * GWAS QC and cis region extraction
-* Cis-MR (Wald ratio, inverse variance weighted)
+* Cis-MR (Wald ratio, IVW, weighted median, MR Egger)
 * Pairwise colocalisation and PWCoCo
 * SMR and HEIDI, bulk and single cell QTL panels
 * PWCoCo QTL, SNP level pQTL to QTL to GWAS triangulation
@@ -170,7 +171,24 @@ Contributions are welcome. Fork the repository, open a pull request, and flag it
 
 ## Citations
 
-If you use drugMR in your work, please cite it. A machine readable citation is provided in [`CITATION.cff`](CITATION.cff). An extensive list of references for every tool this pipeline depends on is in [`CITATIONS.md`](CITATIONS.md).
+If you use drugMR in your work, please cite the preprint:
+
+> Comesana Cimadevila G, Dib MJ, Bracher-Smith M, Ducotterd F, Salih DA, Bray NJ, Simmonds E, Escott-Price V. drugMR: a multi-omics pipeline for genetically anchored drug-target discovery. bioRxiv. 2026. doi: [10.64898/2026.10.01.756031](https://doi.org/10.64898/2026.10.01.756031).
+
+BibTeX for LaTeX users:
+
+```bibtex
+@article{ComesanaCimadevila2026drugMR,
+  title   = {drugMR: a multi-omics pipeline for genetically anchored drug-target discovery},
+  author  = {{Comesana Cimadevila}, Guillermo and Dib, Marie-Joe and Bracher-Smith, Matthew and Ducotterd, Fiona and Salih, Dervis A. and Bray, Nicholas J. and Simmonds, Emily and Escott-Price, Valentina},
+  journal = {bioRxiv},
+  year    = {2026},
+  doi     = {10.64898/2026.10.01.756031},
+  url     = {https://www.biorxiv.org/content/10.64898/2026.10.01.756031v1}
+}
+```
+
+A machine readable citation is provided in [`CITATION.cff`](CITATION.cff). An extensive list of references for every tool this pipeline depends on is in [`CITATIONS.md`](CITATIONS.md).
 
 ## License
 

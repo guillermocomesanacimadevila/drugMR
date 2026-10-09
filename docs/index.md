@@ -44,6 +44,27 @@
 `dm.results()` always needs a configuration. For an exact local run, use `dm.results(config="runs/<run_id>/params.lock.yaml")`. To select the latest successful run matching a regular parameter file, use `dm.results(config="params/<file>.yaml")`.
 ```
 
+## Citing drugMR
+
+If you use drugMR in your work, please cite the preprint:
+
+> Comesana Cimadevila G, Dib MJ, Bracher-Smith M, Ducotterd F, Salih DA, Bray NJ, Simmonds E, Escott-Price V. drugMR: a multi-omics pipeline for genetically anchored drug-target discovery. bioRxiv. 2026. doi: [10.64898/2026.10.01.756031](https://doi.org/10.64898/2026.10.01.756031).
+
+BibTeX for LaTeX users:
+
+```bibtex
+@article{ComesanaCimadevila2026drugMR,
+  title   = {drugMR: a multi-omics pipeline for genetically anchored drug-target discovery},
+  author  = {{Comesana Cimadevila}, Guillermo and Dib, Marie-Joe and Bracher-Smith, Matthew and Ducotterd, Fiona and Salih, Dervis A. and Bray, Nicholas J. and Simmonds, Emily and Escott-Price, Valentina},
+  journal = {bioRxiv},
+  year    = {2026},
+  doi     = {10.64898/2026.10.01.756031},
+  url     = {https://www.biorxiv.org/content/10.64898/2026.10.01.756031v1}
+}
+```
+
+References for every tool the pipeline depends on are listed in [`CITATIONS.md`](https://github.com/guillermocomesanacimadevila/drugMR/blob/main/CITATIONS.md).
+
 ```{toctree}
 :maxdepth: 2
 :caption: Getting started
