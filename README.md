@@ -152,19 +152,6 @@ Full installation, configuration, HPC, AWS/GCP, fetch, and dashboard instruction
 
 Gate thresholds live in the optional `gates` block of your params file. See [`docs/RESULTS_SCHEMA.md`](docs/RESULTS_SCHEMA.md) for the results schema.
 
-## Credits
-
-drugMR was written by:
-
-**Guillermo Comesaña Cimadevila**<sup>1,2,3</sup>, **Marie-Joe Dib**<sup>4</sup>, **Matthew Bracher-Smith**<sup>1</sup>, **Fiona Ducotterd**<sup>5</sup>, **Dervis A. Salih**<sup>6</sup>, **Nicholas J. Bray**<sup>2</sup>, **Emily Simmonds**<sup>1</sup>, **Valentina Escott-Price**<sup>1,2</sup>
-
-<sup>1</sup> UK Dementia Research Institute at Cardiff University, Cardiff, UK
-<sup>2</sup> MRC Centre for Neuropsychiatric Genetics and Genomics, Cardiff University, Cardiff, UK
-<sup>3</sup> Hodge Centre for Translational Neuroscience, Cardiff University, Cardiff, UK
-<sup>4</sup> Nascent Studio Ltd, London, UK
-<sup>5</sup> Alzheimer’s UK Drug Discovery Institute, University College London, London, UK
-<sup>6</sup> UK Dementia Research Institute at University College London, London, UK
-
 ## Contributions and support
 
 Contributions are welcome. Fork the repository, open a pull request, and flag it to Guillermo (ComesanaCimadevilaG@cardiff.ac.uk).
