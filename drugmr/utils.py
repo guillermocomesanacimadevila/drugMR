@@ -228,7 +228,7 @@ def extract_coloc_or_pwcoco_targets(coloc_csv_file, pwcoco_csv_file, pp4_thresh:
     if "coloc" in method:
         df = pl.read_csv(coloc_csv_file, separator="\t")
         for row in df.iter_rows(named=True):
-            protein = row["protein_id"]
+            protein = row["protein"]
             pp4 = row["PP.H4.abf"]
             if pp4 >= pp4_thresh:
                 targets.add(protein)
@@ -456,3 +456,49 @@ def detect_qtl_split(manifest_path: Path) -> dict:
             prefixes[label] = prefix
 
     return prefixes
+
+
+def detect_relevant_snps(
+        dataframe: pl.DataFrame,
+        p_col: str,
+        p_thresh
+):
+    dataframe = dataframe.filter(
+        pl.col(p_col) < p_thresh
+    )
+    return dataframe
+
+
+def ld_clumping(
+        ref_bfile,
+        sumstats,
+        clump_pval,
+        clump_r2,
+        clump_kb,
+        out,
+        snp_field="SNP",
+        p_field="P",
+        chromosome=None
+):
+    """ Run PLINK clumping on a sumstats file; caller reads {out}.clumped """
+
+    cmd = [
+        "plink",
+        "--bfile", str(ref_bfile),
+    ]
+
+    # only scan one chromosome of the reference panel when given
+    if chromosome is not None:
+        cmd = cmd + ["--chr", str(chromosome).removeprefix("chr")]
+
+    cmd = cmd + [
+        "--clump", str(sumstats),
+        "--clump-p1", str(clump_pval),
+        "--clump-r2", str(clump_r2),
+        "--clump-kb", str(clump_kb),
+        "--clump-snp-field", snp_field,
+        "--clump-field", p_field,
+        "--out", str(out)
+    ]
+
+    return subprocess.run(cmd, check=True)
