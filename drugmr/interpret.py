@@ -1,11 +1,62 @@
 import json
 import math
 
+import pandas as pd
 import polars as pl
 import yaml
 
 from drugmr import paths
 from drugmr.utils import extract_coloc_or_pwcoco_targets, grab_cis_mr_hits
+
+
+# rows shown in the default preview of a long table (half at the top, half at the bottom)
+PREVIEW_ROWS = 10
+# tables up to this many rows are always shown in full
+FULL_TABLE_ROWS = 20
+
+
+def _format_number(value):
+
+    """ 3 significant figures: 8.73e-26, 0.774, 1.22 """
+
+    return f"{value:.3g}"
+
+
+class ResultsTable(pd.DataFrame):
+
+    """
+    A pandas DataFrame that displays cleanly in a notebook: numbers to 3
+    significant figures and every column. Long tables show a preview of their
+    rows unless show_all is True. The data itself keeps full precision.
+    """
+
+    _metadata = ["show_all"]
+    show_all = False
+
+    @property
+    def _constructor(self):
+        return ResultsTable
+
+    def _display_settings(self):
+        if self.show_all:
+            max_rows = None
+        else:
+            max_rows = FULL_TABLE_ROWS
+        return [
+            "display.float_format", _format_number,
+            "display.max_columns", None,
+            "display.max_rows", max_rows,
+            "display.min_rows", PREVIEW_ROWS,
+            "display.max_colwidth", 60,
+        ]
+
+    def _repr_html_(self):
+        with pd.option_context(*self._display_settings()):
+            return super()._repr_html_()
+
+    def __repr__(self):
+        with pd.option_context(*self._display_settings()):
+            return super().__repr__()
 
 
 class ResultsExplorer:
@@ -109,8 +160,9 @@ class ResultsExplorer:
             }
         )
         # pandas renders as a clean table in Jupyter, one row per setting
-        table = table.to_pandas().set_index("setting")
+        table = ResultsTable(table.to_pandas().set_index("setting"))
         table.index.name = None
+        table.show_all = True
         return table
 
     def funnel(self):
@@ -246,8 +298,9 @@ class ResultsExplorer:
             }
         )
         # pandas renders as a clean table in Jupyter, one row per stage
-        table = table.to_pandas().set_index("stage")
+        table = ResultsTable(table.to_pandas().set_index("stage"))
         table.index.name = None
+        table.show_all = True
         return table
 
     def cis_mr(self, protein=None, hits_only=True, detailed=False):
@@ -1334,7 +1387,7 @@ class ResultsExplorer:
 
         """
         LocusZoom style plot of the cis window: outcome GWAS on top, pQTL below,
-        each SNP coloured by LD (r2) with the candidate SNP. Returns the figure.
+        each SNP coloured by LD (r2) with the lead variant. Returns the figure.
         """
 
         import matplotlib.pyplot as plt
@@ -1353,60 +1406,91 @@ class ResultsExplorer:
         pqtl = pl.read_parquet(locus_dir / "pqtl.parquet")
         with open(locus_dir / "metadata.json") as fh:
             metadata = json.load(fh)
-        candidate = metadata.get("candidate_snp")
+        lead_snp = metadata.get("candidate_snp")
+        chromosome = metadata.get("chromosome")
+        symbol = self._symbol(protein_id)
 
         ld = None
         if (locus_dir / "ld.parquet").exists():
             ld = pl.read_parquet(locus_dir / "ld.parquet")
 
-        # LocusZoom r2 bins: (upper bound, colour, legend label)
+        # LocusZoom r2 bins: (upper bound, colour, legend label); weakest drawn first
         ld_bins = [
-            (0.2, "#357ebd", "r2 < 0.2"),
-            (0.4, "#46b8da", "0.2 to 0.4"),
-            (0.6, "#5cb85c", "0.4 to 0.6"),
-            (0.8, "#eea236", "0.6 to 0.8"),
-            (1.01, "#d43f3a", "0.8 to 1"),
+            (0.2, "#2c4a8a", "< 0.2"),
+            (0.4, "#5fb4e0", "0.2 to 0.4"),
+            (0.6, "#4dac26", "0.4 to 0.6"),
+            (0.8, "#f1a340", "0.6 to 0.8"),
+            (1.01, "#d7301f", "0.8 to 1"),
         ]
+        genome_wide = -math.log10(5e-8)
 
-        fig, axes = plt.subplots(2, 1, figsize=(10, 6), sharex=True)
-        panels = [(axes[0], gwas, f"{self.pheno_id} GWAS"), (axes[1], pqtl, f"{self._symbol(protein_id)} pQTL")]
+        fig, axes = plt.subplots(2, 1, figsize=(9, 6.2), dpi=150, sharex=True)
+        panels = [
+            (axes[0], gwas, f"{self.pheno_id} GWAS"),
+            (axes[1], pqtl, f"{symbol} pQTL ({self.pqtl_dataset})"),
+        ]
 
         for axis, data, title in panels:
             data = data.filter(pl.col("P") > 0).with_columns((-pl.col("P").log10()).alias("log10p"))
 
             if ld is None:
-                axis.scatter((data["BP"] / 1e6).to_list(), data["log10p"].to_list(), color="grey", s=8)
+                axis.scatter((data["BP"] / 1e6).to_list(), data["log10p"].to_list(),
+                             color="#7f7f7f", s=9, alpha=0.7, linewidths=0)
             else:
                 data = data.join(ld, on="SNP", how="left").with_columns(pl.col("R2").fill_null(0))
                 lower = -1
                 for upper, colour, label in ld_bins:
                     in_bin = data.filter((pl.col("R2") > lower) & (pl.col("R2") <= upper))
-                    axis.scatter((in_bin["BP"] / 1e6).to_list(), in_bin["log10p"].to_list(), color=colour, s=8, label=label)
+                    # the many unlinked SNPs are drawn smaller and fainter
+                    if upper <= 0.2:
+                        size = 7
+                        alpha = 0.45
+                    else:
+                        size = 14
+                        alpha = 0.9
+                    axis.scatter((in_bin["BP"] / 1e6).to_list(), in_bin["log10p"].to_list(),
+                                 color=colour, s=size, alpha=alpha, linewidths=0, label=label)
                     lower = upper
 
-            lead = data.filter(pl.col("SNP") == candidate)
+            axis.axhline(genome_wide, color="#9e9e9e", linestyle="--", linewidth=0.8)
+
+            lead = data.filter(pl.col("SNP") == lead_snp)
             if lead.height > 0:
-                axis.scatter((lead["BP"] / 1e6).to_list(), lead["log10p"].to_list(), marker="D", s=60,
-                             color="#9632b8", edgecolor="black", label=candidate, zorder=3)
+                x = lead["BP"][0] / 1e6
+                y = lead["log10p"][0]
+                axis.scatter([x], [y], marker="D", s=55, color="#7b3294", edgecolor="black",
+                             linewidths=0.6, zorder=3, label="Lead variant")
+                axis.annotate(lead_snp, (x, y), xytext=(6, 4), textcoords="offset points", fontsize=8)
+                axis.set_ylim(0, y * 1.15)
 
-            axis.set_ylabel("-log10 P")
-            axis.set_title(title, loc="left")
+            axis.set_ylabel(r"$-\log_{10}$ P")
+            axis.text(0.01, 0.95, title, transform=axis.transAxes, fontsize=10, fontweight="bold", va="top")
+            self._style_axis(axis)
 
-        # one legend for both panels, outside the plotting area
-        handles, labels = axes[0].get_legend_handles_labels()
-        fig.legend(handles, labels, loc="center right", frameon=False, title="r2 with lead")
-        fig.subplots_adjust(right=0.8)
+        if ld is not None:
+            legend = axes[0].legend(loc="upper right", frameon=False, fontsize=8, markerscale=1.3,
+                                    title=f"r$^2$ with {lead_snp}", title_fontsize=8, handletextpad=0.3)
+            legend._legend_box.align = "left"
 
-        axes[1].set_xlabel(f"Chromosome {metadata.get('chromosome')} position (Mb)")
+        axes[1].set_xlabel(f"Position on chromosome {chromosome} (Mb)")
+        fig.suptitle(f"{symbol}: cis window", x=0.07, ha="left", fontsize=12, fontweight="bold")
+        fig.text(0.07, 0.925, f"Dashed line: P = 5e-8. Lead variant from {metadata.get('candidate_source', 'the pipeline')}.",
+                 fontsize=8, color="#555555")
+        fig.subplots_adjust(left=0.07, right=0.98, top=0.9, bottom=0.09, hspace=0.12)
+        plt.close(fig)
         return fig
 
     def forest_plot(self, proteins=None):
 
         """
-        Odds ratio with 95% CI for prioritised targets (or a chosen list). Returns the figure.
+        Odds ratio with 95% CI for prioritised targets (or a chosen list), strongest
+        at the top, coloured by whether higher protein raises or lowers risk.
+        Returns the figure.
         """
 
         import matplotlib.pyplot as plt
+        from matplotlib.lines import Line2D
+        from matplotlib.ticker import NullLocator
 
         table = self.cis_mr(detailed=True).reset_index(names="symbol")
         prioritised = self._prioritised()
@@ -1429,38 +1513,116 @@ class ResultsExplorer:
             print("No proteins to plot.")
             return None
 
-        # strongest at the top
+        # strongest evidence at the top of the plot
         rows.reverse()
 
-        labels = []
-        odds = []
-        low = []
-        high = []
         # symbols shared by several aptamers or probes get the full protein id instead
         symbol_counts = {}
         for row in rows:
             symbol_counts[row["symbol"]] = symbol_counts.get(row["symbol"], 0) + 1
 
+        raises_colour = "#b2182b"
+        lowers_colour = "#2166ac"
+
+        labels = []
+        odds = []
+        lows = []
+        highs = []
+        colours = []
+        estimates = []
         for row in rows:
             if symbol_counts[row["symbol"]] > 1:
-                labels.append(row["protein"])
+                # e.g. PILRA_Q9UKJ1_10816-150 -> PILRA (10816-150)
+                labels.append(f"{row['symbol']} ({row['protein'].split('_')[-1]})")
             else:
                 labels.append(row["symbol"])
-            odds.append(row["OR"])
-            low_text, high_text = row["OR 95% CI"].split(" to ")
-            low.append(row["OR"] - float(low_text))
-            high.append(float(high_text) - row["OR"])
+            odds_ratio = math.exp(row["beta"])
+            low = math.exp(row["beta"] - 1.96 * row["se"])
+            high = math.exp(row["beta"] + 1.96 * row["se"])
+            odds.append(odds_ratio)
+            lows.append(odds_ratio - low)
+            highs.append(high - odds_ratio)
+            colours.append(raises_colour if odds_ratio > 1 else lowers_colour)
+            estimates.append(f"{odds_ratio:.2f} ({low:.2f} to {high:.2f})")
 
-        fig, axis = plt.subplots(figsize=(6, max(2, 0.3 * len(rows) + 1)))
+        longest_label = 0
+        for label in labels:
+            longest_label = max(longest_label, len(label))
+        left_inches = 0.3 + 0.075 * longest_label
+        width = left_inches + 4.6 + 1.9
+        height = 1.5 + 0.3 * len(rows)
+        fig, axis = plt.subplots(figsize=(width, height), dpi=150)
         positions = list(range(len(rows)))
-        axis.errorbar(odds, positions, xerr=[low, high], fmt="o", color="black", ecolor="grey", capsize=2)
-        axis.axvline(1, color="red", linestyle=":", linewidth=1)
+
+        axis.axvline(1, color="#9e9e9e", linestyle="--", linewidth=0.8, zorder=1)
+        for index in positions:
+            axis.errorbar(odds[index], index, xerr=[[lows[index]], [highs[index]]], fmt="s", markersize=5,
+                          color=colours[index], ecolor=colours[index], elinewidth=1.2, capsize=0, zorder=2)
+
         axis.set_yticks(positions)
-        axis.set_yticklabels(labels)
+        axis.set_yticklabels(labels, fontsize=9)
+        axis.set_ylim(-0.7, len(rows) - 0.3)
+
+        # log scale with plain, readable tick labels
         axis.set_xscale("log")
-        axis.set_xlabel(f"OR for {self.pheno_id} per unit higher protein (95% CI)")
-        fig.tight_layout()
+        smallest = min(odd - low for odd, low in zip(odds, lows))
+        largest = max(odd + high for odd, high in zip(odds, highs))
+        candidates = [0.05, 0.1, 0.2, 0.3, 0.5, 0.67, 0.8, 0.9, 1.1, 1.25, 1.5, 2, 3, 5, 10, 20, 50]
+        span = max(largest, 1) / min(smallest, 1)
+        min_step = max(1.08, span ** (1 / 7))
+        ticks = [1]
+        last = 1
+        for tick in candidates:
+            if 1 < tick <= largest * 1.1 and tick / last >= min_step:
+                ticks.append(tick)
+                last = tick
+        last = 1
+        for tick in reversed(candidates):
+            if smallest * 0.9 <= tick < 1 and last / tick >= min_step:
+                ticks.append(tick)
+                last = tick
+        ticks.sort()
+        axis.set_xticks(ticks)
+        axis.set_xticklabels([f"{tick:g}" for tick in ticks], fontsize=8)
+        axis.xaxis.set_minor_locator(NullLocator())
+        axis.set_xlim(min(smallest, 1) * 0.92, max(largest, 1) * 1.08)
+        axis.set_xlabel(f"Odds ratio for {self.pheno_id} per unit higher protein (95% CI)", fontsize=9)
+
+        # estimates printed to the right of the plot
+        for index in positions:
+            axis.text(1.02, index, estimates[index], transform=axis.get_yaxis_transform(),
+                      va="center", fontsize=8, family="monospace")
+        axis.text(1.02, len(rows) - 0.3, "OR (95% CI)", transform=axis.get_yaxis_transform(),
+                  va="bottom", fontsize=8, fontweight="bold")
+
+        self._style_axis(axis)
+        axis.spines["left"].set_visible(False)
+        axis.tick_params(axis="y", length=0)
+
+        # legend lists only the colours used
+        legend_items = []
+        if raises_colour in colours:
+            legend_items.append(Line2D([0], [0], marker="s", color=raises_colour, linestyle="", label="Higher protein raises risk (inhibit)"))
+        if lowers_colour in colours:
+            legend_items.append(Line2D([0], [0], marker="s", color=lowers_colour, linestyle="", label="Higher protein lowers risk (activate)"))
+        fig.legend(handles=legend_items, loc="lower left", bbox_to_anchor=(left_inches / width, 0.02),
+                   ncol=2, frameon=False, fontsize=8, handletextpad=0.3, columnspacing=1.5)
+
+        axis.set_title(f"cis-MR estimates, prioritised targets ({len(rows)})", loc="left", fontsize=11, fontweight="bold")
+        fig.subplots_adjust(left=left_inches / width, right=(left_inches + 4.6) / width,
+                            top=1 - 0.55 / height, bottom=1.0 / height)
+        plt.close(fig)
         return fig
+
+    @staticmethod
+    def _style_axis(axis):
+
+        """ Clean axis: no top or right frame, light grid behind the data """
+
+        axis.spines["top"].set_visible(False)
+        axis.spines["right"].set_visible(False)
+        axis.grid(axis="x", color="#e6e6e6", linewidth=0.6)
+        axis.set_axisbelow(True)
 
     def _read(self, path):
 
@@ -1539,8 +1701,9 @@ class ResultsExplorer:
         polars table -> pandas indexed by symbol, ready to display.
 
         detailed=False keeps only the key columns (compact_columns, or every column
-        except the full protein id when None); detailed=True keeps everything. The
-        full protein id is kept whenever one symbol has several aptamers or probes.
+        except the full protein id when None) and previews long tables;
+        detailed=True keeps every column and shows every row. The full protein id
+        is kept whenever one symbol has several aptamers or probes.
         """
 
         frame = table.to_pandas().set_index("symbol")
@@ -1566,7 +1729,9 @@ class ResultsExplorer:
             frame = frame[keep]
 
         # no separate header row for the index name
+        frame = ResultsTable(frame)
         frame.index.name = None
+        frame.show_all = detailed
         return frame
 
     @staticmethod
