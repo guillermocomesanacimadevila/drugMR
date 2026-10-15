@@ -1,0 +1,62 @@
+name: Bug report
+description: Something failed or gave a result that looks wrong
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: command
+    attributes:
+      label: Command
+      description: The exact nextflow run command (or Python call) you used.
+      render: bash
+    validations:
+      required: true
+  - type: dropdown
+    id: profile
+    attributes:
+      label: Container profile
+      options:
+        - docker
+        - apptainer
+        - singularity
+        - podman
+        - other
+    validations:
+      required: true
+  - type: dropdown
+    id: where
+    attributes:
+      label: Where it ran
+      options:
+        - Laptop or workstation
+        - HPC (SLURM or other scheduler)
+        - AWS Batch
+        - GCP Batch
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: drugMR version or commit
+      description: The release tag, or the commit shown in the run_id (for example 1989e4d).
+    validations:
+      required: true
+  - type: textarea
+    id: params
+    attributes:
+      label: Params file or params.lock.yaml
+      description: Paste it, or the relevant part. Remove any private paths if needed.
+      render: yaml
+  - type: textarea
+    id: logs
+    attributes:
+      label: Error message and log
+      description: The error of the failing process and the end of .nextflow.log.
+      render: text

@@ -1,0 +1,21 @@
+name: Feature request
+description: Suggest a new analysis, input type or improvement
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What would you like to do
+      description: The analysis or task drugMR does not support yet, and why it matters.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Suggested approach
+      description: How it could work, including any methods, tools or data formats involved.
+  - type: textarea
+    id: context
+    attributes:
+      label: Anything else
+      description: Links to papers, tools or example data.

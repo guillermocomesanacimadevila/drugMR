@@ -2,6 +2,8 @@
 
 **drugMR: a multi omics pipeline for genetically anchored drug target discovery**
 
+[![CI](https://github.com/guillermocomesanacimadevila/drugMR/actions/workflows/ci.yml/badge.svg)](https://github.com/guillermocomesanacimadevila/drugMR/actions/workflows/ci.yml)
+[![Docs](https://github.com/guillermocomesanacimadevila/drugMR/actions/workflows/docs.yml/badge.svg)](https://guillermocomesanacimadevila.github.io/drugMR/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Nextflow](https://img.shields.io/badge/version-%E2%89%A526.04.0-green?style=flat&logo=nextflow&logoColor=white&color=%230DC09D&link=https%3A%2F%2Fnextflow.io)](https://www.nextflow.io/)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-blue?logo=python&logoColor=white)](pyproject.toml)
@@ -10,7 +12,7 @@
 [![run with singularity](https://img.shields.io/badge/run%20with-singularity-1d355c.svg?labelColor=000000)](https://sylabs.io/docs/)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-results%20store-blue?logo=postgresql&logoColor=white)](sql/schema.sql)
 [![Streamlit](https://img.shields.io/badge/Streamlit-dashboard-blue?logo=streamlit&logoColor=white)](dashboard/mr_app.py)
-[![Zenodo](http://img.shields.io/badge/DOI-10.5281/zenodo.18986935-1073c8?labelColor=000000)](https://doi.org/10.5281/zenodo.22706705)
+[![Reference data](http://img.shields.io/badge/reference%20data-10.5281/zenodo.22706705-1073c8?labelColor=000000)](https://doi.org/10.5281/zenodo.22706705)
 [![bioRxiv](http://img.shields.io/badge/bioRxiv-10.64898/2026.10.01.756031-b31b1b?labelColor=000000)](https://doi.org/10.64898/2026.10.01.756031)
 
 ## Introduction
@@ -171,7 +173,7 @@ Gate thresholds live in the optional `gates` block of your params file. See [`do
 
 ## Contributions and support
 
-Contributions are welcome. Fork the repository, open a pull request, and flag it to Guillermo (ComesanaCimadevilaG@cardiff.ac.uk).
+Contributions are welcome. See [`CONTRIBUTING.md`](CONTRIBUTING.md) for how to report a problem, set up a development copy and check a change, then fork the repository, open a pull request, and flag it to Guillermo (ComesanaCimadevilaG@cardiff.ac.uk). Bugs and feature requests can be filed through the [issue templates](https://github.com/guillermocomesanacimadevila/drugMR/issues/new/choose).
 
 ## Citations
 
