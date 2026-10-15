@@ -110,6 +110,7 @@ class ResultsExplorer:
         )
         # pandas renders as a clean table in Jupyter, one row per setting
         table = table.to_pandas().set_index("setting")
+        table.index.name = None
         return table
 
     def funnel(self):
@@ -246,9 +247,10 @@ class ResultsExplorer:
         )
         # pandas renders as a clean table in Jupyter, one row per stage
         table = table.to_pandas().set_index("stage")
+        table.index.name = None
         return table
 
-    def cis_mr(self, protein=None, hits_only=True):
+    def cis_mr(self, protein=None, hits_only=True, detailed=False):
 
         """
         One row per protein: the cis-MR estimate on the outcome.
@@ -327,10 +329,10 @@ class ResultsExplorer:
         if hits_only:
             table = table.drop("passed cis-MR")
 
-        table = table.to_pandas().set_index("symbol")
+        table = self._finish(table, ["method", "n_instruments", "OR", "OR 95% CI", "P", "FDR q", "drug direction", "passed cis-MR"], detailed)
         return table
 
-    def colocalisation(self, protein=None, hits_only=True):
+    def colocalisation(self, protein=None, hits_only=True, detailed=False):
 
         """
         One row per cis-MR hit: does the protein share a causal variant with the outcome?
@@ -473,10 +475,10 @@ class ResultsExplorer:
         for column in ["COLOC PP4", "COLOC PP3", "PWCoCo unconditioned PP4", "PWCoCo best PP4", "PWCoCo best PP3"]:
             table = table.with_columns(pl.col(column).round(3))
 
-        table = table.to_pandas().set_index("symbol")
+        table = self._finish(table, ["COLOC PP4", "COLOC PP3", "PWCoCo best PP4", "PWCoCo best row", "supported by"], detailed)
         return table
 
-    def smr(self, protein=None, data_type=None):
+    def smr(self, protein=None, data_type=None, detailed=False):
 
         """
         One row per protein x tissue or cell type with significant SMR and a passing HEIDI test.
@@ -552,10 +554,10 @@ class ResultsExplorer:
 
         # group each protein's tissues together, strongest first
         table = table.sort(["symbol", "P_SMR"])
-        table = table.to_pandas().set_index("symbol")
+        table = self._finish(table, ["data type", "QTL dataset", "tissue / cell type", "top SNP", "b_SMR", "P_SMR", "P_HEIDI", "direction vs cis-MR"], detailed)
         return table
 
-    def hyprcoloc(self, protein=None, data_type=None, supported_only=True):
+    def hyprcoloc(self, protein=None, data_type=None, supported_only=True, detailed=False):
 
         """
         One row per HyPrColoc cluster: protein x tissue or cell type x cluster.
@@ -674,10 +676,10 @@ class ResultsExplorer:
 
         # group each protein's tissues together, strongest first
         table = table.sort(["symbol", "posterior"], descending=[False, True])
-        table = table.to_pandas().set_index("symbol")
+        table = self._finish(table, ["data type", "tissue / cell type", "traits in cluster", "posterior", "candidate SNP", "xQTL vs pQTL direction", "supported"], detailed)
         return table
 
-    def phewas(self, protein=None, significant_only=True):
+    def phewas(self, protein=None, significant_only=True, detailed=False):
 
         """
         One row per protein x trait from the phenome wide MR (FinnGen, then UK Biobank).
@@ -764,10 +766,10 @@ class ResultsExplorer:
             schema_overrides={"code": pl.String, "MR beta": pl.Float64, "OR": pl.Float64, "cis-MR beta": pl.Float64},
         )
         table = table.sort(["symbol", "P"])
-        table = table.to_pandas().set_index("symbol")
+        table = self._finish(table, ["source", "trait", "category", "OR", "P", "Bonferroni P", "class"], detailed)
         return table
 
-    def instruments(self, protein=None, hits_only=True):
+    def instruments(self, protein=None, hits_only=True, detailed=False):
 
         """
         One row per instrument SNP used in cis-MR.
@@ -831,10 +833,10 @@ class ResultsExplorer:
         table = table.with_columns(pl.col("F").round(1))
 
         table = table.sort(["symbol", "pQTL P"])
-        table = table.to_pandas().set_index("symbol")
+        table = self._finish(table, ["SNP", "effect allele", "EAF", "pQTL beta", "pQTL P", "F", "outcome beta", "outcome P", "Steiger correct direction"], detailed)
         return table
 
-    def sensitivity(self, protein=None, hits_only=True, verbose=True):
+    def sensitivity(self, protein=None, hits_only=True, verbose=True, detailed=False):
 
         """
         One row per multi instrument protein: does the estimate hold across MR methods?
@@ -923,10 +925,10 @@ class ResultsExplorer:
             table = table.with_columns(pl.col(column).round(4))
 
         table = table.sort("IVW P")
-        table = table.to_pandas().set_index("symbol")
+        table = self._finish(table, ["n_instruments", "IVW beta", "IVW P", "Egger beta", "Weighted median beta", "Egger intercept P", "method signs"], detailed)
         return table
 
-    def directions(self, protein=None):
+    def directions(self, protein=None, detailed=False):
 
         """
         One row per prioritised target: do all lines of evidence point the same way?
@@ -943,9 +945,9 @@ class ResultsExplorer:
         prioritised = self._prioritised()
         mr_beta = self._mr_betas()
 
-        smr = self.smr()
-        hyprcoloc = self.hyprcoloc()
-        sensitivity = self.sensitivity(verbose=False)
+        smr = self.smr(detailed=True)
+        hyprcoloc = self.hyprcoloc(detailed=True)
+        sensitivity = self.sensitivity(verbose=False, detailed=True)
 
         # count agree / total per protein from each table
         smr_bulk = self._count_directions(smr, "direction vs cis-MR", "data type", "bulk")
@@ -954,7 +956,7 @@ class ResultsExplorer:
 
         sensitivity_call = {}
         if sensitivity is not None:
-            for row in sensitivity.reset_index().to_dict("records"):
+            for row in sensitivity.reset_index(names="symbol").to_dict("records"):
                 sensitivity_call[row["protein"]] = row["method signs"]
 
         records = []
@@ -1015,10 +1017,10 @@ class ResultsExplorer:
 
         table = pl.DataFrame(records, infer_schema_length=None)
         table = table.sort("symbol")
-        table = table.to_pandas().set_index("symbol")
+        table = self._finish(table, ["higher protein", "drug direction", "MR methods", "SMR bulk", "SMR single cell", "HyPrColoc", "overall"], detailed)
         return table
 
-    def targets(self):
+    def targets(self, detailed=False):
 
         """
         One row per prioritised target, every stage summarised: the evidence table.
@@ -1029,12 +1031,12 @@ class ResultsExplorer:
             print("No prioritised targets in this run.")
             return None
 
-        cis_mr = self.cis_mr().reset_index()
-        coloc = self.colocalisation().reset_index()
-        smr = self.smr()
-        hyprcoloc = self.hyprcoloc()
-        phewas = self.phewas()
-        directions = self.directions().reset_index()
+        cis_mr = self.cis_mr(detailed=True).reset_index(names="symbol")
+        coloc = self.colocalisation(detailed=True).reset_index(names="symbol")
+        smr = self.smr(detailed=True)
+        hyprcoloc = self.hyprcoloc(detailed=True)
+        phewas = self.phewas(detailed=True)
+        directions = self.directions(detailed=True).reset_index(names="symbol")
 
         mr_by_protein = {}
         for row in cis_mr.to_dict("records"):
@@ -1082,7 +1084,7 @@ class ResultsExplorer:
 
         table = pl.DataFrame(records, infer_schema_length=None)
         table = table.sort("P")
-        table = table.to_pandas().set_index("symbol")
+        table = self._finish(table, ["OR", "P", "drug direction", "colocalisation", "best PP4", "SMR bulk tissues", "SMR cell types", "HyPrColoc clusters", "directions", "PheWAS adverse"], detailed)
         return table
 
     def target(self, protein):
@@ -1109,7 +1111,7 @@ class ResultsExplorer:
         results = {}
         for title in titles:
             # heading first, so any message from the method lands under it
-            print(f"\n=== {title} ===")
+            self._heading(title)
 
             if title == "cis-MR":
                 table = self.cis_mr(protein, hits_only=False)
@@ -1139,7 +1141,7 @@ class ResultsExplorer:
                 self._show(table)
         return results
 
-    def coloc_priors(self, protein=None):
+    def coloc_priors(self, protein=None, detailed=False):
 
         """
         One row per protein: COLOC PP4 under each prior set the pipeline tried.
@@ -1190,10 +1192,11 @@ class ResultsExplorer:
 
         table = pl.DataFrame(records, infer_schema_length=None)
         table = table.sort("symbol")
-        table = table.to_pandas().set_index("symbol")
+        # compact view: every PP4 scenario, without the full protein id
+        table = self._finish(table, None, detailed)
         return table
 
-    def lead_variants(self, protein=None):
+    def lead_variants(self, protein=None, detailed=False):
 
         """
         One row per protein: the top cis variant with outcome and pQTL effects on the same allele.
@@ -1250,10 +1253,10 @@ class ResultsExplorer:
         for column in ["GWAS beta", "pQTL beta"]:
             table = table.with_columns(pl.col(column).round(4))
         table = table.sort("symbol")
-        table = table.to_pandas().set_index("symbol")
+        table = self._finish(table, ["SNP", "effect allele", "GWAS beta", "GWAS P", "pQTL beta", "pQTL P", "implied direction vs cis-MR"], detailed)
         return table
 
-    def pwcoco_qtl(self, protein=None, comparison=None):
+    def pwcoco_qtl(self, protein=None, comparison=None, detailed=False):
 
         """
         One row per protein x xQTL dataset x tissue or cell type x comparison.
@@ -1324,7 +1327,7 @@ class ResultsExplorer:
         for column in ["unconditioned PP4", "best PP4", "best PP3"]:
             table = table.with_columns(pl.col(column).round(3))
         table = table.sort(["symbol", "comparison", "best PP4"], descending=[False, False, True])
-        table = table.to_pandas().set_index("symbol")
+        table = self._finish(table, ["comparison", "QTL dataset", "tissue / cell type", "unconditioned PP4", "best PP4", "colocalised"], detailed)
         return table
 
     def regional_plot(self, protein):
@@ -1405,7 +1408,7 @@ class ResultsExplorer:
 
         import matplotlib.pyplot as plt
 
-        table = self.cis_mr().reset_index()
+        table = self.cis_mr(detailed=True).reset_index(names="symbol")
         prioritised = self._prioritised()
 
         rows = []
@@ -1504,7 +1507,7 @@ class ResultsExplorer:
         counts = {}
         if table is None:
             return counts
-        for row in table.reset_index().to_dict("records"):
+        for row in table.reset_index(names="symbol").to_dict("records"):
             if column is not None and row[column] != value:
                 continue
             counts[row["protein"]] = counts.get(row["protein"], 0) + 1
@@ -1518,7 +1521,7 @@ class ResultsExplorer:
         counts = {}
         if table is None:
             return counts
-        for row in table.reset_index().to_dict("records"):
+        for row in table.reset_index(names="symbol").to_dict("records"):
             if filter_column is not None and row[filter_column] != filter_value:
                 continue
             if row[direction_column] == "not comparable":
@@ -1528,6 +1531,60 @@ class ResultsExplorer:
                 agree = agree + 1
             counts[row["protein"]] = (agree, total + 1)
         return counts
+
+    @staticmethod
+    def _finish(table, compact_columns, detailed):
+
+        """
+        polars table -> pandas indexed by symbol, ready to display.
+
+        detailed=False keeps only the key columns (compact_columns, or every column
+        except the full protein id when None); detailed=True keeps everything. The
+        full protein id is kept whenever one symbol has several aptamers or probes.
+        """
+
+        frame = table.to_pandas().set_index("symbol")
+
+        if not detailed:
+            keep = []
+
+            # symbols measured by more than one aptamer or probe need the full id
+            if "protein" in frame.columns:
+                ids_per_symbol = frame.groupby(level=0)["protein"].nunique()
+                if (ids_per_symbol > 1).any():
+                    keep.append("protein")
+
+            if compact_columns is None:
+                for column in frame.columns:
+                    if column != "protein":
+                        keep.append(column)
+            else:
+                for column in compact_columns:
+                    if column in frame.columns:
+                        keep.append(column)
+
+            frame = frame[keep]
+
+        # no separate header row for the index name
+        frame.index.name = None
+        return frame
+
+    @staticmethod
+    def _heading(title):
+
+        """ A section heading: Markdown in Jupyter, plain text elsewhere """
+
+        try:
+            from IPython import get_ipython
+            from IPython.display import Markdown, display
+        except ImportError:
+            print(f"\n=== {title} ===")
+            return
+
+        if get_ipython() is None:
+            print(f"\n=== {title} ===")
+        else:
+            display(Markdown(f"#### {title}"))
 
     @staticmethod
     def _show(table):
