@@ -137,6 +137,23 @@ dm.results(config="params/AD.test.yaml")
 
 `dm.results()` always requires `config`; calling it without an argument is not supported.
 
+To read a run's results directly in Python, without PostgreSQL or the dashboard, use `ResultsExplorer`. Every method returns a table indexed by gene symbol and accepts an optional protein:
+
+```python
+from drugmr.interpret import ResultsExplorer
+
+explorer = ResultsExplorer(
+    run_id="AD_test_20260911_143022_abcdef0",
+    root="runs",
+)
+
+explorer.funnel()          # proteins remaining after each stage
+explorer.targets()         # one row per prioritised target, every stage summarised
+explorer.target("TREM2")   # every table for one protein, in reading order
+```
+
+[`notebooks/01_interpreting_results.ipynb`](notebooks/01_interpreting_results.ipynb) walks through every method on a completed run, from cis-MR to PheWAS, and ends with one target end to end.
+
 Full installation, configuration, HPC, AWS/GCP, fetch, and dashboard instructions are available on the [drugMR documentation site](https://guillermocomesanacimadevila.github.io/drugMR/).
 
 ## Pipeline summary

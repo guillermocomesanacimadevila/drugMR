@@ -78,3 +78,44 @@ Run `dm.results(config=config)` on the local computer after `fetch_run()`. The m
 ```{warning}
 Fetch only completed runs. The successful Nextflow controller creates `manifest.json` and `params.lock.yaml` and records the run only after all required stages finish. Older runs created before parameter snapshots were introduced still require their original file under `params/`.
 ```
+
+## Explore results in Python
+
+`ResultsExplorer` reads a completed run's results tables directly, without PostgreSQL or Docker. It works on any run under `runs/`, fetched or local. Every method returns a table indexed by gene symbol, reuses the pipeline's own gates, and accepts an optional protein (symbol in any case, or full protein ID).
+
+```python
+from drugmr.interpret import ResultsExplorer
+
+explorer = ResultsExplorer(
+    run_id="AD_test_20260911_143022_abcdef0",
+    root="runs",
+)
+
+explorer.funnel()
+explorer.targets()
+explorer.target("TREM2")
+```
+
+`root` is the directory holding the runs. Pass `root="../runs"` when working from inside `notebooks/`.
+
+| Method | Returns |
+| --- | --- |
+| `run_info()` | Run identity, provenance, outcome GWAS inputs and every gate used |
+| `funnel()` | Proteins remaining after each stage, with bulk and single cell xQTL support kept apart |
+| `cis_mr()` | One row per protein: OR with 95% CI, P, FDR, effect and drug direction |
+| `instruments()` | One row per instrument SNP: alleles, pQTL and outcome effects, F statistic, Steiger |
+| `sensitivity()` | IVW, MR Egger and weighted median side by side for multi instrument proteins |
+| `colocalisation()` | COLOC and PWCoCo per protein, the best PWCoCo pair and which method supports it |
+| `coloc_priors()` | COLOC PP4 under each prior set |
+| `lead_variants()` | Top cis variant with outcome and pQTL effects on the same allele |
+| `smr()` | SMR and HEIDI per protein and tissue or cell type, with direction against cis-MR |
+| `hyprcoloc()` | Clusters sharing one causal variant across pQTL, GWAS and xQTL |
+| `pwcoco_qtl()` | PWCoCo of each xQTL against the pQTL and against the outcome GWAS |
+| `directions()` | One row per target: whether every line of evidence points the same way |
+| `phewas()` | Bonferroni significant PheWAS traits, classed as possible additional indications or adverse effects |
+| `targets()` | One row per prioritised target with every stage summarised |
+| `target(protein)` | Every table above for one protein, in reading order |
+| `forest_plot()` | Odds ratios with 95% CI for the prioritised targets |
+| `regional_plot(protein)` | Outcome GWAS and pQTL across the cis window, coloured by LD with the lead variant |
+
+A guided walkthrough of every method on a completed run is in `notebooks/01_interpreting_results.ipynb`.

@@ -11,7 +11,7 @@
 - [Configure a run](configuration.md): define an outcome GWAS, register QTL datasets, and set analysis thresholds.
 - [Run the pipeline](running.md): launch and monitor an analysis.
 - [Methods](methods.md): what each stage tests, the gates, effect direction, and limitations.
-- [Results and dashboard](results-dashboard.md): fetch completed runs, load PostgreSQL, and explore the Streamlit dashboard. `notebooks/00_drugmr.ipynb` provides a worked notebook version of this same step.
+- [Results and dashboard](results-dashboard.md): fetch completed runs, load PostgreSQL, and explore the Streamlit dashboard, or read the results tables directly in Python. `notebooks/00_drugmr.ipynb` provides a worked notebook version of the fetch and dashboard step, and `notebooks/01_interpreting_results.ipynb` walks through interpreting every results table without the dashboard.
 - [Output schema](RESULTS_SCHEMA.md): every output file, with columns for the four key tables.
 - [Troubleshooting](troubleshooting.md): diagnose SLURM, memory, paths, containers, and interrupted runs.
 - [Reach out](reach-out.md): points of contact in case any issue arises.
