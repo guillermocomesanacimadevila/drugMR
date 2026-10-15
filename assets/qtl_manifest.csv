@@ -20,3 +20,4 @@ gtex_brain_spinal_cord_cervical_c-1_v10,dat/bulk-eQTL/GTEx_v10/Brain_Spinal_cord
 gtex_brain_substantia_nigra_v10,dat/bulk-eQTL/GTEx_v10/Brain_Substantia_nigra/Brain_Substantia_nigra.parquet,Gene,eqtl,GRCh38,N,183,SNP,A1,A2,b,SE,p,Chr,BP,Freq,gtex_v10
 gtex_whole_blood_v10,dat/bulk-eQTL/GTEx_v10/Whole_Blood/Whole_Blood.parquet,Gene,eqtl,GRCh38,N,800,SNP,A1,A2,b,SE,p,Chr,BP,Freq,gtex_v10
 singlebrain,dat/sc-eQTL/SingleBrain/*.parquet,GENE,eqtl,GRCh38,N,983,SNP,A1,A2,BETA,SE,P,CHR,BP,FRQ,
+wingo_brain_mobp,dat/pqtl/wingo_brain/MOBP_ENSG00000168314.parquet,,pqtl,GRCh38,,1013,SNP,A1,A2,BETA,SE,P,CHR,BP,FRQ,

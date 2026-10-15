@@ -1387,7 +1387,7 @@ class ResultsExplorer:
 
         """
         LocusZoom style plot of the cis window: outcome GWAS on top, pQTL below,
-        each SNP coloured by LD (r2) with the lead variant. Returns the figure.
+        each SNP coloured by LD (r2) with the lead SNP; dashed line at P = 5e-8. Returns the figure.
         """
 
         import matplotlib.pyplot as plt
@@ -1424,10 +1424,10 @@ class ResultsExplorer:
         ]
         genome_wide = -math.log10(5e-8)
 
-        fig, axes = plt.subplots(2, 1, figsize=(9, 6.2), dpi=150, sharex=True)
+        fig, axes = plt.subplots(2, 1, figsize=(7, 4.4), dpi=150, sharex=True)
         panels = [
             (axes[0], gwas, f"{self.pheno_id} GWAS"),
-            (axes[1], pqtl, f"{symbol} pQTL ({self.pqtl_dataset})"),
+            (axes[1], pqtl, f"{symbol} pQTL"),
         ]
 
         for axis, data, title in panels:
@@ -1435,7 +1435,7 @@ class ResultsExplorer:
 
             if ld is None:
                 axis.scatter((data["BP"] / 1e6).to_list(), data["log10p"].to_list(),
-                             color="#7f7f7f", s=9, alpha=0.7, linewidths=0)
+                             color="#7f7f7f", s=5, alpha=0.6, linewidths=0)
             else:
                 data = data.join(ld, on="SNP", how="left").with_columns(pl.col("R2").fill_null(0))
                 lower = -1
@@ -1443,40 +1443,41 @@ class ResultsExplorer:
                     in_bin = data.filter((pl.col("R2") > lower) & (pl.col("R2") <= upper))
                     # the many unlinked SNPs are drawn smaller and fainter
                     if upper <= 0.2:
-                        size = 7
-                        alpha = 0.45
+                        size = 4
+                        alpha = 0.35
                     else:
-                        size = 14
+                        size = 9
                         alpha = 0.9
                     axis.scatter((in_bin["BP"] / 1e6).to_list(), in_bin["log10p"].to_list(),
                                  color=colour, s=size, alpha=alpha, linewidths=0, label=label)
                     lower = upper
 
-            axis.axhline(genome_wide, color="#9e9e9e", linestyle="--", linewidth=0.8)
+            axis.axhline(genome_wide, color="#b0b0b0", linestyle="--", linewidth=0.7)
 
             lead = data.filter(pl.col("SNP") == lead_snp)
             if lead.height > 0:
                 x = lead["BP"][0] / 1e6
                 y = lead["log10p"][0]
-                axis.scatter([x], [y], marker="D", s=55, color="#7b3294", edgecolor="black",
-                             linewidths=0.6, zorder=3, label="Lead variant")
-                axis.annotate(lead_snp, (x, y), xytext=(6, 4), textcoords="offset points", fontsize=8)
-                axis.set_ylim(0, y * 1.15)
+                axis.scatter([x], [y], marker="D", s=30, color="#7b3294", edgecolor="black",
+                             linewidths=0.5, zorder=3, label="Lead SNP")
+                axis.annotate(lead_snp, (x, y), xytext=(5, 2), textcoords="offset points", fontsize=7)
+                axis.set_ylim(0, y * 1.18)
 
-            axis.set_ylabel(r"$-\log_{10}$ P")
-            axis.text(0.01, 0.95, title, transform=axis.transAxes, fontsize=10, fontweight="bold", va="top")
-            self._style_axis(axis)
+            axis.set_ylabel(r"$-\log_{10}$ P", fontsize=8)
+            axis.tick_params(labelsize=7)
+            axis.text(0.01, 0.96, title, transform=axis.transAxes, fontsize=8, fontweight="bold", va="top")
+            axis.spines["top"].set_visible(False)
+            axis.spines["right"].set_visible(False)
 
         if ld is not None:
-            legend = axes[0].legend(loc="upper right", frameon=False, fontsize=8, markerscale=1.3,
-                                    title=f"r$^2$ with {lead_snp}", title_fontsize=8, handletextpad=0.3)
+            legend = axes[0].legend(loc="upper right", frameon=False, fontsize=6.5, markerscale=1.4,
+                                    title="r$^2$ with lead SNP", title_fontsize=6.5,
+                                    handletextpad=0.2, labelspacing=0.3, borderaxespad=0.2)
             legend._legend_box.align = "left"
 
-        axes[1].set_xlabel(f"Position on chromosome {chromosome} (Mb)")
-        fig.suptitle(f"{symbol}: cis window", x=0.07, ha="left", fontsize=12, fontweight="bold")
-        fig.text(0.07, 0.925, f"Dashed line: P = 5e-8. Lead variant from {metadata.get('candidate_source', 'the pipeline')}.",
-                 fontsize=8, color="#555555")
-        fig.subplots_adjust(left=0.07, right=0.98, top=0.9, bottom=0.09, hspace=0.12)
+        axes[1].set_xlabel(f"Chromosome {chromosome} (Mb)", fontsize=8)
+        fig.suptitle(f"{symbol} cis window", x=0.08, ha="left", fontsize=10, fontweight="bold")
+        fig.subplots_adjust(left=0.08, right=0.98, top=0.92, bottom=0.11, hspace=0.1)
         plt.close(fig)
         return fig
 

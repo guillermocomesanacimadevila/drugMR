@@ -1,6 +1,5 @@
 from pathlib import Path
 
-
 runs = sorted(Path("tests/output/runs").glob("TEST_test_pqtl_*"))
 if not runs:
     raise SystemExit("The pipeline did not create a test run")

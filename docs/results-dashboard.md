@@ -98,6 +98,8 @@ explorer.target("TREM2")
 
 `root` is the directory holding the runs. Pass `root="../runs"` when working from inside `notebooks/`.
 
+Tables show the key columns by default. Pass `detailed=True` to any table method to get every column, for example `explorer.cis_mr(detailed=True)`.
+
 | Method | Returns |
 | --- | --- |
 | `run_info()` | Run identity, provenance, outcome GWAS inputs and every gate used |
@@ -116,6 +118,6 @@ explorer.target("TREM2")
 | `targets()` | One row per prioritised target with every stage summarised |
 | `target(protein)` | Every table above for one protein, in reading order |
 | `forest_plot()` | Odds ratios with 95% CI for the prioritised targets |
-| `regional_plot(protein)` | Outcome GWAS and pQTL across the cis window, coloured by LD with the lead variant |
+| `regional_plot(protein)` | Outcome GWAS and pQTL across the cis window, coloured by LD with the lead SNP |
 
 A guided walkthrough of every method on a completed run is in `notebooks/01_interpreting_results.ipynb`.

@@ -2,7 +2,11 @@
 
 ## Pipeline
 
-If you use drugMR, please cite it. See [`CITATION.cff`](CITATION.cff).
+If you use drugMR, please cite it:
+
+> Comesana Cimadevila G, Dib MJ, Bracher-Smith M, Ducotterd F, Salih DA, Bray NJ, Simmonds E, Escott-Price V. drugMR: a multi-omics pipeline for genetically anchored drug-target discovery. bioRxiv. 2026. doi: 10.64898/2026.10.01.756031.
+
+See also [`CITATION.cff`](CITATION.cff).
 
 ## Nextflow
 
