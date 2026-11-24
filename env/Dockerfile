@@ -106,7 +106,9 @@ RUN pip install \
     statsmodels \
     liftover \
     jsonschema==4.26.0 \
-    requests==2.32.5
+    requests==2.32.5 \
+    pymysql==1.2.4 \
+    chembl_webresource_client==0.10.9
 
 # sc-sQTLs -> https://www.synapse.org/Synapse:syn69670647
 # Add this separately whenever you want it:
