@@ -18,11 +18,7 @@
 
 ## Workflow
 
-[![drugMR analysis pipeline](nf-metro-static.png)](nf-metro-animated.svg)
-
-### Detailed pipeline map
-
-[![drugMR detailed pipeline map](drugmr_metro_detailed.png)](drugmr_metro_detailed.svg)
+[![drugMR analysis pipeline](drugmr_metro_detailed.png)](drugmr_metro_detailed.svg)
 
 1. Quality-control the outcome GWAS and extract the cis region for each protein.
 2. Run cis-MR using the selected pQTL panel (this can take several hours).

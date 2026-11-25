@@ -21,13 +21,7 @@ drugMR takes an outcome GWAS and one protein QTL panel per run and returns the e
 
 ## Workflow
 
-[![drugMR analysis pipeline](docs/nf-metro-static.png)](docs/nf-metro-animated.svg)
-
-### Detailed pipeline map
-
-Every stage and its main steps, with the route each analysis takes from the shared GWAS QC, cis-MR and colocalisation trunk.
-
-[![drugMR detailed pipeline map](docs/drugmr_metro_detailed.png)](docs/drugmr_metro_detailed.svg)
+[![drugMR analysis pipeline](docs/drugmr_metro_detailed.png)](docs/drugmr_metro_detailed.svg)
 
 ## Quick start
 
