@@ -1,0 +1,148 @@
+%% drugMR detailed pipeline map (source for docs/drugmr_metro_detailed.svg and .png)
+%% Written for nf-metro 1.1.0. Render from the repository root with:
+%%   conda run -n nfcore nf-metro render docs/metro/drugmr_metro.mmd -o drugmr_metro_base.svg --theme nfcore-light --mode light --embed-font --validate --line-spread bundle --track-gap 0
+%% The published image also has an Inputs panel, the legend moved to line up with it, and the drugMR logo, added after rendering.
+graph LR
+
+%%metro style: light
+%%metro legend: bl
+
+%%metro line: mr | cis-MR and colocalisation | #D81B60
+%%metro line: locus | Locus conditioning | #00897B
+%%metro line: bulk | Bulk QTL triangulation | #F2A900
+%%metro line: sc | Single-cell QTL triangulation | #1E88E5
+%%metro line: phewas | PheWAS screen | #43A047
+%%metro line: drug | Druggability | #7C3AED
+
+
+%%metro marker: mr_gate | square, solid
+%%metro marker: coloc_gate | square, solid
+%%metro marker: smr_gate | square, solid
+%%metro marker: dashboard | pill, open
+
+%%metro marker_legend: square, solid | Statistical gate
+%%metro marker_legend: pill, open | Run manually after the pipeline
+
+subgraph qc["GWAS QC"]
+    %%metro grid: qc | 0,0
+
+    inputs[""]
+
+    qc_filter["Allele, MAF\nand INFO QC"]
+    liftover["Genome build\nliftover"]
+    exclude["MHC and APOE\nexclusion"]
+
+    inputs -->|mr, locus, bulk, sc, phewas, drug| qc_filter
+    qc_filter -->|mr, locus, bulk, sc, phewas, drug| liftover
+    liftover -->|mr, locus, bulk, sc, phewas, drug| exclude
+end
+
+subgraph cismr["cis-MR"]
+    %%metro grid: cismr | 0,1
+
+    cis_extract["cis-window\nextraction"]
+    instruments["Instrument\nselection"]
+    clump["LD\nclumping"]
+    steiger["Steiger\nfiltering"]
+    mr_test["Wald ratio, IVW\nEgger, WME"]
+    mr_sens["Cochran's Q\nEgger intercept"]
+    mr_gate["FDR\ngate"]
+
+    exclude -->|mr, locus, bulk, sc, phewas, drug| cis_extract
+    cis_extract -->|mr, locus, bulk, sc, phewas, drug| instruments
+    instruments -->|mr, locus, bulk, sc, phewas, drug| clump
+    clump -->|mr, locus, bulk, sc, phewas, drug| steiger
+    steiger -->|mr, locus, bulk, sc, phewas, drug| mr_test
+    mr_test -->|mr, locus, bulk, sc, phewas, drug| mr_sens
+    mr_sens -->|mr, locus, bulk, sc, phewas, drug| mr_gate
+end
+
+subgraph coloc["Colocalisation"]
+    %%metro grid: coloc | 1,1
+
+    coloc_abf["coloc.abf\nprior sensitivity"]
+    pwcoco["PWCoCo\nconditional coloc"]
+    coloc_gate["PP.H4\ngate"]
+    targets["Supported\ntargets"]
+
+    mr_gate -->|mr, locus, bulk, sc, phewas, drug| coloc_abf
+    mr_gate -->|mr, locus, bulk, sc, phewas, drug| pwcoco
+    coloc_abf -->|mr, locus, bulk, sc, phewas, drug| coloc_gate
+    pwcoco -->|mr, locus, bulk, sc, phewas, drug| coloc_gate
+    coloc_gate -->|mr, locus, bulk, sc, phewas, drug| targets
+    %%metro exit: right | mr, locus, bulk, sc, phewas, drug
+end
+
+subgraph locus["Locus conditioning"]
+    %%metro grid: locus | 2,0
+
+    lc_clump["Signal clumping"]
+    lc_cojo["GCTA-COJO"]
+    lc_rerun["MR and coloc rerun"]
+
+    targets -->|locus| lc_clump
+    lc_clump -->|locus| lc_cojo
+    lc_cojo -->|locus| lc_rerun
+end
+
+subgraph qtl["QTL triangulation"]
+    %%metro grid: qtl | 2,1
+
+    besd["BESD prep"]
+    smr_bulk["Bulk SMR"]
+    smr_sc["Single-cell SMR"]
+    smr_gate["SMR gate"]
+    pwcoco_qtl["QTL PWCoCo"]
+    hyprcoloc["HyPrColoc"]
+
+    targets -->|bulk, sc| besd
+    besd -->|bulk| smr_bulk
+    besd -->|sc| smr_sc
+    smr_bulk -->|bulk| smr_gate
+    smr_sc -->|sc| smr_gate
+    smr_gate -->|bulk, sc| pwcoco_qtl
+    pwcoco_qtl -->|bulk, sc| hyprcoloc
+end
+
+subgraph phewas["PheWAS screen"]
+    %%metro grid: phewas | 2,2
+
+    finngen["FinnGen"]
+    ukb["UK Biobank"]
+    ph_class["Safety flags"]
+
+    targets -->|phewas| finngen
+    finngen -->|phewas| ukb
+    ukb -->|phewas| ph_class
+end
+
+subgraph drug["Druggability"]
+    %%metro grid: drug | 2,3
+
+    pharos["Pharos"]
+    chembl["ChEMBL"]
+    ot["Open Targets"]
+    b3db["B3DB"]
+    direction["Direction check"]
+
+    targets -->|drug| pharos
+    pharos -->|drug| chembl
+    chembl -->|drug| ot
+    ot -->|drug| b3db
+    b3db -->|drug| direction
+end
+
+subgraph out["Outputs"]
+    %%metro grid: out | 3,0,4,1
+
+    run_dir["Results"]
+    provenance["Provenance"]
+    dashboard["Dashboard"]
+
+    lc_rerun -->|locus| run_dir
+    hyprcoloc -->|bulk, sc| run_dir
+    ph_class -->|phewas| run_dir
+    direction -->|drug| run_dir
+    run_dir -->|locus, bulk, sc, phewas, drug| provenance
+    provenance -->|locus, bulk, sc, phewas, drug| dashboard
+end

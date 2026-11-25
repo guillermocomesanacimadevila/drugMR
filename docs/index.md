@@ -2,7 +2,7 @@
 
 ## Overview
 
-**drugMR** is a multi-omics pipeline for genetically anchored drug target discovery. Each run takes an outcome GWAS, one pQTL panel and, optionally, bulk and single cell xQTL datasets (eQTL, sQTL, mQTL and others) for triangulation. It produces evidence tables and an interactive dashboard for each candidate target, including associations that suggest potential adverse effects or repurposing opportunities. One run combines cis-Mendelian randomisation, colocalisation (coloc and PWCoCo), SMR and HEIDI against the xQTL datasets, three trait colocalisation (HyPrColoc and PWCoCo QTL) and a phenome-wide screen. Several pQTL panels are analysed in separate runs. The pipeline is built in [Nextflow](https://www.nextflow.io) DSL2 and runs in containers (Docker, Apptainer, Singularity and others) for reproducible execution.
+**drugMR** is a multi-omics pipeline for genetically anchored drug target discovery. Each run takes an outcome GWAS, one pQTL panel and, optionally, bulk and single cell xQTL datasets (eQTL, sQTL, mQTL and others) for triangulation. It produces evidence tables and an interactive dashboard for each candidate target, including associations that suggest potential adverse effects or repurposing opportunities. One run combines cis-Mendelian randomisation, colocalisation (coloc and PWCoCo), SMR and HEIDI against the xQTL datasets, three trait colocalisation (HyPrColoc and PWCoCo QTL), locus conditioning on neighbouring signals, a phenome-wide screen and a druggability assessment of every supported target. Several pQTL panels are analysed in separate runs. The pipeline is built in [Nextflow](https://www.nextflow.io) DSL2 and runs in containers (Docker, Apptainer, Singularity and others) for reproducible execution.
 
 ## Documentation
 
@@ -12,21 +12,27 @@
 - [Run the pipeline](running.md): launch and monitor an analysis.
 - [Methods](methods.md): what each stage tests, the gates, effect direction, and limitations.
 - [Results and dashboard](results-dashboard.md): fetch completed runs, load PostgreSQL, and explore the Streamlit dashboard, or read the results tables directly in Python. `notebooks/00_drugmr.ipynb` provides a worked notebook version of the fetch and dashboard step, and `notebooks/01_interpreting_results.ipynb` walks through interpreting every results table without the dashboard.
-- [Output schema](RESULTS_SCHEMA.md): every output file, with columns for the four key tables.
+- [Output schema](RESULTS_SCHEMA.md): every output file, with columns for the key tables.
 - [Troubleshooting](troubleshooting.md): diagnose SLURM, memory, paths, containers, and interrupted runs.
 - [Reach out](reach-out.md): points of contact in case any issue arises.
 
 ## Workflow
 
-[![drugMR analysis pipeline](nf-metro-static.png)](nf-metro-static.svg)
+[![drugMR analysis pipeline](nf-metro-static.png)](nf-metro-animated.svg)
+
+### Detailed pipeline map
+
+[![drugMR detailed pipeline map](drugmr_metro_detailed.png)](drugmr_metro_detailed.svg)
 
 1. Quality-control the outcome GWAS and extract the cis region for each protein.
 2. Run cis-MR using the selected pQTL panel (this can take several hours).
 3. Run pairwise COLOC and conditional PWCoCo between the pQTL and outcome GWAS.
-4. Screen colocalisation-supported targets in FinnGen, with UK Biobank as a fallback, for potential adverse effects and repurposing opportunities.
-5. Triangulate targets with bulk and single-cell QTL data using SMR and HEIDI.
-6. Run QTL PWCoCo and HyPrColoc across the pQTL, QTL and outcome GWAS signals.
-7. Save the completed run under `runs/<run_id>/`, then load it into PostgreSQL and explore it in the Streamlit dashboard.
+4. Condition the outcome GWAS on other independent signals in each supported target's cis window with GCTA-COJO, then rerun cis-MR and coloc.
+5. Screen colocalisation-supported targets in FinnGen, with UK Biobank as a fallback, for potential adverse effects and repurposing opportunities.
+6. Triangulate targets with bulk and single-cell QTL data using SMR and HEIDI.
+7. Run QTL PWCoCo and HyPrColoc across the pQTL, QTL and outcome GWAS signals.
+8. Look up every supported target in Pharos, ChEMBL, Open Targets and B3DB, and check whether known drugs act in the direction the MR calls for.
+9. Save the completed run under `runs/<run_id>/`, then load it into PostgreSQL and explore it in the Streamlit dashboard.
 
 ## Choose where each part runs
 

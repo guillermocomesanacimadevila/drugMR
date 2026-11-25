@@ -17,11 +17,17 @@
 
 ## Introduction
 
-drugMR takes an outcome GWAS and one protein QTL panel per run and returns the evidence needed to prioritise candidate drug targets: cis-Mendelian randomisation, colocalisation (coloc and PWCoCo), SMR and HEIDI, three-trait colocalisation (HyPrColoc and PWCoCo QTL), and a phenome-wide screen that flags potential adverse effects and repurposing opportunities. It runs through a Nextflow pipeline or a Python orchestrator, with any outcome GWAS and any pQTL panel registered in its dataset manifest; several panels are analysed in separate runs. The SMR, PWCoCo and HyPrColoc stages accept bulk or single cell QTL data of any type (eQTL, sQTL, mQTL and others).
+drugMR takes an outcome GWAS and one protein QTL panel per run and returns the evidence needed to prioritise candidate drug targets: cis-Mendelian randomisation, colocalisation (coloc and PWCoCo), locus conditioning on neighbouring signals (GCTA-COJO), SMR and HEIDI, three-trait colocalisation (HyPrColoc and PWCoCo QTL), a phenome-wide screen that flags potential adverse effects and repurposing opportunities, and a druggability assessment of every supported target (Pharos, ChEMBL, Open Targets and B3DB). It runs through a Nextflow pipeline or a Python orchestrator, with any outcome GWAS and any pQTL panel registered in its dataset manifest; several panels are analysed in separate runs. The SMR, PWCoCo and HyPrColoc stages accept bulk or single cell QTL data of any type (eQTL, sQTL, mQTL and others).
 
 ## Workflow
 
-[![drugMR analysis pipeline](docs/nf-metro-static.png)](docs/nf-metro-static.svg)
+[![drugMR analysis pipeline](docs/nf-metro-static.png)](docs/nf-metro-animated.svg)
+
+### Detailed pipeline map
+
+Every stage and its main steps, with the route each analysis takes from the shared GWAS QC, cis-MR and colocalisation trunk.
+
+[![drugMR detailed pipeline map](docs/drugmr_metro_detailed.png)](docs/drugmr_metro_detailed.svg)
 
 ## Quick start
 
@@ -166,10 +172,12 @@ Full installation, configuration, HPC, AWS/GCP, fetch, and dashboard instruction
 * GWAS QC and cis region extraction
 * Cis-MR (Wald ratio, IVW, weighted median, MR Egger)
 * Pairwise colocalisation and PWCoCo
+* Locus conditioning on neighbouring signals (GCTA-COJO), with cis-MR and coloc rerun
 * SMR and HEIDI, bulk and single cell QTL panels
 * PWCoCo QTL, SNP level pQTL to QTL to GWAS triangulation
 * HyPrColoc
 * PheWAS (FinnGen, UK Biobank)
+* Druggability (Pharos, ChEMBL, Open Targets, B3DB) and drug direction compared with the MR
 * PostgreSQL and an interactive Streamlit dashboard
 
 Gate thresholds live in the optional `gates` block of your params file. See [`docs/RESULTS_SCHEMA.md`](docs/RESULTS_SCHEMA.md) for the results schema.
