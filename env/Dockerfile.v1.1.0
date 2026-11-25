@@ -1,0 +1,19 @@
+# drugMR v1.1.0 = the exact v1.0.0 image + the druggability packages.
+# Built on top of v1.0.0 so every other tool and package keeps the same
+# version (a full rebuild of env/Dockerfile pulls newer polars, susieR,
+# TwoSampleMR and PLINK, which changes results)
+#
+# docker buildx build \
+#   --platform linux/amd64 \
+#   -f env/Dockerfile.v1.1.0 \
+#   -t ghcr.io/guillermocomesanacimadevila/drugmr:v1.1.0 \
+#   -t ghcr.io/guillermocomesanacimadevila/drugmr:latest \
+#   --push .
+
+FROM ghcr.io/guillermocomesanacimadevila/drugmr@sha256:2dec5aebec2c1cae1a96484945f9a694fbe90337bf3588c568184534cf916dee
+
+SHELL ["micromamba", "run", "-n", "drugmr", "/bin/bash", "-c"]
+
+RUN pip install \
+    pymysql==1.2.4 \
+    chembl_webresource_client==0.10.9
