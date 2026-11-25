@@ -5,7 +5,7 @@ from pathlib import Path
 import jsonschema
 import yaml
 
-_SCHEMA_PATH = Path(__file__).resolve().parents[1] / "params" / "schema.json"
+_SCHEMA_PATH = Path(__file__).resolve().parents[2] / "params" / "schema.json"
 
 
 class Config:

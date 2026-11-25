@@ -1,9 +1,10 @@
 import argparse
 import json
 from datetime import datetime
-import yaml
 
-from drugmr import paths, registry
+import yaml
+from drugmr import paths
+from drugmr.io import registry
 
 
 def main():

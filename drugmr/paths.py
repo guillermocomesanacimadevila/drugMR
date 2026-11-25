@@ -94,6 +94,27 @@ def hyprcoloc_dataset_out(pqtl_dataset: str, hc_dataset: str, pheno_id: str, out
     return Path(out_dir) / "hyprcoloc" / "by_eqtl_source" / hc_dataset / "hyprcoloc.tsv"
 
 
+def locus_conditioning_out(pqtl_dataset: str, pheno_id: str, out_dir: str = "results") -> Path:
+    return Path(out_dir) / "locus_conditioning" / f"{pqtl_dataset}_{pheno_id}_locus_conditioning.tsv"
+
+
+# druggability-relate paths
+def druggability_out(pqtl_dataset: str, pheno_id: str, out_dir: str = "results") -> Path:
+    return Path(out_dir) / "druggability" / f"{pqtl_dataset}_{pheno_id}_target_druggability.tsv"
+
+
+def druggability_drugs_out(pqtl_dataset: str, pheno_id: str, out_dir: str = "results") -> Path:
+    return Path(out_dir) / "druggability" / f"{pqtl_dataset}_{pheno_id}_target_drugs.tsv"
+
+
+def druggability_sources_out(pqtl_dataset: str, pheno_id: str, out_dir: str = "results") -> Path:
+    return Path(out_dir) / "druggability" / f"{pqtl_dataset}_{pheno_id}_sources.tsv"
+
+
+def druggability_raw_dir(pqtl_dataset: str, pheno_id: str, out_dir: str = "results") -> Path:
+    return Path(out_dir) / "druggability" / "raw"
+
+
 def phewas_out(pqtl_dataset: str, pheno_id: str, out_dir: str = "results") -> Path:
     return Path(out_dir) / "phewas" / "finngen" / "phewas.tsv"
 
@@ -113,7 +134,7 @@ def phewas_finngen_coverage_out(pqtl_dataset: str, pheno_id: str, out_dir: str =
 
 
 def smr_raw_dir(qtl_dataset, pheno_id: str, out_dir: str = "results") -> Path:
-    """Directory for the raw `smr` binary's own output (drugmr.smr.SMR()'s
+    """Directory for the raw `smr` binary's own output (drugmr.methods.smr.SMR()'s
     --out prefix lives inside this dir - see smr_raw_prefix). qtl_dataset
     may be a compound relative path (e.g. "bulk_raw/GTEx_v10/label/chr1").
     UNCHANGED - synthesis/ tier, dataset-independent (see module docstring)."""
@@ -150,6 +171,12 @@ def work_dir_for_results_dir(local_results_dir) -> Path:
     hit dumps, the SMR .ma GWAS reformat) belongs under here, one subdir per
     stage - never under results/, which is final-artifacts-only."""
     return Path(local_results_dir).parent / "work"
+
+
+def locus_conditioning_work_dir(local_results_dir) -> Path:
+    """Scratch for bin/condition_on_nearby_targets.py (LD, clump, COJO, conditioned
+    coloc), one subdir per protein; deleted once the results table is written."""
+    return work_dir_for_results_dir(local_results_dir) / "locus_conditioning"
 
 
 def run_logs_dir(run_id: str, root: str = "runs") -> Path:
@@ -215,3 +242,5 @@ def pwcoco_qtl_shared_out(pqtl_dataset: str, pheno_id: str, out_dir: str = "resu
     question, tested via conditioning instead of HyPrColoc's single-cluster
     assumption), not a downstream refinement of it."""
     return Path(out_dir) / "pwcoco" / "summary" / "pwcoco_shared_snps.tsv"
+
+

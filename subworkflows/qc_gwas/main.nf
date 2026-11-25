@@ -81,7 +81,9 @@ workflow QC_GWAS {
             def gates_smr
             def gates_hyprcoloc
             def gates_pwcoco
+            def gates_locus_conditioning
             def gates_phewas
+            def gates_druggability
 
             if (row.containsKey("gates") && row.gates.containsKey("cis_mr")) {
                 gates_cis_mr = row.gates.cis_mr
@@ -113,10 +115,22 @@ workflow QC_GWAS {
                 gates_pwcoco = [:]
             }
 
+            if (row.containsKey("gates") && row.gates.containsKey("locus_conditioning")) {
+                gates_locus_conditioning = row.gates.locus_conditioning
+            } else {
+                gates_locus_conditioning = [:]
+            }
+
             if (row.containsKey("gates") && row.gates.containsKey("phewas")) {
                 gates_phewas = row.gates.phewas
             } else {
                 gates_phewas = [:]
+            }
+
+            if (row.containsKey("gates") && row.gates.containsKey("druggability")) {
+                gates_druggability = row.gates.druggability
+            } else {
+                gates_druggability = [:]
             }
 
             def wald_fdr_q_gate
@@ -144,8 +158,15 @@ workflow QC_GWAS {
             def align_thresh_gate
             def equal_thresholds_gate
             def pwcoco_pp4_threshold_gate
+            def gws_pval_gate
+            def lc_clump_r2_gate
+            def lc_clump_kb_gate
+            def own_signal_r2_gate
+            def flag_r2_gate
+            def cojo_collinear_gate
             def bonferroni_alpha_gate
             def coloc_threshold_gate
+            def pchembl_thresh_gate
 
             if (gates_cis_mr.containsKey("wald_fdr_q")) {
                 wald_fdr_q_gate = gates_cis_mr.wald_fdr_q
@@ -297,6 +318,42 @@ workflow QC_GWAS {
                 pwcoco_pp4_threshold_gate = 0.7
             }
 
+            if (gates_locus_conditioning.containsKey("gws_pval")) {
+                gws_pval_gate = gates_locus_conditioning.gws_pval
+            } else {
+                gws_pval_gate = 5.0e-8
+            }
+
+            if (gates_locus_conditioning.containsKey("clump_r2")) {
+                lc_clump_r2_gate = gates_locus_conditioning.clump_r2
+            } else {
+                lc_clump_r2_gate = 0.1
+            }
+
+            if (gates_locus_conditioning.containsKey("clump_kb")) {
+                lc_clump_kb_gate = gates_locus_conditioning.clump_kb
+            } else {
+                lc_clump_kb_gate = 1000
+            }
+
+            if (gates_locus_conditioning.containsKey("own_signal_r2")) {
+                own_signal_r2_gate = gates_locus_conditioning.own_signal_r2
+            } else {
+                own_signal_r2_gate = 0.8
+            }
+
+            if (gates_locus_conditioning.containsKey("flag_r2")) {
+                flag_r2_gate = gates_locus_conditioning.flag_r2
+            } else {
+                flag_r2_gate = 0.3
+            }
+
+            if (gates_locus_conditioning.containsKey("cojo_collinear")) {
+                cojo_collinear_gate = gates_locus_conditioning.cojo_collinear
+            } else {
+                cojo_collinear_gate = 0.99
+            }
+
             if (gates_phewas.containsKey("bonferroni_alpha")) {
                 bonferroni_alpha_gate = gates_phewas.bonferroni_alpha
             } else {
@@ -307,6 +364,12 @@ workflow QC_GWAS {
                 coloc_threshold_gate = gates_phewas.coloc_threshold
             } else {
                 coloc_threshold_gate = 0.7
+            }
+
+            if (gates_druggability.containsKey("pchembl_thresh")) {
+                pchembl_thresh_gate = gates_druggability.pchembl_thresh
+            } else {
+                pchembl_thresh_gate = 6
             }
 
             def gates = [
@@ -345,9 +408,20 @@ workflow QC_GWAS {
                 pwcoco: [
                     pp4_threshold: pwcoco_pp4_threshold_gate
                 ],
+                locus_conditioning: [
+                    gws_pval      : gws_pval_gate,
+                    clump_r2      : lc_clump_r2_gate,
+                    clump_kb      : lc_clump_kb_gate,
+                    own_signal_r2 : own_signal_r2_gate,
+                    flag_r2       : flag_r2_gate,
+                    cojo_collinear: cojo_collinear_gate
+                ],
                 phewas: [
                     bonferroni_alpha: bonferroni_alpha_gate,
                     coloc_threshold : coloc_threshold_gate
+                ],
+                druggability: [
+                    pchembl_thresh: pchembl_thresh_gate
                 ]
             ]
 

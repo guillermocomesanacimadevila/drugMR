@@ -5,9 +5,7 @@ import shutil
 from pathlib import Path
 
 import polars as pl
-
 from drugmr.utils import compute_ld_to_lead
-
 
 INDEX_SCHEMA = {
     "protein": pl.Utf8,

@@ -137,7 +137,7 @@ def perform_qc(
     path = sumstats
     bases = ["A", "T", "C", "G"]
     # --out-dir is the exact directory {pheno_id}.tsv is written into - the
-    # caller (drugmr/local.py, drugmr/hpc.py) is responsible for pointing it
+    # caller (drugmr/runners/local.py, drugmr/runners/hpc.py) is responsible for pointing it
     # at the right place (see drugmr/paths.py)
     qc_dir = Path(out_dir)
     qc_dir.mkdir(parents=True, exist_ok=True)

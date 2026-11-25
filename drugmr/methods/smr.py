@@ -8,7 +8,7 @@ import liftover
 import polars as pl
 
 from drugmr import paths
-from drugmr.qtl_manifest import QTLManifest
+from drugmr.io.qtl_manifest import QTLManifest
 from drugmr.utils import (
     check_n_in_qtl,
     detect_qtl_split,

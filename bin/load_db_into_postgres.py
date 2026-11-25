@@ -4,10 +4,9 @@ from pathlib import Path
 
 import pandas as pd
 import polars as pl
-from sqlalchemy import text
-
 from drugmr import paths
-from drugmr.db import get_engine
+from drugmr.io.db import get_engine
+from sqlalchemy import text
 
 """ Simple objects to load data from TSVs onto respective SQL table """
 

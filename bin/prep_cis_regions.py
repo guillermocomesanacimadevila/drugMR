@@ -3,9 +3,8 @@ import os
 from pathlib import Path
 
 import polars as pl
-
 from drugmr import paths
-from drugmr.qtl_manifest import QTLManifest
+from drugmr.io.qtl_manifest import QTLManifest
 
 # grab .parquet files from pQTLs
 # add fixed N based on sample size, looked up from assets/qtl_manifest.csv rather than

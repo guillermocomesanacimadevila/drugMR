@@ -5,12 +5,11 @@ from pathlib import Path
 import pandas as pd
 import polars as pl
 import requests
-
 from drugmr import paths
-from drugmr.phewas import PheWAS
+from drugmr.methods.phewas import PheWAS
 
 # from statsmodels.stats.multitest import fdrcorrection
-from drugmr.twosamplemr import PyTwoSampleMR
+from drugmr.methods.twosamplemr import PyTwoSampleMR
 
 # Bonferroni correction is applied per protein across all 2,511 ICD coded
 # endpoints in FinnGen R13 (2,755 endpoints in total). The FinnGen API only

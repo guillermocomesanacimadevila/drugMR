@@ -107,8 +107,11 @@ When a registered QTL dataset has no SMR-format files, drugMR builds them chromo
 nextflow run main.nf \
   -profile <docker,apptainer,singularity,podman,shifter,charliecloud> \
   -params-file <path/to/params.yaml> \
-  --manifest_path <path/to/qtl_manifest.csv>
+  --manifest_path <path/to/qtl_manifest.csv> \
+  --skip_druggability false
 ```
+
+The last step, druggability, looks up each target in Pharos, ChEMBL, Open Targets and B3DB, so it needs internet access. On compute nodes without it, set `--skip_druggability true`.
 
 After Nextflow completes successfully, its run directory contains `params.lock.yaml`, a snapshot of the effective parameters used for that analysis. Use Python to fetch a remote run when necessary and launch the results dashboard from that snapshot:
 

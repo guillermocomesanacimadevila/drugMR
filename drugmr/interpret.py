@@ -8,7 +8,6 @@ import yaml
 from drugmr import paths
 from drugmr.utils import extract_coloc_or_pwcoco_targets, grab_cis_mr_hits
 
-
 # rows shown in the default preview of a long table (half at the top, half at the bottom)
 PREVIEW_ROWS = 10
 # tables up to this many rows are always shown in full

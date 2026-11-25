@@ -7,11 +7,10 @@ import sys
 from pathlib import Path
 
 import polars as pl
-from statsmodels.stats.multitest import fdrcorrection
-
 from drugmr import paths
-from drugmr.smr import SMRUtils
+from drugmr.methods.smr import SMRUtils
 from drugmr.utils import grab_cis_mr_hits
+from statsmodels.stats.multitest import fdrcorrection
 
 _smr_utils = SMRUtils(manifest_path=paths.DEFAULT_QTL_MANIFEST_PATH)  # ncbi_ref_path not needed - BESD is always pre-built for registered datasets, ETL-from-scratch never triggers
 
@@ -27,7 +26,7 @@ def resolve_qtl_type(qtl_dataset: str) -> str:
 # ------------------------------------------------------------------------------------
 # MAIN TO DO'S
 # -> SLAP FUNCTION 3 (MAYBE 1 ONTO A DIFFERNT SCRIPT -> MAY CRASH SMR IF != RESULTS)
-# -> CONSEQUENTLY UPDATE drugmr/local.py and drugmr/hpc.py
+# -> CONSEQUENTLY UPDATE drugmr/runners/local.py and drugmr/runners/hpc.py
 # ------------------------------------------------------------------------------------
 # ------------------------------------------------------------------------------------
 

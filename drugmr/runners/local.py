@@ -7,8 +7,9 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-from drugmr import paths, registry
-from drugmr.config import Config
+from drugmr import paths
+from drugmr.io import registry
+from drugmr.io.config import Config
 
 # LOCAL RESULTS / DASHBOARD STUFF
 # Need to create local running functions including a pulling docker from container function
@@ -92,7 +93,7 @@ def fetch_run(run_id: str, user: str, host: str, remote_root: str) -> str:
     # for a run launched directly via `nextflow run` on a remote host (no
     # dm.hpc() involved) - drugMR has no way to know that run exists, so
     # user, host and remote_root always have to be given explicitly here
-    project_root = Path(__file__).resolve().parents[1]
+    project_root = Path(__file__).resolve().parents[2]
     local_run_dir = paths.run_dir(run_id, root=str(project_root / "runs"))
     local_run_dir.mkdir(parents=True, exist_ok=True)
 
@@ -143,7 +144,7 @@ def results(
     port_number: int = 5433,
     runs_root: str = "runs",
 ):
-    project_root = Path(__file__).resolve().parents[1]
+    project_root = Path(__file__).resolve().parents[2]
     runs_dir = Path(runs_root) if Path(runs_root).is_absolute() else project_root / runs_root
     config_path = Path(config)
     if not config_path.is_absolute():
@@ -306,7 +307,7 @@ def local(config: str, run_id: str = None):
     # run dir instead - e.g. after fixing a bug in one step, to pick up
     # where a previous day's run left off rather than starting a fresh
     # runs/<run_id> dir (and therefore rerunning every step from scratch).
-    project_root = Path(__file__).resolve().parents[1]
+    project_root = Path(__file__).resolve().parents[2]
     cfg = Config(project_root / config)
     pheno_id = cfg.pheno_id
     sumstats = cfg.sumstats
@@ -370,7 +371,7 @@ def local(config: str, run_id: str = None):
 
 
     # set projectDir()
-    project_root = Path(__file__).resolve().parents[1] # i.e. "Users/.../drugMR"
+    project_root = Path(__file__).resolve().parents[2] # i.e. "Users/.../drugMR"
 
     # run_id is deterministic for a given (pheno_id, pqtl_dataset, day, git commit) -
     # rerunning today on the same commit reuses the same runs/<run_id>/ dir (and its

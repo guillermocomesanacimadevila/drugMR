@@ -385,14 +385,6 @@ def extract_gene_coordinates(
 
 
 def render_dag(dot_file, out_file=None, fmt: str | None = None) -> Path:
-    """Render a Nextflow-emitted .dot DAG file into an image via Graphviz.
-
-    Nextflow's DAG renderer runs on the machine that launches `nextflow run`,
-    not inside any process container - on a host without Graphviz's `dot`
-    binary (e.g. most HPC login nodes) it silently falls back to writing the
-    raw .dot file instead of the requested .svg/.png/.pdf. Pull the .dot file
-    down and render it here instead.
-    """
 
     dot_file = Path(dot_file)
     if not dot_file.is_file():
@@ -423,13 +415,6 @@ def needs_chr_split_etl(df: pl.DataFrame, chr_col: str) -> bool:
 
 
 def detect_qtl_split(manifest_path: Path) -> dict:
-    """Find complete SMR-ready prefixes beneath a manifest source directory.
-
-    The manifest may name a single raw file (for example ``brain.parquet``) or
-    a glob.  It identifies the dataset's home directory; it does not constrain
-    BESD discovery to the raw file's stem.  This allows generated or downloaded
-    chromosome/tissue triples anywhere below that directory to be reused.
-    """
     manifest_path = Path(manifest_path)
     literal_parts = []
     for part in manifest_path.parts:
@@ -502,3 +487,18 @@ def ld_clumping(
     ]
 
     return subprocess.run(cmd, check=True)
+
+
+def map_symbol_to_ens_id(target_list: list[str], ncbi_ref: pl.DataFrame) -> dict[str, str]:
+    ref = ncbi_ref.select(["Symbol", "Synonyms", "Ensembl_ID"]).drop_nulls("Ensembl_ID").unique()
+    mapping = {}
+    for target in target_list:
+        hits = ref.filter(pl.col("Symbol") == target)
+        if hits.height == 0:
+            hits = ref.filter(pl.col("Synonyms").str.split(",").list.contains(target))
+        ids = hits["Ensembl_ID"].str.split(".").list.first().unique().to_list()
+        if len(ids) == 1:
+            mapping[target] = ids[0]
+        else:
+            print("not mapped:", target, ids)  
+    return mapping

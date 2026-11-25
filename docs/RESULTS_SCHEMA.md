@@ -20,6 +20,7 @@ Every successful analysis is stored under `runs/<run_id>/`. The run ID identifie
 | `results/pwcoco/summary/pwcoco_eqtl_pqtl.tsv` | QTL and pQTL conditional colocalisation results for supported multi omic targets. |
 | `results/pwcoco/summary/pwcoco_eqtl_gwas.tsv` | QTL and outcome GWAS conditional colocalisation results. |
 | `results/pwcoco/summary/pwcoco_shared_snps.tsv` | Shared conditional SNP evidence when available. |
+| `results/locus_conditioning/<pqtl_dataset>_<pheno_id>_locus_conditioning.tsv` | One row per target that passes cis-MR and colocalisation: other independent outcome GWAS signals in its cis window, and cis-MR and coloc rerun after conditioning on them. |
 | `results/target_stats/top_cis_hits.tsv` | Targets supported by the MR and colocalisation gates. This table drives locus export and downstream triangulation. |
 | `results/locus_data/index.tsv` | Index of portable dashboard loci. |
 | `results/locus_data/<target>/gwas.parquet` | Outcome GWAS associations for the target locus. |
@@ -35,6 +36,10 @@ Every successful analysis is stored under `runs/<run_id>/`. The run ID identifie
 | `results/phewas/finngen/phewas_coverage.tsv` | FinnGen instrument coverage for every screened target. Coverage is reported even when no significant PheWAS hit is found. |
 | `results/phewas/finngen/phewas.tsv` | FinnGen associations classified as potential adverse effects or repurposing opportunities, when present. |
 | `results/phewas/ukbb/phewas.tsv` | UK Biobank PheWAS associations when the stage is enabled and results are present. |
+| `results/druggability/<pqtl_dataset>_<pheno_id>_target_druggability.tsv` | One row per target that passes cis-MR and colocalisation: development level, drug counts, potent compounds and tractability. |
+| `results/druggability/<pqtl_dataset>_<pheno_id>_target_drugs.tsv` | One row per target and drug with a recorded mechanism: phase, indications, brain access, and whether the drug acts in the direction the MR calls for. |
+| `results/druggability/<pqtl_dataset>_<pheno_id>_sources.tsv` | Release, access date and status of each resource queried. |
+| `results/druggability/raw/*.parquet` | Untouched Pharos, ChEMBL and Open Targets tables. Absent when the lookup did not run. |
 
 Files from optional stages may be absent when the stage is disabled, no target passes the preceding gate, no phenotype has sufficient instrument coverage, or the LD reference lacks the locus variants. Absence of an optional association table is therefore different from a failed Nextflow process. Use the execution report and trace to distinguish the two cases.
 
@@ -42,7 +47,7 @@ Column names in every file are retained exactly as produced, because the dashboa
 
 ## Key table columns
 
-Columns of the four tables most often read directly. Allele columns follow the convention in [Methods](methods.md#effect-direction).
+Columns of the tables most often read directly. Allele columns follow the convention in [Methods](methods.md#effect-direction).
 
 ### `results/cis_mr/mr.tsv`
 
@@ -107,3 +112,69 @@ One row per HyPrColoc cluster for each target and QTL source.
 | `dropped_trait` | Trait removed by HyPrColoc's branch and bound step, when any. |
 | `n_snps` | SNPs shared by all traits in the region. |
 | `a1`, `a2`, `gwas_beta`, `gwas_p`, `pqtl_beta`, `pqtl_p`, `qtl_beta`, `qtl_p` | Candidate SNP effects aligned to the outcome GWAS risk allele `a1`. |
+
+### `results/locus_conditioning/<pqtl_dataset>_<pheno_id>_locus_conditioning.tsv`
+
+One row per target that passes cis-MR and coloc or PWCoCo.
+
+| Column | Meaning |
+| --- | --- |
+| `protein` | Target. |
+| `status` | What happened to the target: `conditioned`, `no_gws_signal`, `own_signal_only`, `no_leads`, `apoe_locus` (not attempted), or a failure step (`ld_failed`, `clump_failed`, `cojo_failed`, `no_instruments_after_cojo`). |
+| `n_gws_snps`, `n_gws_snps_not_in_panel`, `top_gws_snp_in_panel` | Genome-wide significant outcome GWAS SNPs in the cis window, how many are missing from the LD reference, and whether the top one is present. |
+| `own_signal_leads` | Independent signal leads in high LD with the target's instruments (r² ≥ `own_signal_r2`), treated as the target's own signal. |
+| `rivals`, `flagged_rivals` | Other independent signal leads conditioned on. Flagged rivals have moderate LD with the instruments (`flag_r2` ≤ r² < `own_signal_r2`), so the two signals are hard to separate. |
+| `n_instruments_used` | Instruments left for cis-MR after conditioning. |
+| `mr_beta`, `mr_se`, `mr_p` | cis-MR estimate before conditioning. |
+| `mr_beta_cond`, `mr_se_cond`, `mr_p_cond` | cis-MR estimate on the conditioned outcome GWAS. |
+| `mr_beta_ratio` | `mr_beta_cond` divided by `mr_beta`. Near 1 means the estimate does not depend on the nearby signals. |
+| `coloc_pp4`, `coloc_pp3` | coloc PP.H4 and PP.H3 before conditioning. |
+| `coloc_pp4_cond`, `coloc_pp3_cond` | coloc PP.H4 and PP.H3 on the conditioned outcome GWAS. |
+
+### `results/druggability/<pqtl_dataset>_<pheno_id>_target_druggability.tsv`
+
+One row per target that passes cis-MR and coloc or PWCoCo.
+
+| Column | Meaning |
+| --- | --- |
+| `protein`, `symbol`, `ensembl_gene_id` | Target, its gene symbol, and the Ensembl ID found for it in `gene_annotation`. |
+| `mr_method`, `mr_beta`, `mr_fdr_q` | Primary cis-MR method, estimate and FDR q value. |
+| `required_action` | `Inhibit` when `mr_beta` > 0, otherwise `Activate`. |
+| `not_mapped` | True when the symbol has no Ensembl ID in `gene_annotation`, so the target was not looked up. |
+| `uniprot`, `tdl`, `family` | Pharos UniProt accession, target development level and protein family. |
+| `pharos_multiple_matches` | The Ensembl ID matched more than one Pharos entry; the most developed one is kept. |
+| `not_in_pharos` | The Ensembl ID was not found in Pharos. |
+| `n_drugs`, `n_drugs_approved`, `max_phase` | ChEMBL drugs with a recorded mechanism against the target, how many are approved, and the highest phase reached. |
+| `n_drugs_inhibit`, `n_drugs_activate` | Drugs whose mechanism inhibits or activates the target. |
+| `drugs_via_group_only` | Every drug reaches the target only through a protein family or complex. |
+| `n_potent_compounds`, `best_pchembl` | ChEMBL compounds with pChEMBL ≥ `pchembl_thresh` against the single protein, and the best pChEMBL value. |
+| `ot_sm_clinical`, `ot_sm_discovery`, `ot_ab_clinical`, `ot_ab_location`, `ot_oc_clinical` | Open Targets tractability flags for small molecules, antibodies and oligonucleotides. |
+| `ot_small_molecule_labels`, `ot_antibody_labels`, `ot_oligonucleotide_labels` | Every Open Targets tractability label that is true, strongest first. |
+| `tractable_modalities` | Summary of the modalities above, for example `Small molecule; Antibody (location only)`. |
+| `n_drugs_agree`, `n_drugs_oppose` | Drugs acting in the direction the MR calls for, and against it. |
+
+### `results/druggability/<pqtl_dataset>_<pheno_id>_target_drugs.tsv`
+
+One row per target and drug.
+
+| Column | Meaning |
+| --- | --- |
+| `ensembl_gene_id`, `symbol`, `uniprot` | Target. |
+| `drug_chembl_id`, `drug_name`, `molecule_type` | ChEMBL parent molecule. |
+| `action_type`, `mechanism_of_action`, `target_chembl_id` | ChEMBL mechanism records for this drug and target. |
+| `via_group` | The drug reaches the target only through a protein family or complex. |
+| `drug_direction` | `Inhibit`, `Activate`, `Mixed` (recorded as both) or `Unclassified`. |
+| `required_action`, `direction_vs_mr` | Direction the MR calls for, and whether the drug `Agrees`, `Opposes` or is `Unclear`. |
+| `max_phase`, `first_approval`, `withdrawn`, `black_box` | Highest clinical phase (4 is approved), first approval year, withdrawal and black box warning flags. |
+| `oral`, `parenteral` | Routes of administration. |
+| `alogp`, `mw_freebase`, `psa`, `hbd`, `num_ro5_violations`, `standard_inchi_key`, `canonical_smiles` | ChEMBL molecular properties and structure. |
+| `b3db_label`, `b3db_logbb`, `brain_access` | B3DB blood brain barrier label and logBB. `brain_access` is the B3DB label, `not applicable` for biologics, or `unknown` when the drug is not in B3DB. |
+| `approved_indications`, `indications` | Approved indications, and every indication with the highest phase reached in brackets. |
+| `ad_indication` | Any indication mentions Alzheimer's disease. |
+
+### `results/druggability/<pqtl_dataset>_<pheno_id>_sources.tsv`
+
+| Column | Meaning |
+| --- | --- |
+| `source`, `release`, `accessed` | Resource, its release, and the date it was queried. |
+| `status` | `ok`, `no targets`, or `failed: <error>` when a resource could not be reached. |

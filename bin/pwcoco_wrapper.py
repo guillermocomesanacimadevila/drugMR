@@ -2,9 +2,8 @@ import argparse
 from pathlib import Path
 
 import polars as pl
-
+from drugmr.methods.pwcoco import PWCoCo
 from drugmr.paths import mr_out, pwcoco_out, pwcoco_raw_prefix
-from drugmr.pwcoco import PWCoCo
 from drugmr.utils import grab_cis_mr_hits
 
 """ Workflow wrapper (pre-Snakemake) for PWCoCo """

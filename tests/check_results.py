@@ -17,6 +17,10 @@ required = [
     "hyprcoloc/by_eqtl_source/test_eqtl/hyprcoloc.tsv",
     "hyprcoloc/hyprcoloc.tsv",
     "phewas/finngen/phewas_coverage.tsv",
+    "locus_conditioning/test_pqtl_TEST_locus_conditioning.tsv",
+    "druggability/test_pqtl_TEST_target_druggability.tsv",
+    "druggability/test_pqtl_TEST_target_drugs.tsv",
+    "druggability/test_pqtl_TEST_sources.tsv",
 ]
 
 missing = [name for name in required if not (results / name).exists()]

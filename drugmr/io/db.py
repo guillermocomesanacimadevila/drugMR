@@ -5,7 +5,7 @@ from urllib.parse import quote_plus
 from sqlalchemy import create_engine
 from sqlalchemy.engine import Engine
 
-SECRETS_PATH = Path(__file__).resolve().parents[1] / ".streamlit" / "secrets.toml"
+SECRETS_PATH = Path(__file__).resolve().parents[2] / ".streamlit" / "secrets.toml"
 
 def load_credentials() -> dict:
 

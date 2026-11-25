@@ -3,7 +3,6 @@ import argparse
 from pathlib import Path
 
 import polars as pl
-
 from drugmr import paths
 
 # matches the dict keys appended to top_hits below - used only when zero

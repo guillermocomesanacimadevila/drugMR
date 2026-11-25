@@ -61,7 +61,9 @@ The `gates` block records the statistical thresholds used by the run. Keep it in
 - `smr`: SNP selection for SMR and HEIDI, an allele frequency concordance check between the QTL and outcome GWAS (`diff_freq_prop`), then the final SMR FDR and HEIDI thresholds.
 - `hyprcoloc`: priors and sensitivity grid.
 - `pwcoco`: conditional colocalisation PP4 threshold.
+- `locus_conditioning`: the outcome GWAS p value that counts a SNP as a separate signal in the cis window (`gws_pval`), the clumping settings that split that window into independent signals (`clump_r2`, `clump_kb`), the r² to the target's own instruments above which a signal is the target's own (`own_signal_r2`) or is flagged as hard to separate (`flag_r2`), and the GCTA-COJO collinearity cut-off (`cojo_collinear`).
 - `phewas`: Bonferroni alpha for the phenome-wide screen, and the minimum colocalisation PP.H4 for a target to be screened (`coloc_threshold`).
+- `druggability`: the minimum ChEMBL pChEMBL value for a compound to count as potent against a target (`pchembl_thresh`, 6 by default, which is 1 µM).
 
 ```yaml
 gates:
@@ -95,11 +97,23 @@ gates:
     equal_thresholds: true
   pwcoco:
     pp4_threshold: 0.7
+  locus_conditioning:
+    gws_pval: 5.0e-8
+    clump_r2: 0.1
+    clump_kb: 1000
+    own_signal_r2: 0.8
+    flag_r2: 0.3
+    cojo_collinear: 0.99
   phewas:
     bonferroni_alpha: 0.05
+    coloc_threshold: 0.7
+  druggability:
+    pchembl_thresh: 6
 ```
 
 These values affect which targets proceed. Changing a gate and running with `-resume` invalidates tasks whose commands contain that value while allowing unrelated completed tasks to remain cached.
+
+Druggability runs last and queries Pharos, ChEMBL, Open Targets and B3DB over the internet. It is on by default. On compute nodes with no internet access, pass `--skip_druggability true` on the command line; every other stage runs as normal. If a resource cannot be reached during a run, the run still completes and the failure is recorded in the druggability sources table.
 
 ## The QTL manifest
 

@@ -14,7 +14,7 @@ class QTLManifest:
     def _resolve_row_path(self, row: dict) -> dict:
         # every caller (get_row/get_rows_by_parent/get_rows_by_qtl_type) that hands back a manifest
         # row must return an already-resolved `path`, not the raw CSV value -
-        # several call sites in drugmr/smr.py read row["path"] directly (glob.glob
+        # several call sites in drugmr/methods/smr.py read row["path"] directly (glob.glob
         # or Path()) without ever calling resolve(), so applying base_dir only
         # inside resolve() left those call sites broken under a foreign CWD
         # (e.g. a Nextflow task sandbox). Resolving it once, here, fixes every

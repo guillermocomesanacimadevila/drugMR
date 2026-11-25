@@ -5,10 +5,9 @@ from pathlib import Path
 
 import polars as pl
 import requests
-
 from drugmr import paths
-from drugmr.phewas import PheWAS
-from drugmr.twosamplemr import PyTwoSampleMR
+from drugmr.methods.phewas import PheWAS
+from drugmr.methods.twosamplemr import PyTwoSampleMR
 
 # Bonferroni correction is applied per-protein, across however many endpoints
 # were actually tested for that protein - NOT a fixed constant (see

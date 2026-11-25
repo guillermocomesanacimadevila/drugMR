@@ -5,7 +5,6 @@ from pathlib import Path
 
 import pandas as pd
 import polars as pl
-
 from drugmr import paths
 from drugmr.utils import select_cis_mr_passing_proteins
 

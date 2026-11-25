@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://github.com/guillermocomesanacimadevila/drugMR/params/schema.json",
   "title": "drugMR run parameters",
-  "description": "Validated by drugmr.config.Config. One file per (pheno_id, pqtl_dataset) under params/ - e.g. params/AD.wingo_brain.yaml. `gates` is optional.",
+  "description": "Validated by drugmr.io.config.Config. One file per (pheno_id, pqtl_dataset) under params/ - e.g. params/AD.wingo_brain.yaml. `gates` is optional.",
   "type": "object",
   "additionalProperties": true,
   "required": [
@@ -190,12 +190,31 @@
             "pp4_threshold": { "type": "number", "minimum": 0, "maximum": 1, "default": 0.7, "description": "Minimum H4 to pass PWCoCo (kept independent from gates.coloc.pp4_threshold - PWCoCo and coloc are allowed to disagree by design)." }
           }
         },
+        "locus_conditioning": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "gws_pval": { "type": "number", "minimum": 0, "maximum": 1, "default": 5.0e-8, "description": "Outcome GWAS p-value a SNP needs in the cis window to count as a separate signal." },
+            "clump_r2": { "type": "number", "minimum": 0, "maximum": 1, "default": 0.1, "description": "LD clumping r2 used to split the outcome GWAS window into independent signals." },
+            "clump_kb": { "type": "integer", "minimum": 0, "default": 1000, "description": "LD clumping window (kb) used to split the outcome GWAS window into independent signals." },
+            "own_signal_r2": { "type": "number", "minimum": 0, "maximum": 1, "default": 0.8, "description": "r2 with a target's own instruments at or above which a signal lead counts as the target's own signal." },
+            "flag_r2": { "type": "number", "minimum": 0, "maximum": 1, "default": 0.3, "description": "r2 with a target's own instruments at or above which a rival signal is flagged as hard to separate." },
+            "cojo_collinear": { "type": "number", "minimum": 0, "maximum": 1, "default": 0.99, "description": "GCTA-COJO collinearity cutoff for conditional analysis." }
+          }
+        },
         "phewas": {
           "type": "object",
           "additionalProperties": false,
           "properties": {
             "bonferroni_alpha": { "type": "number", "minimum": 0, "maximum": 1, "default": 0.05, "description": "Family-wise error rate for the per-protein Bonferroni correction across endpoints tested." },
             "coloc_threshold": { "type": "number", "minimum": 0, "maximum": 1, "default": 0.7, "description": "Minimum coloc PP.H4 or PWCoCo H4 for a target to enter the PheWAS target set. Match gates.coloc.pp4_threshold so PheWAS screens the colocalisation-supported targets." }
+          }
+        },
+        "druggability": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "pchembl_thresh": { "type": "number", "minimum": 0, "default": 6, "description": "Minimum ChEMBL pChEMBL value (6 = 1 uM) for a compound to count as potent against a target." }
           }
         }
       }

@@ -4,9 +4,8 @@ import subprocess
 from pathlib import Path
 
 import polars as pl
-
 from drugmr import paths
-from drugmr.smr import SMRUtils
+from drugmr.methods.smr import SMRUtils
 from drugmr.utils import extract_common_snps
 
 _smr = SMRUtils(manifest_path=paths.DEFAULT_QTL_MANIFEST_PATH)
@@ -108,7 +107,7 @@ def attach_candidate_snp_stats(result_df: pl.DataFrame, gwas: pl.DataFrame, pqtl
 # SNP/A1/A2/BETA/SE/P convention - shared by the main HyPrColoc loop below and
 # bin/backfill_hyprcoloc_snp_stats.py, which needs the exact same table to
 # re-resolve a candidate SNP's stats for older result files without re-running
-# HyPrColoc itself. drugmr.smr.SMRUtils.load_qtl_rows() carries the actual bulk
+# HyPrColoc itself. drugmr.methods.smr.SMRUtils.load_qtl_rows() carries the actual bulk
 # vs single-cell file-resolution logic (manifest-driven, no hardcoded dataset
 # names) - this just narrows its 8-column output down onto the 6 columns this
 # pipeline's downstream code expects. Returns None (with a printed [CONCERN]) on

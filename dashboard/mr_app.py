@@ -22,9 +22,10 @@ from liftover import ChainFile
 from plotly.subplots import make_subplots
 
 from bin.load_db_into_postgres import PostgresLoader, PostgresReader
-from drugmr import paths, registry
-from drugmr.qtl_manifest import QTLManifest
-from drugmr.smr import SMRUtils
+from drugmr import paths
+from drugmr.io import registry
+from drugmr.io.qtl_manifest import QTLManifest
+from drugmr.methods.smr import SMRUtils
 
 # shared plotting conventions so charts look consistent across tabs rather than each
 # px.* call picking its own default palette
@@ -2450,8 +2451,8 @@ def dashboard(
     # renders its grid on an HTML canvas (glide-data-grid), not real <table>/<th>
     # DOM - its internal header/cell styling can't be reached from CSS at all;
     # it follows .streamlit/config.toml's theme directly instead, which is the
-    # real reason getting that file actually picked up (see drugmr/local.py's
-    # results() / drugmr/hpc.py's run_dashboard_local(), both now pin cwd to
+    # real reason getting that file actually picked up (see drugmr/runners/local.py's
+    # results() / drugmr/runners/hpc.py's run_dashboard_local(), both now pin cwd to
     # project_root for exactly this) matters more here than any CSS rule could.
     st.markdown(
         """
@@ -2546,7 +2547,7 @@ def dashboard(
            .streamlit/config.toml's primaryColor, because the theme file wasn't
            being picked up at all (a CWD issue - Streamlit only finds
            .streamlit/config.toml relative to the directory `streamlit run` is
-           invoked FROM, and drugmr/local.py's results() / drugmr/hpc.py's
+           invoked FROM, and drugmr/runners/local.py's results() / drugmr/runners/hpc.py's
            run_dashboard_local() launched it without pinning that directory).
            Now fixed at the source (both launchers pin cwd=project_root), so
            this CSS block is redundant defense-in-depth, not the real fix -

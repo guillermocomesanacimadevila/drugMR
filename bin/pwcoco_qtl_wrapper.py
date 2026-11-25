@@ -2,7 +2,8 @@ import argparse
 from pathlib import Path
 
 import polars as pl
-
+from drugmr.methods.pwcoco import PWCoCo
+from drugmr.methods.smr import SMRUtils
 from drugmr.paths import (
     DEFAULT_QTL_MANIFEST_PATH,
     pwcoco_eqtl_gwas_out,
@@ -12,8 +13,6 @@ from drugmr.paths import (
     pwcoco_qtl_shared_out,
     smr_final_targets_out,
 )
-from drugmr.pwcoco import PWCoCo
-from drugmr.smr import SMRUtils
 
 _smr = SMRUtils(manifest_path=DEFAULT_QTL_MANIFEST_PATH)
 

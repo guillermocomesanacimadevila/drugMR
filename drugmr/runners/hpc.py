@@ -3,8 +3,9 @@ import subprocess
 from datetime import datetime
 from pathlib import Path
 
-from drugmr import paths, registry
-from drugmr.config import Config
+from drugmr import paths
+from drugmr.io import registry
+from drugmr.io.config import Config
 
 # * Notes for myself before going to Greece
 # the git clone thingy
@@ -585,7 +586,7 @@ def phewas_safety_finngen(
     coloc_threshold: float = 0.7,
     bonferroni_alpha: float = 0.05,
 ):
-    project_root = Path(__file__).resolve().parents[1]
+    project_root = Path(__file__).resolve().parents[2]
     local_results_dir = Path(local_results_dir)
 
     if not local_results_dir.is_absolute():
@@ -639,7 +640,7 @@ def phewas_safety_ukbb(
     coloc_threshold: float = 0.7,
     bonferroni_alpha: float = 0.05,
 ):
-    project_root = Path(__file__).resolve().parents[1]
+    project_root = Path(__file__).resolve().parents[2]
     local_results_dir = Path(local_results_dir)
 
     if not local_results_dir.is_absolute():
@@ -758,7 +759,7 @@ def pull_results_local(
     relative_results_dir = paths.run_results_dir(run_id)
     remote_results_dir = f"{remote}/{relative_results_dir}"
 
-    project_root = Path(__file__).resolve().parents[1]
+    project_root = Path(__file__).resolve().parents[2]
     local_results_dir = project_root / relative_results_dir
 
     required_outputs = (
@@ -823,11 +824,11 @@ def run_dashboard_local(
     pqtl_dataset: str,
     port_number: int = 5433
 ):
-    # cwd is pinned to project_root (same fix as drugmr/local.py's results()) so
+    # cwd is pinned to project_root (same fix as drugmr/runners/local.py's results()) so
     # Streamlit reliably finds <project_root>/.streamlit/config.toml (the custom
     # theme) regardless of the caller's own working directory, instead of
     # silently falling back to Streamlit defaults.
-    project_root = Path(__file__).resolve().parents[1]
+    project_root = Path(__file__).resolve().parents[2]
     cmd = [
         "python", "-m", "streamlit", "run", "dashboard/mr_app.py", "--",
         "--db_name", str(db_name),
@@ -1434,7 +1435,7 @@ def hpc(
     # Reached only if every check_remote_output()/require_remote_output() gate above
     # passed - an ssh/apptainer failure earlier raises and this is never reached, so
     # the registry can never point at a partial/failed run.
-    project_root = Path(__file__).resolve().parents[1]
+    project_root = Path(__file__).resolve().parents[2]
     registry.write_manifest(
         run_id,
         {

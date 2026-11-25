@@ -13,7 +13,7 @@ process HYPRCOLOC {
         if (params.image_name) {
             return params.image_name
         } else {
-            return 'ghcr.io/guillermocomesanacimadevila/drugmr:v1.0.0'
+            return 'ghcr.io/guillermocomesanacimadevila/drugmr:v1.1.0'
         }
     } 
 
@@ -62,7 +62,7 @@ process MERGE_HYPRCOLOC {
         if (params.image_name) {
             return params.image_name
         } else {
-            return 'ghcr.io/guillermocomesanacimadevila/drugmr:v1.0.0'
+            return 'ghcr.io/guillermocomesanacimadevila/drugmr:v1.1.0'
         }
     }
 
