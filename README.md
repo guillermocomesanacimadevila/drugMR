@@ -21,7 +21,7 @@ drugMR takes an outcome GWAS and one protein QTL panel per run and returns the e
 
 ## Workflow
 
-[![drugMR analysis pipeline](docs/drugmr_metro_detailed.png)](docs/drugmr_metro_detailed.svg)
+[![drugMR analysis pipeline](docs/drugmr_metro_detailed.png)](docs/drugmr_metro_detailed.png)
 
 ## Quick start
 
