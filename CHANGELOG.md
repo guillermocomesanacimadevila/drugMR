@@ -4,6 +4,14 @@ All notable changes to drugMR are listed here. Versions follow [semantic version
 
 ## [Unreleased]
 
+## [1.1.1] (2026-11-27)
+
+Same container image as 1.1.0.
+
+### Fixed
+
+- `--skip_druggability false` on the command line skipped the druggability stage instead of running it, because Nextflow passes command line values as text and the text "false" counted as true. The flag is now read as text, so `false` runs the stage and `true` skips it.
+
 ## [1.1.0] (2026-11-25)
 
 Container image `ghcr.io/guillermocomesanacimadevila/drugmr:v1.1.0`, pinned by digest in `nextflow.config`. It is the v1.0.0 image with two Python packages added (`pymysql`, `chembl_webresource_client`); every other package version is unchanged.

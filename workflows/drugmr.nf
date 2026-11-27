@@ -56,7 +56,10 @@ workflow DRUGMR {
 
     // needs internet (Pharos, ChEMBL, Open Targets, GitHub), so it can be
     // switched off on offline compute nodes with --skip_druggability true
-    if (!params.skip_druggability) {
+    // values given on the command line arrive as text ("false"), and any
+    // non-empty text counts as true, so compare the text instead
+    def skip_druggability = params.skip_druggability.toString().toLowerCase() == "true"
+    if (!skip_druggability) {
         DRUGGABILITY_WF(MR_ON_CIS_REGIONS.out.mr_results, COLOC.out.coloc_results, PWCOCO_WF.out.pwcoco_results, ch_all_done)
     }
     // postgres loading + dashboard serving are deliberately NOT a nextflow stage
